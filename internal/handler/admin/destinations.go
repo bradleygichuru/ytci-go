@@ -290,16 +290,34 @@ func (h *DestinationsHandler) AddMedia(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	total := 0
+	if req.HeroMediaID != "" {
+		total++
+	}
+	total += len(req.GalleryMediaIDs)
+	if req.VideoMediaID != "" {
+		total++
+	}
+
+	status := "linked"
+	httpStatus := http.StatusCreated
 	if len(fails) > 0 {
 		for _, f := range fails {
 			slog.Warn("add media", "error", f)
 		}
+		if len(fails) >= total {
+			status = "failed"
+			httpStatus = http.StatusInternalServerError
+		} else {
+			status = "partial"
+			httpStatus = http.StatusOK
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
+	w.WriteHeader(httpStatus)
 	json.NewEncoder(w).Encode(map[string]any{
-		"status": "linked",
+		"status": status,
 		"errors": fails,
 	})
 }
