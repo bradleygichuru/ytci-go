@@ -2,6 +2,7 @@ package expo
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -10,6 +11,15 @@ import (
 	"github.com/bradleygichuru/ytci-go/internal/middleware"
 	"github.com/bradleygichuru/ytci-go/internal/model"
 )
+
+type StopReq struct {
+	DestinationID string  `json:"destinationId,omitempty"`
+	Day           int     `json:"day"`
+	DisplayOrder  int     `json:"displayOrder"`
+	Title         string  `json:"title,omitempty"`
+	Description   string  `json:"description,omitempty"`
+	EstimatedCost string  `json:"estimatedCost,omitempty"`
+}
 
 type ItinerariesHandler struct {
 	pool *pgxpool.Pool
@@ -52,26 +62,58 @@ func (h *ItinerariesHandler) List(w http.ResponseWriter, r *http.Request) {
 
 func (h *ItinerariesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Title  string `json:"title"`
-		Inputs string `json:"inputs"`
+		Title       string         `json:"title"`
+		Origin      string         `json:"origin,omitempty"`
+		Days        int            `json:"days,omitempty"`
+		BudgetBand  string         `json:"budgetBand,omitempty"`
+		Interests   []string       `json:"interests,omitempty"`
+		Stops       []StopReq      `json:"stops,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
 		return
 	}
 
-	var id string
-	err := h.pool.QueryRow(r.Context(),
+	userID := middleware.UserID(r.Context())
+
+	inputs := fmt.Sprintf(`{"origin":"%s","days":%d,"budgetBand":"%s","interests":%v}`,
+		req.Origin, req.Days, req.BudgetBand, req.Interests)
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create itinerary")
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	var itineraryID string
+	err = tx.QueryRow(r.Context(),
 		`INSERT INTO itineraries (user_id, title, inputs) VALUES ($1, $2, $3::jsonb) RETURNING id`,
-		middleware.UserID(r.Context()), req.Title, req.Inputs).Scan(&id)
+		userID, req.Title, inputs).Scan(&itineraryID)
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create itinerary")
 		return
 	}
 
+	for _, s := range req.Stops {
+		_, err = tx.Exec(r.Context(),
+			`INSERT INTO itinerary_stops (itinerary_id, destination_id, day, display_order, title, description, estimated_cost)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			itineraryID, s.DestinationID, s.Day, s.DisplayOrder, s.Title, s.Description, s.EstimatedCost)
+		if err != nil {
+			handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create stops")
+			return
+		}
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to finalize")
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"id": id, "status": "draft"})
+	json.NewEncoder(w).Encode(map[string]string{"id": itineraryID, "status": "draft"})
 }
 
 func (h *ItinerariesHandler) Get(w http.ResponseWriter, r *http.Request) {

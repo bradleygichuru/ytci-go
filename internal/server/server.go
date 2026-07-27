@@ -70,7 +70,7 @@ type handlers struct {
 	quiz       *admin.QuizHandler
 	chalCRUD   *admin.ChallengeCRUD
 	bulkImport *admin.BulkImport
-	itinStops  *admin.ItineraryStopsHandler
+	itinStops  *expo.ItineraryStopsHandler
 	feed       *expo.FeedHandler
 	bucket     *expo.BucketHandler
 	profile    *expo.ProfileHandler
@@ -94,7 +94,7 @@ func mountHandlers(pool *pgxpool.Pool, r2client *r2.Client, pushClient *push.Cli
 		quiz:       admin.NewQuizHandler(pool),
 		chalCRUD:   admin.NewChallengeCRUD(pool),
 		bulkImport: admin.NewBulkImport(pool),
-		itinStops:  admin.NewItineraryStopsHandler(pool),
+		itinStops:  expo.NewItineraryStopsHandler(pool),
 		feed:       expo.NewFeedHandler(pool),
 		bucket:     expo.NewBucketHandler(pool),
 		profile:    expo.NewProfileHandler(pool),
