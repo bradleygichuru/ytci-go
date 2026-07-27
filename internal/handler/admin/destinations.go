@@ -22,11 +22,10 @@ func NewDestinationsHandler(pool *pgxpool.Pool) *DestinationsHandler {
 
 func (h *DestinationsHandler) List(w http.ResponseWriter, r *http.Request) {
 	queries := gen.New(h.pool)
-
 	limit, offset := parsePagination(r)
 
 	destinations, err := queries.ListDestinations(r.Context(), &gen.ListDestinationsParams{
-		Limit:  int32(limit),
+		Limit:  int32(limit + 1),
 		Offset: int32(offset),
 	})
 	if err != nil {
@@ -34,16 +33,17 @@ func (h *DestinationsHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items := make([]gen.Destination, len(destinations))
-	for i, d := range destinations {
-		items[i] = d
+	hasMore := len(destinations) > limit
+	items := destinations
+	if hasMore {
+		items = destinations[:limit]
 	}
 
 	resp := model.Paginated[gen.Destination]{
 		Items:   items,
-		HasMore: len(items) >= limit,
+		HasMore: hasMore,
 	}
-	if resp.HasMore {
+	if hasMore {
 		next := strconv.Itoa(offset + limit)
 		resp.NextCursor = &next
 	}

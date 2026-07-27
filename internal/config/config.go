@@ -12,10 +12,10 @@ type Config struct {
 	AdminJWKSURL     string `env:"ADMIN_JWKS_URL,required"`
 	JWTExpectedIss   string `env:"JWT_EXPECTED_ISSUER" envDefault:""`
 	JWTExpectedAud   string `env:"JWT_EXPECTED_AUDIENCE" envDefault:"ytci-api"`
-	R2AccountID      string `env:"R2_ACCOUNT_ID,required"`
-	R2AccessKeyID    string `env:"R2_ACCESS_KEY_ID,required"`
-	R2SecretAccess   string `env:"R2_SECRET_ACCESS_KEY,required"`
-	R2Bucket         string `env:"R2_BUCKET,required"`
+	R2AccountID      string `env:"R2_ACCOUNT_ID"`
+	R2AccessKeyID    string `env:"R2_ACCESS_KEY_ID"`
+	R2SecretAccess   string `env:"R2_SECRET_ACCESS_KEY"`
+	R2Bucket         string `env:"R2_BUCKET"`
 	ExpoPushToken    string `env:"EXPO_PUSH_TOKEN"`
 	LogLevel         string `env:"LOG_LEVEL" envDefault:"info"`
 	JWKSCacheTTL     int    `env:"JWKS_CACHE_TTL_MINUTES" envDefault:"60"`

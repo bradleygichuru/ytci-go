@@ -1,0 +1,136 @@
+package admin
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/bradleygichuru/ytci-go/internal/handler"
+	"github.com/bradleygichuru/ytci-go/internal/middleware"
+	"github.com/bradleygichuru/ytci-go/internal/r2"
+)
+
+type MediaHandler struct {
+	pool *pgxpool.Pool
+	r2   *r2.Client
+}
+
+func NewMediaHandler(pool *pgxpool.Pool, r2client *r2.Client) *MediaHandler {
+	return &MediaHandler{pool: pool, r2: r2client}
+}
+
+type presignRequest struct {
+	ContentType   string `json:"contentType"`
+	FileSizeBytes int    `json:"fileSizeBytes"`
+	FileName      string `json:"fileName"`
+}
+
+type presignResponse struct {
+	UploadURL string `json:"uploadUrl"`
+	ObjectKey string `json:"objectKey"`
+	ExpiresAt string `json:"expiresAt"`
+}
+
+type completeRequest struct {
+	ObjectKey    string `json:"objectKey"`
+	Caption      string `json:"caption,omitempty"`
+	AltText      string `json:"altText,omitempty"`
+	Credit       string `json:"credit,omitempty"`
+	ThumbnailKey string `json:"thumbnailKey,omitempty"`
+}
+
+func isAllowedType(ct string) bool {
+	switch ct {
+	case "image/jpeg", "image/png", "image/webp", "video/mp4", "application/pdf":
+		return true
+	}
+	return false
+}
+
+func (h *MediaHandler) Presign(w http.ResponseWriter, r *http.Request) {
+	var req presignRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
+		return
+	}
+
+	if !isAllowedType(req.ContentType) {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_CONTENT_TYPE",
+			fmt.Sprintf("content type %q not allowed", req.ContentType))
+		return
+	}
+
+	maxSize := 100 * 1024 * 1024
+	if req.ContentType != "video/mp4" {
+		maxSize = 10 * 1024 * 1024
+	}
+	if req.FileSizeBytes > maxSize {
+		handler.WriteError(w, http.StatusBadRequest, "FILE_TOO_LARGE",
+			fmt.Sprintf("file size exceeds maximum of %d bytes", maxSize))
+		return
+	}
+
+	objectKey := fmt.Sprintf("media/%d/%s", time.Now().Unix(), req.FileName)
+	uploadURL, err := h.r2.PresignedPutURL(r.Context(), objectKey, 5*time.Minute)
+	if err != nil {
+		handler.WriteError(w, http.StatusServiceUnavailable, "STORAGE_UNAVAILABLE", "failed to generate upload URL")
+		return
+	}
+
+	resp := presignResponse{
+		UploadURL: uploadURL,
+		ObjectKey: objectKey,
+		ExpiresAt: time.Now().Add(5 * time.Minute).Format(time.RFC3339),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(resp)
+}
+
+func (h *MediaHandler) Complete(w http.ResponseWriter, r *http.Request) {
+	var req completeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
+		return
+	}
+
+	status := "pending_review"
+	role := middleware.Role(r.Context())
+	if role == "super_admin" || role == "administrator" || role == "moderator" {
+		status = "ready"
+	}
+
+	row := h.pool.QueryRow(r.Context(),
+		`INSERT INTO media_assets (object_key, status, uploaded_by, caption, alt_text, credit, thumbnail_key, type)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, 'image') RETURNING id`,
+		req.ObjectKey, status, middleware.UserID(r.Context()), req.Caption, req.AltText, req.Credit, req.ThumbnailKey)
+
+	var id string
+	if err := row.Scan(&id); err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to record media")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"id": id, "status": status})
+}
+
+func (h *MediaHandler) GetURL(w http.ResponseWriter, r *http.Request) {
+	objectKey := r.PathValue("id")
+
+	url, err := h.r2.PresignedGetURL(r.Context(), objectKey, 15*time.Minute)
+	if err != nil {
+		url = "/placeholder-media.png"
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"url":       url,
+		"expiresAt": time.Now().Add(15 * time.Minute).Format(time.RFC3339),
+	})
+}
