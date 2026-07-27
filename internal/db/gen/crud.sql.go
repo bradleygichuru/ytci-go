@@ -82,6 +82,48 @@ func (q *Queries) CreateCampaign(ctx context.Context, arg *CreateCampaignParams)
 	return i, err
 }
 
+const createChallenge = `-- name: CreateChallenge :one
+INSERT INTO challenges (title, description, badge_name, status, start_date, end_date, created_by)
+VALUES ($1, $2, $3, 'draft', $4, $5, $6) RETURNING id, title, description, rules, badge_name, badge_icon_url, eligibility, start_date, end_date, status, created_by, created_at, updated_at
+`
+
+type CreateChallengeParams struct {
+	Title       string      `json:"title"`
+	Description *string     `json:"description"`
+	BadgeName   *string     `json:"badge_name"`
+	StartDate   pgtype.Date `json:"start_date"`
+	EndDate     pgtype.Date `json:"end_date"`
+	CreatedBy   pgtype.UUID `json:"created_by"`
+}
+
+func (q *Queries) CreateChallenge(ctx context.Context, arg *CreateChallengeParams) (Challenge, error) {
+	row := q.db.QueryRow(ctx, createChallenge,
+		arg.Title,
+		arg.Description,
+		arg.BadgeName,
+		arg.StartDate,
+		arg.EndDate,
+		arg.CreatedBy,
+	)
+	var i Challenge
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Description,
+		&i.Rules,
+		&i.BadgeName,
+		&i.BadgeIconUrl,
+		&i.Eligibility,
+		&i.StartDate,
+		&i.EndDate,
+		&i.Status,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const createCourse = `-- name: CreateCourse :one
 INSERT INTO courses (title, description, difficulty, created_by)
 VALUES ($1, $2, $3, $4)
@@ -114,6 +156,44 @@ func (q *Queries) CreateCourse(ctx context.Context, arg *CreateCourseParams) (Co
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const createCourseWithFields = `-- name: CreateCourseWithFields :one
+INSERT INTO courses (title, description, difficulty, created_by)
+VALUES ($1, $2, $3, $4) RETURNING id, title, difficulty, status, created_at
+`
+
+type CreateCourseWithFieldsParams struct {
+	Title       string      `json:"title"`
+	Description *string     `json:"description"`
+	Difficulty  string      `json:"difficulty"`
+	CreatedBy   pgtype.UUID `json:"created_by"`
+}
+
+type CreateCourseWithFieldsRow struct {
+	ID         pgtype.UUID      `json:"id"`
+	Title      string           `json:"title"`
+	Difficulty string           `json:"difficulty"`
+	Status     string           `json:"status"`
+	CreatedAt  pgtype.Timestamp `json:"created_at"`
+}
+
+func (q *Queries) CreateCourseWithFields(ctx context.Context, arg *CreateCourseWithFieldsParams) (CreateCourseWithFieldsRow, error) {
+	row := q.db.QueryRow(ctx, createCourseWithFields,
+		arg.Title,
+		arg.Description,
+		arg.Difficulty,
+		arg.CreatedBy,
+	)
+	var i CreateCourseWithFieldsRow
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Difficulty,
+		&i.Status,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -176,6 +256,36 @@ func (q *Queries) CreateEvent(ctx context.Context, arg *CreateEventParams) (Even
 	return i, err
 }
 
+const createItineraryWithStops = `-- name: CreateItineraryWithStops :one
+INSERT INTO itineraries (user_id, title, inputs, status)
+VALUES ($1, $2, $3, 'draft') RETURNING id, title, status, created_at
+`
+
+type CreateItineraryWithStopsParams struct {
+	UserID pgtype.UUID `json:"user_id"`
+	Title  string      `json:"title"`
+	Inputs []byte      `json:"inputs"`
+}
+
+type CreateItineraryWithStopsRow struct {
+	ID        pgtype.UUID      `json:"id"`
+	Title     string           `json:"title"`
+	Status    string           `json:"status"`
+	CreatedAt pgtype.Timestamp `json:"created_at"`
+}
+
+func (q *Queries) CreateItineraryWithStops(ctx context.Context, arg *CreateItineraryWithStopsParams) (CreateItineraryWithStopsRow, error) {
+	row := q.db.QueryRow(ctx, createItineraryWithStops, arg.UserID, arg.Title, arg.Inputs)
+	var i CreateItineraryWithStopsRow
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Status,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const deleteEvent = `-- name: DeleteEvent :one
 UPDATE events SET status = 'cancelled', updated_at = now() WHERE id = $1 RETURNING id, title, organizer, county, venue, event_date, end_date, type, status, description, contact_email, contact_phone, image_url, reminder_enabled, reminder_minutes, created_by, created_at, updated_at
 `
@@ -202,6 +312,32 @@ func (q *Queries) DeleteEvent(ctx context.Context, id pgtype.UUID) (Event, error
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getQuizWithQuestions = `-- name: GetQuizWithQuestions :one
+SELECT id, course_id, title, questions, pass_threshold
+FROM quizzes WHERE id = $1
+`
+
+type GetQuizWithQuestionsRow struct {
+	ID            pgtype.UUID `json:"id"`
+	CourseID      pgtype.UUID `json:"course_id"`
+	Title         string      `json:"title"`
+	Questions     []byte      `json:"questions"`
+	PassThreshold *int32      `json:"pass_threshold"`
+}
+
+func (q *Queries) GetQuizWithQuestions(ctx context.Context, id pgtype.UUID) (GetQuizWithQuestionsRow, error) {
+	row := q.db.QueryRow(ctx, getQuizWithQuestions, id)
+	var i GetQuizWithQuestionsRow
+	err := row.Scan(
+		&i.ID,
+		&i.CourseID,
+		&i.Title,
+		&i.Questions,
+		&i.PassThreshold,
 	)
 	return i, err
 }
@@ -324,29 +460,29 @@ func (q *Queries) UpdateCampaignStatus(ctx context.Context, arg *UpdateCampaignS
 
 const updateEvent = `-- name: UpdateEvent :one
 UPDATE events SET
-    title = CASE WHEN LENGTH($2) > 0 THEN $2 ELSE title END,
-    organizer = CASE WHEN LENGTH($3) > 0 THEN $3 ELSE organizer END,
+    title = COALESCE(NULLIF($2, ''), title),
+    organizer = COALESCE(NULLIF($3, ''), organizer),
     description = COALESCE($4, description),
-    status = CASE WHEN LENGTH($5) > 0 THEN $5 ELSE status END,
+    status = COALESCE(NULLIF($5, ''), status),
     updated_at = now()
 WHERE id = $1 RETURNING id, title, organizer, county, venue, event_date, end_date, type, status, description, contact_email, contact_phone, image_url, reminder_enabled, reminder_minutes, created_by, created_at, updated_at
 `
 
 type UpdateEventParams struct {
 	ID          pgtype.UUID `json:"id"`
-	Length      pgtype.Lseg `json:"length"`
-	Length_2    pgtype.Lseg `json:"length_2"`
+	Column2     interface{} `json:"column_2"`
+	Column3     interface{} `json:"column_3"`
 	Description *string     `json:"description"`
-	Length_3    pgtype.Lseg `json:"length_3"`
+	Column5     interface{} `json:"column_5"`
 }
 
 func (q *Queries) UpdateEvent(ctx context.Context, arg *UpdateEventParams) (Event, error) {
 	row := q.db.QueryRow(ctx, updateEvent,
 		arg.ID,
-		arg.Length,
-		arg.Length_2,
+		arg.Column2,
+		arg.Column3,
 		arg.Description,
-		arg.Length_3,
+		arg.Column5,
 	)
 	var i Event
 	err := row.Scan(

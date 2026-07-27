@@ -22,16 +22,38 @@ func NewAnalyticsHandler(pool *pgxpool.Pool) *AnalyticsHandler {
 }
 
 func (h *AnalyticsHandler) Summary(w http.ResponseWriter, r *http.Request) {
+	today := time.Now().Truncate(24 * time.Hour)
+
 	resp := map[string]any{
-		"dau":                    0,
-		"wau":                    0,
-		"mau":                    0,
-		"newRegistrations":       0,
-		"itinerariesGenerated":   0,
-		"storiesSubmitted":       0,
-		"courseEnrollments":      0,
-		"conservationParticipants": 0,
+		"dau": 0, "wau": 0, "mau": 0, "newRegistrations": 0,
+		"itinerariesGenerated": 0, "storiesSubmitted": 0,
+		"courseEnrollments": 0, "conservationParticipants": 0,
 	}
+
+	var dau int
+	if h.pool.QueryRow(r.Context(),
+		`SELECT COUNT(DISTINCT user_id) FROM app_opens WHERE opened_at >= $1`, today).Scan(&dau) == nil {
+		resp["dau"] = dau
+	}
+	var wau int
+	if h.pool.QueryRow(r.Context(),
+		`SELECT COUNT(DISTINCT user_id) FROM app_opens WHERE opened_at >= $1`,
+		today.AddDate(0, 0, -7)).Scan(&wau) == nil {
+		resp["wau"] = wau
+	}
+	var mau int
+	if h.pool.QueryRow(r.Context(),
+		`SELECT COUNT(DISTINCT user_id) FROM app_opens WHERE opened_at >= $1`,
+		today.AddDate(0, -1, 0)).Scan(&mau) == nil {
+		resp["mau"] = mau
+	}
+	var regs int
+	if h.pool.QueryRow(r.Context(),
+		`SELECT COUNT(*) FROM users WHERE created_at >= $1`,
+		today.AddDate(0, 0, -30)).Scan(&regs) == nil {
+		resp["newRegistrations"] = regs
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }

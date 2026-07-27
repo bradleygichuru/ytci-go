@@ -11,6 +11,7 @@ import (
 
 	"github.com/bradleygichuru/ytci-go/internal/config"
 	"github.com/bradleygichuru/ytci-go/internal/db"
+	"github.com/bradleygichuru/ytci-go/internal/handler/admin"
 	"github.com/bradleygichuru/ytci-go/internal/push"
 	"github.com/bradleygichuru/ytci-go/internal/r2"
 	"github.com/bradleygichuru/ytci-go/internal/server"
@@ -67,6 +68,10 @@ func main() {
 		pushWorker := push.NewWorker(dbpool, pushClient)
 		pushWorker.Start(workerCtx)
 	}
+
+	reportWorker := admin.NewReportWorker(dbpool)
+	reportWorker.Start(ctx)
+	defer reportWorker.Stop()
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,

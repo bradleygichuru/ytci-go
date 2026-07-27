@@ -49,3 +49,19 @@ UPDATE bucket_list_items SET visited = true, visited_at = now() WHERE user_id = 
 -- name: RecordAppOpen :one
 INSERT INTO app_opens (user_id, platform, app_version)
 VALUES ($1, $2, $3) RETURNING id;
+
+-- name: GetQuizWithQuestions :one
+SELECT id, course_id, title, questions, pass_threshold
+FROM quizzes WHERE id = $1;
+
+-- name: CreateCourseWithFields :one
+INSERT INTO courses (title, description, difficulty, created_by)
+VALUES ($1, $2, $3, $4) RETURNING id, title, difficulty, status, created_at;
+
+-- name: CreateChallenge :one
+INSERT INTO challenges (title, description, badge_name, status, start_date, end_date, created_by)
+VALUES ($1, $2, $3, 'draft', $4, $5, $6) RETURNING *;
+
+-- name: CreateItineraryWithStops :one
+INSERT INTO itineraries (user_id, title, inputs, status)
+VALUES ($1, $2, $3, 'draft') RETURNING id, title, status, created_at;

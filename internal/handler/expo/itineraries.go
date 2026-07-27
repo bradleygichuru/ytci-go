@@ -96,6 +96,44 @@ func (h *ItinerariesHandler) Get(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *ItinerariesHandler) Update(w http.ResponseWriter, r *http.Request) {
+	itineraryID := r.PathValue("id")
+	if itineraryID == "" {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_ID", "itinerary id is required")
+		return
+	}
+	var req struct {
+		Title  *string `json:"title,omitempty"`
+		Status *string `json:"status,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
+		return
+	}
+
+	_, err := h.pool.Exec(r.Context(),
+		`UPDATE itineraries SET
+		 title = COALESCE($2::text, title),
+		 status = COALESCE($3::text, status),
+		 updated_at = now()
+		 WHERE id = $1 AND user_id = $4`,
+		itineraryID, deref(req.Title), deref(req.Status), middleware.UserID(r.Context()))
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 func (h *ItinerariesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	itineraryID := r.PathValue("id")
 	if itineraryID == "" {
