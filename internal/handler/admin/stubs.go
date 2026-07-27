@@ -98,7 +98,8 @@ func NewConservationAdminHandler(pool *pgxpool.Pool) *ConservationAdminHandler {
 
 func (h *ConservationAdminHandler) List(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.pool.Query(r.Context(),
-		`SELECT id, title, organizer, event_date, status, current_participants FROM conservation_activities ORDER BY created_at DESC LIMIT 50`)
+		`SELECT id, title, organizer, event_date, status, current_participants FROM conservation_activities
+		 WHERE privacy_level = 'public' ORDER BY created_at DESC LIMIT 50`)
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list conservation activities")
 		return

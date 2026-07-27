@@ -65,7 +65,7 @@ func TestJWTAuthValidToken(t *testing.T) {
 	var userID, role, email string
 	ts := httptest.NewServer(authmw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		userID = middleware.UserID(r.Context())
-		role = middleware.Role(r.Context())
+		role = string(middleware.RoleFromCtx(r.Context()))
 		email = middleware.Email(r.Context())
 		w.WriteHeader(http.StatusOK)
 	})))

@@ -46,117 +46,149 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 
 	r.Get("/health", handler.Health)
 
-	destH := admin.NewDestinationsHandler(pool)
-	eventsH := admin.NewEventsHandler(pool)
-	storiesH := admin.NewStoriesHandler(pool)
-	courseH := admin.NewCourseHandler(pool)
-	challengeH := admin.NewChallengeAdminHandler(pool)
-	conservationH := admin.NewConservationAdminHandler(pool)
-	campaignH := admin.NewCampaignAdminHandler(pool)
-	analyticsH := admin.NewAnalyticsHandler(pool)
-	courseCRUD := admin.NewCourseCRUD(pool)
-	quizH := admin.NewQuizHandler(pool)
-	challengeCRUD := admin.NewChallengeAdminCRUD(pool)
-	bulkImport := admin.NewBulkImport(pool)
-	itinStopsH := admin.NewItineraryStops(pool)
-
-	feedH := expo.NewFeedHandler(pool)
-	bucketH := expo.NewBucketHandler(pool)
-	profileH := expo.NewProfileHandler(pool)
-	itinH := expo.NewItinerariesHandler(pool)
-	pushRegH := expo.NewPushRegisterHandler(pool)
-	actionsH := expo.NewActionsHandler(pool)
-	mobileStoriesH := expo.NewStoriesHandler(pool)
+	h := mountHandlers(pool, r2client, pushClient)
 
 	r.Route("/v1", func(sub chi.Router) {
 		sub.Use(middleware.JWTAuth(jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud))
-
-		sub.Group(func(aR chi.Router) {
-			aR.Use(middleware.AdminGate)
-
-			aR.Get("/destinations", destH.List)
-			aR.Post("/destinations", destH.Create)
-			aR.Get("/events", eventsH.List)
-			aR.Post("/events", eventsH.Create)
-			aR.Patch("/events/{id}", eventsH.Update)
-			aR.Delete("/events/{id}", eventsH.Delete)
-			aR.Get("/stories", storiesH.List)
-			aR.Post("/stories/{id}/moderation", storiesH.Moderate)
-			aR.Get("/courses", courseH.List)
-			aR.Post("/courses", courseCRUD.Create)
-			aR.Post("/quizzes/evaluate", quizH.Evaluate)
-			aR.Get("/challenges", challengeH.List)
-			aR.Post("/challenges", challengeCRUD.Create)
-			aR.Get("/conservation/activities", conservationH.List)
-			aR.Get("/conservation/evidence", conservationH.ListEvidence)
-			aR.Post("/conservation/evidence/{id}/review", conservationH.ReviewEvidence)
-			aR.Get("/campaigns", campaignH.List)
-			aR.Patch("/campaigns/{id}/status", campaignH.UpdateStatus)
-			aR.Get("/analytics/summary", analyticsH.Summary)
-			aR.Post("/destinations/bulk-import", bulkImport.Import)
-			aR.Get("/destinations/{id}/stops", itinStopsH.GetStops)
-			aR.Put("/itineraries/{id}/stops", itinStopsH.UpsertStops)
-			aR.Get("/analytics/reports", analyticsH.ReportsList)
-			aR.Post("/analytics/reports/export", analyticsH.Export)
-
-			if r2client != nil {
-				mediaH := admin.NewMediaHandler(pool, r2client)
-				aR.Post("/media/presign", mediaH.Presign)
-				aR.Post("/media/complete", mediaH.Complete)
-				aR.Get("/media", mediaH.List)
-			}
-			if pushClient != nil {
-				pushH := admin.NewPushHandler(pool, pushClient)
-				aR.Post("/push/send", pushH.Send)
-				aR.Post("/push/schedule", pushH.Schedule)
-				aR.Get("/push/history", pushH.History)
-				aR.Get("/push/history/{id}", pushH.HistoryDetail)
-			}
-		})
-
-		sub.Route("/mobile", func(m chi.Router) {
-			m.Get("/feed", feedH.GetFeed)
-			m.Get("/destinations", destH.List)
-			m.Get("/destinations/{slug}", destH.Get)
-			m.Get("/destinations/nearby", destH.Nearby)
-			m.Get("/events", eventsH.List)
-			m.Get("/stories", mobileStoriesH.ListEnriched)
-			m.Get("/courses", courseH.List)
-			m.Get("/challenges", challengeH.List)
-			m.Get("/conservation", conservationH.List)
-
-			m.Group(func(aR chi.Router) {
-				aR.Use(middleware.AuthGate)
-
-				aR.Get("/bucket", bucketH.List)
-				aR.Post("/bucket", bucketH.Add)
-				aR.Delete("/bucket/{destinationId}", bucketH.Remove)
-				aR.Post("/bucket/{destinationId}/visited", bucketH.MarkVisited)
-				aR.Get("/profile", profileH.Get)
-				aR.Patch("/profile", profileH.Update)
-				aR.Get("/itineraries", itinH.List)
-				aR.Post("/itineraries", itinH.Create)
-				aR.Get("/itineraries/{id}", itinH.Get)
-				aR.Patch("/itineraries/{id}", itinH.Update)
-				aR.Delete("/itineraries/{id}", itinH.Delete)
-				aR.Post("/itineraries/{id}/duplicate", itinH.Duplicate)
-				aR.Get("/itineraries/{id}/stops", itinStopsH.GetStops)
-				aR.Put("/itineraries/{id}/stops", itinStopsH.UpsertStops)
-				aR.Post("/push/register", pushRegH.Register)
-
-				aR.Post("/stories", actionsH.CreateStory)
-				aR.Post("/stories/like", actionsH.ToggleLike)
-				aR.Post("/stories/save", actionsH.ToggleSave)
-				aR.Post("/challenges/{id}/join", actionsH.JoinChallenge)
-				aR.Post("/challenges/{id}/evidence", actionsH.SubmitChallengeEvidence)
-				aR.Post("/conservation/{id}/join", actionsH.JoinConservation)
-				aR.Post("/conservation/{id}/evidence", actionsH.SubmitConservationEvidence)
-				aR.Post("/courses/{id}/enroll", actionsH.EnrollCourse)
-				aR.Post("/events/{id}/save", actionsH.SaveEvent)
-				aR.Post("/analytics/app-open", actionsH.RecordAppOpen)
-			})
-		})
+		mountAdminRoutes(sub, h, pool, r2client, pushClient)
+		mountMobileRoutes(sub, h)
 	})
 
 	return r
+}
+
+type handlers struct {
+	dest       *admin.DestinationsHandler
+	events     *admin.EventsHandler
+	stories    *admin.StoriesHandler
+	course     *admin.CourseHandler
+	challenge  *admin.ChallengeAdminHandler
+	conserv    *admin.ConservationAdminHandler
+	campaign   *admin.CampaignAdminHandler
+	analytics  *admin.AnalyticsHandler
+	courseCRUD *admin.CourseCRUD
+	quiz       *admin.QuizHandler
+	chalCRUD   *admin.ChallengeCRUD
+	bulkImport *admin.BulkImport
+	itinStops  *admin.ItineraryStopsHandler
+	feed       *expo.FeedHandler
+	bucket     *expo.BucketHandler
+	profile    *expo.ProfileHandler
+	itin       *expo.ItinerariesHandler
+	pushReg    *expo.PushRegisterHandler
+	actions    *expo.ActionsHandler
+	mStories   *expo.StoriesHandler
+}
+
+func mountHandlers(pool *pgxpool.Pool, r2client *r2.Client, pushClient *push.Client) *handlers {
+	return &handlers{
+		dest:       admin.NewDestinationsHandler(pool),
+		events:     admin.NewEventsHandler(pool),
+		stories:    admin.NewStoriesHandler(pool),
+		course:     admin.NewCourseHandler(pool),
+		challenge:  admin.NewChallengeAdminHandler(pool),
+		conserv:    admin.NewConservationAdminHandler(pool),
+		campaign:   admin.NewCampaignAdminHandler(pool),
+		analytics:  admin.NewAnalyticsHandler(pool),
+		courseCRUD: admin.NewCourseCRUD(pool),
+		quiz:       admin.NewQuizHandler(pool),
+		chalCRUD:   admin.NewChallengeCRUD(pool),
+		bulkImport: admin.NewBulkImport(pool),
+		itinStops:  admin.NewItineraryStopsHandler(pool),
+		feed:       expo.NewFeedHandler(pool),
+		bucket:     expo.NewBucketHandler(pool),
+		profile:    expo.NewProfileHandler(pool),
+		itin:       expo.NewItinerariesHandler(pool),
+		pushReg:    expo.NewPushRegisterHandler(pool),
+		actions:    expo.NewActionsHandler(pool),
+		mStories:   expo.NewStoriesHandler(pool),
+	}
+}
+
+func mountAdminRoutes(sub chi.Router, h *handlers, pool *pgxpool.Pool, r2client *r2.Client, pushClient *push.Client) {
+	sub.Group(func(aR chi.Router) {
+		aR.Use(middleware.AdminGate)
+
+		aR.Get("/destinations", h.dest.List)
+		aR.Post("/destinations", h.dest.Create)
+		aR.Get("/events", h.events.List)
+		aR.Post("/events", h.events.Create)
+		aR.Patch("/events/{id}", h.events.Update)
+		aR.Delete("/events/{id}", h.events.Delete)
+		aR.Get("/stories", h.stories.List)
+		aR.Post("/stories/{id}/moderation", h.stories.Moderate)
+		aR.Get("/courses", h.course.List)
+		aR.Post("/courses", h.courseCRUD.Create)
+		aR.Post("/quizzes/evaluate", h.quiz.Evaluate)
+		aR.Get("/challenges", h.challenge.List)
+		aR.Post("/challenges", h.chalCRUD.Create)
+		aR.Get("/conservation/activities", h.conserv.List)
+		aR.Get("/conservation/evidence", h.conserv.ListEvidence)
+		aR.Post("/conservation/evidence/{id}/review", h.conserv.ReviewEvidence)
+		aR.Get("/campaigns", h.campaign.List)
+		aR.Patch("/campaigns/{id}/status", h.campaign.UpdateStatus)
+		aR.Get("/analytics/summary", h.analytics.Summary)
+		aR.Post("/destinations/bulk-import", h.bulkImport.Import)
+		aR.Get("/analytics/reports", h.analytics.ReportsList)
+		aR.Post("/analytics/reports/export", h.analytics.Export)
+
+		if r2client != nil {
+			mediaH := admin.NewMediaHandler(pool, r2client)
+			aR.Post("/media/presign", mediaH.Presign)
+			aR.Post("/media/complete", mediaH.Complete)
+			aR.Get("/media", mediaH.List)
+		}
+		if pushClient != nil {
+			pushH := admin.NewPushHandler(pool, pushClient)
+			aR.Post("/push/send", pushH.Send)
+			aR.Post("/push/schedule", pushH.Schedule)
+			aR.Get("/push/history", pushH.History)
+			aR.Get("/push/history/{id}", pushH.HistoryDetail)
+		}
+	})
+}
+
+func mountMobileRoutes(sub chi.Router, h *handlers) {
+	sub.Route("/mobile", func(m chi.Router) {
+		m.Get("/feed", h.feed.GetFeed)
+		m.Get("/destinations", h.dest.List)
+		m.Get("/destinations/{slug}", h.dest.Get)
+		m.Get("/destinations/nearby", h.dest.Nearby)
+		m.Get("/events", h.events.List)
+		m.Get("/stories", h.mStories.ListEnriched)
+		m.Get("/courses", h.course.List)
+		m.Get("/challenges", h.challenge.List)
+		m.Get("/conservation", h.conserv.List)
+
+		m.Group(func(aR chi.Router) {
+			aR.Use(middleware.AuthGate)
+
+			aR.Get("/bucket", h.bucket.List)
+			aR.Post("/bucket", h.bucket.Add)
+			aR.Delete("/bucket/{destinationId}", h.bucket.Remove)
+			aR.Post("/bucket/{destinationId}/visited", h.bucket.MarkVisited)
+			aR.Get("/profile", h.profile.Get)
+			aR.Patch("/profile", h.profile.Update)
+			aR.Get("/itineraries", h.itin.List)
+			aR.Post("/itineraries", h.itin.Create)
+			aR.Get("/itineraries/{id}", h.itin.Get)
+			aR.Patch("/itineraries/{id}", h.itin.Update)
+			aR.Delete("/itineraries/{id}", h.itin.Delete)
+			aR.Post("/itineraries/{id}/duplicate", h.itin.Duplicate)
+			aR.Get("/itineraries/{id}/stops", h.itinStops.GetStops)
+			aR.Put("/itineraries/{id}/stops", h.itinStops.UpsertStops)
+			aR.Post("/push/register", h.pushReg.Register)
+
+			aR.Post("/stories", h.actions.CreateStory)
+			aR.Post("/stories/like", h.actions.ToggleLike)
+			aR.Post("/stories/save", h.actions.ToggleSave)
+			aR.Post("/challenges/{id}/join", h.actions.JoinChallenge)
+			aR.Post("/challenges/{id}/evidence", h.actions.SubmitChallengeEvidence)
+			aR.Post("/conservation/{id}/join", h.actions.JoinConservation)
+			aR.Post("/conservation/{id}/evidence", h.actions.SubmitConservationEvidence)
+			aR.Post("/courses/{id}/enroll", h.actions.EnrollCourse)
+			aR.Post("/events/{id}/save", h.actions.SaveEvent)
+			aR.Post("/analytics/app-open", h.actions.RecordAppOpen)
+		})
+	})
 }

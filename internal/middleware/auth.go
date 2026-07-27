@@ -31,9 +31,9 @@ func UserID(ctx context.Context) string {
 	return v
 }
 
-func Role(ctx context.Context) string {
+func RoleFromCtx(ctx context.Context) Role {
 	v, _ := ctx.Value(CtxRole).(string)
-	return v
+	return Role(v)
 }
 
 func Email(ctx context.Context) string {
@@ -257,13 +257,32 @@ func extractBearerToken(r *http.Request) string {
 	return auth[7:]
 }
 
+type Role string
+
+const (
+	RoleSuperAdmin   Role = "super_admin"
+	RoleAdmin        Role = "administrator"
+	RoleModerator    Role = "moderator"
+	RoleCountyOfficer Role = "county_officer"
+	RoleUser         Role = "user"
+)
+
+var adminRoles = map[Role]bool{
+	RoleSuperAdmin: true,
+	RoleAdmin:      true,
+	RoleModerator:  true,
+}
+
+func IsAdmin(role Role) bool {
+	return adminRoles[role]
+}
+
 func AdminGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		role := Role(r.Context())
-		switch role {
-		case "super_admin", "administrator", "moderator":
+		roleStr := RoleFromCtx(r.Context())
+		if IsAdmin(roleStr) {
 			next.ServeHTTP(w, r)
-		default:
+		} else {
 			handler.WriteError(w, http.StatusForbidden, "FORBIDDEN", "admin access required")
 		}
 	})

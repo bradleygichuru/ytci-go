@@ -101,19 +101,7 @@ func (h *PushHandler) Send(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *PushHandler) resolveTokens(ctx context.Context) ([]string, error) {
-	rows, err := h.pool.Query(ctx, `SELECT token FROM push_tokens WHERE is_active = true`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var tokens []string
-	for rows.Next() {
-		var t string
-		rows.Scan(&t)
-		tokens = append(tokens, t)
-	}
-	return tokens, nil
+	return push.ResolveActiveTokens(ctx, h.pool)
 }
 
 func (h *PushHandler) Schedule(w http.ResponseWriter, r *http.Request) {

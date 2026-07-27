@@ -100,7 +100,7 @@ func (h *MediaHandler) Complete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	status := "pending_review"
-	role := middleware.Role(r.Context())
+	role := middleware.RoleFromCtx(r.Context())
 	if role == "super_admin" || role == "administrator" || role == "moderator" {
 		status = "ready"
 	}

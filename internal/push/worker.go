@@ -160,18 +160,10 @@ func (w *Worker) sendOne(ctx context.Context, j job) {
 }
 
 func (w *Worker) resolveTokens(ctx context.Context) []string {
-	rows, err := w.pool.Query(ctx, `SELECT token FROM push_tokens WHERE is_active = true`)
+	tokens, err := ResolveActiveTokens(ctx, w.pool)
 	if err != nil {
 		slog.Error("push worker: resolve tokens", "error", err)
 		return nil
-	}
-	defer rows.Close()
-
-	var tokens []string
-	for rows.Next() {
-		var t string
-		rows.Scan(&t)
-		tokens = append(tokens, t)
 	}
 	return tokens
 }

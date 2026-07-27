@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type ExpoPushMessage struct {
@@ -128,6 +130,21 @@ func (c *Client) GetReceipts(ctx context.Context, ticketIDs []string) (*expoRece
 	}
 
 	return &receiptResp, nil
+}
+
+func ResolveActiveTokens(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
+	rows, err := pool.Query(ctx, `SELECT token FROM push_tokens WHERE is_active = true`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var tokens []string
+	for rows.Next() {
+		var t string
+		rows.Scan(&t)
+		tokens = append(tokens, t)
+	}
+	return tokens, nil
 }
 
 func chunkMessages(messages []ExpoPushMessage, chunkSize int) [][]ExpoPushMessage {
