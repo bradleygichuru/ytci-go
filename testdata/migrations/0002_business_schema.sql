@@ -372,5 +372,15 @@ CREATE TABLE event_saves (
 CREATE INDEX IF NOT EXISTS push_tokens_user_active_idx ON push_tokens (user_id, is_active);
 CREATE INDEX IF NOT EXISTS bucket_list_user_idx ON bucket_list_items (user_id);
 
+CREATE TABLE story_reports (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    story_id UUID NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+    reported_by UUID NOT NULL,
+    reason TEXT NOT NULL,
+    details TEXT,
+    reviewed BOOLEAN DEFAULT false,
+    created_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
 CREATE TRIGGER push_notify_trigger AFTER INSERT ON push_notifications
 FOR EACH ROW EXECUTE FUNCTION notify_push_scheduled();

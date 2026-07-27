@@ -1,9 +1,9 @@
 package r2
 
 import (
-	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -11,6 +11,15 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
+
+type Store interface {
+	PresignedPutURL(ctx context.Context, key string, ttl time.Duration) (string, error)
+	PresignedGetURL(ctx context.Context, key string, ttl time.Duration) (string, error)
+	PutObject(ctx context.Context, key string, data io.Reader, contentType string) error
+	DeleteObject(ctx context.Context, key string) error
+}
+
+var _ Store = (*Client)(nil)
 
 type Client struct {
 	s3Client *s3.Client
@@ -59,11 +68,11 @@ func (c *Client) PresignedGetURL(ctx context.Context, key string, ttl time.Durat
 	return req.URL, nil
 }
 
-func (c *Client) PutObject(ctx context.Context, key string, data []byte, contentType string) error {
+func (c *Client) PutObject(ctx context.Context, key string, data io.Reader, contentType string) error {
 	_, err := c.s3Client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(c.bucket),
 		Key:         aws.String(key),
-		Body:        bytes.NewReader(data),
+		Body:        data,
 		ContentType: aws.String(contentType),
 	})
 	if err != nil {

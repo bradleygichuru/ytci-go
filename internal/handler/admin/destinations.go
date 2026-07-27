@@ -101,6 +101,46 @@ func (h *DestinationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(dest)
 }
 
+func (h *DestinationsHandler) Update(w http.ResponseWriter, r *http.Request) {
+	destID := r.PathValue("id")
+	var req struct {
+		Name             *string `json:"name,omitempty"`
+		ShortDescription *string `json:"shortDescription,omitempty"`
+		Status           *string `json:"status,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
+		return
+	}
+
+	_, err := h.pool.Exec(r.Context(),
+		`UPDATE destinations SET
+		 name = CASE WHEN $2::text != '' THEN $2 ELSE name END,
+		 short_description = COALESCE($3::text, short_description),
+		 status = CASE WHEN $4::text != '' THEN $4 ELSE status END,
+		 updated_at = now()
+		 WHERE id = $1`,
+		destID, valOrEmpty(req.Name), req.ShortDescription, valOrEmpty(req.Status))
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update destination")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
+}
+
+func (h *DestinationsHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	destID := r.PathValue("id")
+	_, err := h.pool.Exec(r.Context(),
+		`UPDATE destinations SET status = 'archived', updated_at = now() WHERE id = $1`, destID)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to archive destination")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "archived"})
+}
+
 func (h *DestinationsHandler) Nearby(w http.ResponseWriter, r *http.Request) {
 	latStr := r.URL.Query().Get("lat")
 	lngStr := r.URL.Query().Get("lng")

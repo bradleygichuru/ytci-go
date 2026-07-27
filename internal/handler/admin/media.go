@@ -16,10 +16,10 @@ import (
 
 type MediaHandler struct {
 	pool *pgxpool.Pool
-	r2   *r2.Client
+	r2   r2.Store
 }
 
-func NewMediaHandler(pool *pgxpool.Pool, r2client *r2.Client) *MediaHandler {
+func NewMediaHandler(pool *pgxpool.Pool, r2client r2.Store) *MediaHandler {
 	return &MediaHandler{pool: pool, r2: r2client}
 }
 
@@ -154,6 +154,53 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(model.Paginated[item]{Items: items, HasMore: false})
+}
+
+func (h *MediaHandler) UpdateMetadata(w http.ResponseWriter, r *http.Request) {
+	mediaID := r.PathValue("id")
+	var req struct {
+		Caption *string `json:"caption,omitempty"`
+		AltText *string `json:"altText,omitempty"`
+		Credit  *string `json:"credit,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
+		return
+	}
+
+	_, err := h.pool.Exec(r.Context(),
+		`UPDATE media_assets SET
+		 caption = COALESCE($2::text, caption),
+		 alt_text = COALESCE($3::text, alt_text),
+		 credit = COALESCE($4::text, credit),
+		 updated_at = now()
+		 WHERE id = $1`,
+		mediaID, req.Caption, req.AltText, req.Credit)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update media")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
+}
+
+func (h *MediaHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	mediaID := r.PathValue("id")
+
+	var objectKey string
+	err := h.pool.QueryRow(r.Context(),
+		`DELETE FROM media_assets WHERE id = $1 RETURNING object_key`, mediaID).Scan(&objectKey)
+	if err != nil {
+		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "media not found")
+		return
+	}
+
+	if h.r2 != nil && objectKey != "" {
+		h.r2.DeleteObject(r.Context(), objectKey)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 }
 
 func (h *MediaHandler) GetURL(w http.ResponseWriter, r *http.Request) {

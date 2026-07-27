@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -145,6 +146,53 @@ func (h *EventsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
+}
+
+func (h *EventsHandler) Get(w http.ResponseWriter, r *http.Request) {
+	eventID := r.PathValue("id")
+	queries := gen.New(h.pool)
+	event, err := queries.GetEventByID(r.Context(), pgtype.UUID{})
+	event.ID.Scan(eventID)
+	event, err = queries.GetEventByID(r.Context(), event.ID)
+	if err != nil {
+		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "event not found")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(event)
+}
+
+func (h *EventsHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
+	eventID := r.PathValue("id")
+	var req struct{ Status string `json:"status"` }
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
+		return
+	}
+
+	var currentStatus string
+	if err := h.pool.QueryRow(r.Context(), `SELECT status FROM events WHERE id = $1`, eventID).Scan(&currentStatus); err != nil {
+		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "event not found")
+		return
+	}
+
+	validTransitions := map[string]map[string]bool{
+		"scheduled": {"postponed": true},
+		"postponed": {"scheduled": true, "cancelled": true},
+		"cancelled": {},
+	}
+
+	transitions, ok := validTransitions[currentStatus]
+	if !ok || !transitions[req.Status] {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_TRANSITION",
+			fmt.Sprintf("cannot transition from %s to %s", currentStatus, req.Status))
+		return
+	}
+
+	h.pool.Exec(r.Context(),
+		`UPDATE events SET status = $2, updated_at = now() WHERE id = $1`, eventID, req.Status)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": req.Status})
 }
 
 func parseDate(s string) time.Time {

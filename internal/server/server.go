@@ -58,85 +58,93 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 }
 
 type handlers struct {
-	dest       *admin.DestinationsHandler
-	events     *admin.EventsHandler
-	stories    *admin.StoriesHandler
-	course     *admin.CourseHandler
-	challenge  *admin.ChallengeAdminHandler
-	conserv    *admin.ConservationAdminHandler
-	campaign   *admin.CampaignAdminHandler
-	analytics  *admin.AnalyticsHandler
-	courseCRUD *admin.CourseCRUD
-	quiz       *admin.QuizHandler
-	chalCRUD   *admin.ChallengeCRUD
+	dest      *admin.DestinationsHandler
+	events    *admin.EventsHandler
+	stories   *admin.StoriesHandler
+	course    *admin.CourseHandler
+	challenge *admin.ChallengeAdminHandler
+	conserv   *admin.ConservationAdminHandler
+	campaign  *admin.CampaignAdminHandler
+	analytics *admin.AnalyticsHandler
+	quiz      *admin.QuizHandler
 	bulkImport *admin.BulkImport
-	itinStops  *expo.ItineraryStopsHandler
-	feed       *expo.FeedHandler
-	bucket     *expo.BucketHandler
-	profile    *expo.ProfileHandler
-	itin       *expo.ItinerariesHandler
-	pushReg    *expo.PushRegisterHandler
-	actions    *expo.ActionsHandler
-	mStories   *expo.StoriesHandler
+	itinStops *expo.ItineraryStopsHandler
+	feed      *expo.FeedHandler
+	bucket    *expo.BucketHandler
+	profile   *expo.ProfileHandler
+	itin      *expo.ItinerariesHandler
+	pushReg   *expo.PushRegisterHandler
+	actions   *expo.ActionsHandler
+	mStories  *expo.StoriesHandler
 }
 
-func mountHandlers(pool *pgxpool.Pool, r2client *r2.Client, pushClient *push.Client) *handlers {
+func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Client) *handlers {
 	return &handlers{
-		dest:       admin.NewDestinationsHandler(pool),
-		events:     admin.NewEventsHandler(pool),
-		stories:    admin.NewStoriesHandler(pool),
-		course:     admin.NewCourseHandler(pool),
-		challenge:  admin.NewChallengeAdminHandler(pool),
-		conserv:    admin.NewConservationAdminHandler(pool),
-		campaign:   admin.NewCampaignAdminHandler(pool),
-		analytics:  admin.NewAnalyticsHandler(pool),
-		courseCRUD: admin.NewCourseCRUD(pool),
-		quiz:       admin.NewQuizHandler(pool),
-		chalCRUD:   admin.NewChallengeCRUD(pool),
+		dest:      admin.NewDestinationsHandler(pool),
+		events:    admin.NewEventsHandler(pool),
+		stories:   admin.NewStoriesHandler(pool),
+		course:    admin.NewCourseHandler(pool),
+		challenge: admin.NewChallengeAdminHandler(pool),
+		conserv:   admin.NewConservationAdminHandler(pool),
+		campaign:  admin.NewCampaignAdminHandler(pool),
+		analytics: admin.NewAnalyticsHandler(pool),
+		quiz:      admin.NewQuizHandler(pool),
 		bulkImport: admin.NewBulkImport(pool),
-		itinStops:  expo.NewItineraryStopsHandler(pool),
-		feed:       expo.NewFeedHandler(pool),
-		bucket:     expo.NewBucketHandler(pool),
-		profile:    expo.NewProfileHandler(pool),
-		itin:       expo.NewItinerariesHandler(pool),
-		pushReg:    expo.NewPushRegisterHandler(pool),
-		actions:    expo.NewActionsHandler(pool),
-		mStories:   expo.NewStoriesHandler(pool),
+		itinStops: expo.NewItineraryStopsHandler(pool),
+		feed:      expo.NewFeedHandler(pool),
+		bucket:    expo.NewBucketHandler(pool),
+		profile:   expo.NewProfileHandler(pool),
+		itin:      expo.NewItinerariesHandler(pool),
+		pushReg:   expo.NewPushRegisterHandler(pool),
+		actions:   expo.NewActionsHandler(pool),
+		mStories:  expo.NewStoriesHandler(pool),
 	}
 }
 
-func mountAdminRoutes(sub chi.Router, h *handlers, pool *pgxpool.Pool, r2client *r2.Client, pushClient *push.Client) {
+func mountAdminRoutes(sub chi.Router, h *handlers, pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Client) {
 	sub.Group(func(aR chi.Router) {
 		aR.Use(middleware.AdminGate)
 
 		aR.Get("/destinations", h.dest.List)
 		aR.Post("/destinations", h.dest.Create)
+		aR.Patch("/destinations/{id}", h.dest.Update)
+		aR.Delete("/destinations/{id}", h.dest.Delete)
 		aR.Get("/events", h.events.List)
+		aR.Get("/events/{id}", h.events.Get)
 		aR.Post("/events", h.events.Create)
 		aR.Patch("/events/{id}", h.events.Update)
+		aR.Patch("/events/{id}/status", h.events.UpdateStatus)
 		aR.Delete("/events/{id}", h.events.Delete)
 		aR.Get("/stories", h.stories.List)
+		aR.Get("/stories/moderation", h.stories.ModerationList)
 		aR.Post("/stories/{id}/moderation", h.stories.Moderate)
+		aR.Post("/stories/{id}/report", h.stories.Report)
 		aR.Get("/courses", h.course.List)
-		aR.Post("/courses", h.courseCRUD.Create)
+		aR.Get("/courses/{id}", h.course.Get)
+		aR.Post("/courses", h.course.Create)
+		aR.Patch("/courses/{id}", h.course.Update)
+		aR.Delete("/courses/{id}", h.course.Delete)
 		aR.Post("/quizzes/evaluate", h.quiz.Evaluate)
 		aR.Get("/challenges", h.challenge.List)
-		aR.Post("/challenges", h.chalCRUD.Create)
+		aR.Post("/challenges", h.challenge.Create)
 		aR.Get("/conservation/activities", h.conserv.List)
+		aR.Post("/conservation/activities", h.conserv.Create)
+		aR.Patch("/conservation/activities/{id}", h.conserv.Update)
 		aR.Get("/conservation/evidence", h.conserv.ListEvidence)
 		aR.Post("/conservation/evidence/{id}/review", h.conserv.ReviewEvidence)
 		aR.Get("/campaigns", h.campaign.List)
-		aR.Patch("/campaigns/{id}/status", h.campaign.UpdateStatus)
-		aR.Get("/analytics/summary", h.analytics.Summary)
-		aR.Post("/destinations/bulk-import", h.bulkImport.Import)
-		aR.Get("/analytics/reports", h.analytics.ReportsList)
-		aR.Post("/analytics/reports/export", h.analytics.Export)
+		aR.Get("/campaigns/{id}", h.campaign.Get)
+		aR.Post("/campaigns", h.campaign.Create)
+		aR.Patch("/campaigns/{id}", h.campaign.Update)
+		aR.Delete("/campaigns/{id}", h.campaign.Delete)
 
+		mediaH := admin.NewMediaHandler(pool, r2client)
+		aR.Patch("/media/{id}", mediaH.UpdateMetadata)
+		aR.Get("/media", mediaH.List)
 		if r2client != nil {
-			mediaH := admin.NewMediaHandler(pool, r2client)
 			aR.Post("/media/presign", mediaH.Presign)
 			aR.Post("/media/complete", mediaH.Complete)
-			aR.Get("/media", mediaH.List)
+			aR.Delete("/media/{id}", mediaH.Delete)
 		}
 		if pushClient != nil {
 			pushH := admin.NewPushHandler(pool, pushClient)
@@ -155,6 +163,7 @@ func mountMobileRoutes(sub chi.Router, h *handlers) {
 		m.Get("/destinations/{slug}", h.dest.Get)
 		m.Get("/destinations/nearby", h.dest.Nearby)
 		m.Get("/events", h.events.List)
+		m.Get("/events/{id}", h.events.Get)
 		m.Get("/stories", h.mStories.ListEnriched)
 		m.Get("/courses", h.course.List)
 		m.Get("/challenges", h.challenge.List)
@@ -182,6 +191,7 @@ func mountMobileRoutes(sub chi.Router, h *handlers) {
 			aR.Post("/stories", h.actions.CreateStory)
 			aR.Post("/stories/like", h.actions.ToggleLike)
 			aR.Post("/stories/save", h.actions.ToggleSave)
+			aR.Post("/stories/{id}/report", h.stories.Report)
 			aR.Post("/challenges/{id}/join", h.actions.JoinChallenge)
 			aR.Post("/challenges/{id}/evidence", h.actions.SubmitChallengeEvidence)
 			aR.Post("/conservation/{id}/join", h.actions.JoinConservation)
