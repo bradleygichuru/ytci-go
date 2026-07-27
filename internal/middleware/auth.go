@@ -10,10 +10,12 @@ import (
 	"log/slog"
 	"math/big"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 )
@@ -59,14 +61,16 @@ type JWKSCache struct {
 	url    string
 	ttl    time.Duration
 	client *http.Client
+	pool   *pgxpool.Pool
 }
 
-func NewJWKSCache(jwksURL string, ttlMinutes int) *JWKSCache {
+func NewJWKSCache(jwksURL string, ttlMinutes int, pool *pgxpool.Pool) *JWKSCache {
 	return &JWKSCache{
 		keys:   make(map[string]*rsa.PublicKey),
 		url:    jwksURL,
 		ttl:    time.Duration(ttlMinutes) * time.Minute,
 		client: &http.Client{Timeout: 10 * time.Second},
+		pool:   pool,
 	}
 }
 
@@ -199,6 +203,32 @@ func JWTAuth(cfg *JWKSCache, expectedIssuer, expectedAudience string) func(http.
 			tokenStr := extractBearerToken(r)
 			if tokenStr == "" {
 				handler.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing authorization header")
+				return
+			}
+
+			// Session token fallback: if the token has fewer than 3 segments
+			// (not a JWT), treat it as a better-auth session token and look up
+			// the session in the shared database.
+			if cfg.pool != nil && strings.Count(tokenStr, ".") < 2 {
+				parts := strings.SplitN(tokenStr, ".", 2)
+				sessionID := parts[0]
+				var userID, role, email string
+				err := cfg.pool.QueryRow(r.Context(),
+					`SELECT u.id, u.role, u.email
+					 FROM users u
+					 JOIN sessions s ON s.user_id = u.id
+					 WHERE s.token = $1 AND s.expires_at > now()`,
+					sessionID,
+				).Scan(&userID, &role, &email)
+				if err != nil {
+					handler.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid session")
+					return
+				}
+				ctx := r.Context()
+				ctx = context.WithValue(ctx, CtxUserID, userID)
+				ctx = context.WithValue(ctx, CtxRole, role)
+				ctx = context.WithValue(ctx, CtxEmail, email)
+				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 

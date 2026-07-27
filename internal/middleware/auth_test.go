@@ -59,7 +59,7 @@ func TestJWTAuthValidToken(t *testing.T) {
 	}))
 	defer jwksSrv.Close()
 
-	cache := middleware.NewJWKSCache(jwksSrv.URL, 60)
+	cache := middleware.NewJWKSCache(jwksSrv.URL, 60, nil)
 	authmw := middleware.JWTAuth(cache, "", "")
 
 	var userID, role, email string
@@ -89,7 +89,7 @@ func TestJWTAuthValidToken(t *testing.T) {
 }
 
 func TestJWTAuthMissingToken(t *testing.T) {
-	cache := middleware.NewJWKSCache("http://example.com/jwks", 60)
+	cache := middleware.NewJWKSCache("http://example.com/jwks", 60, nil)
 	authmw := middleware.JWTAuth(cache, "", "")
 
 	ts := httptest.NewServer(authmw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -112,7 +112,7 @@ func TestJWTAuthExpiredToken(t *testing.T) {
 	}))
 	defer jwksSrv.Close()
 
-	cache := middleware.NewJWKSCache(jwksSrv.URL, 60)
+	cache := middleware.NewJWKSCache(jwksSrv.URL, 60, nil)
 	authmw := middleware.JWTAuth(cache, "", "")
 
 	ts := httptest.NewServer(authmw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -141,7 +141,7 @@ func TestJWTAuthInvalidSignature(t *testing.T) {
 	}))
 	defer jwksSrv.Close()
 
-	cache := middleware.NewJWKSCache(jwksSrv.URL, 60)
+	cache := middleware.NewJWKSCache(jwksSrv.URL, 60, nil)
 	authmw := middleware.JWTAuth(cache, "", "")
 
 	ts := httptest.NewServer(authmw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -171,7 +171,7 @@ func TestJWTAuthWrongIssuer(t *testing.T) {
 	}))
 	defer jwksSrv.Close()
 
-	cache := middleware.NewJWKSCache(jwksSrv.URL, 60)
+	cache := middleware.NewJWKSCache(jwksSrv.URL, 60, nil)
 	authmw := middleware.JWTAuth(cache, "https://expected.issuer.com", "")
 
 	ts := httptest.NewServer(authmw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

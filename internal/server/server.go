@@ -18,12 +18,12 @@ import (
 )
 
 func New(cfg *config.Config, pool *pgxpool.Pool) *chi.Mux {
-	jwks := middleware.NewJWKSCache(cfg.AdminJWKSURL, cfg.JWKSCacheTTL)
+	jwks := middleware.NewJWKSCache(cfg.AdminJWKSURL, cfg.JWKSCacheTTL, pool)
 	return newRouter(cfg, pool, jwks, nil, nil)
 }
 
 func NewWithClients(cfg *config.Config, pool *pgxpool.Pool, r2client *r2.Client, pushClient *push.Client) (*chi.Mux, *middleware.JWKSCache) {
-	jwks := middleware.NewJWKSCache(cfg.AdminJWKSURL, cfg.JWKSCacheTTL)
+	jwks := middleware.NewJWKSCache(cfg.AdminJWKSURL, cfg.JWKSCacheTTL, pool)
 	r := newRouter(cfg, pool, jwks, r2client, pushClient)
 	return r, jwks
 }
