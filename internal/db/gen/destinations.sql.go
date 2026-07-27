@@ -474,26 +474,26 @@ func (q *Queries) ListDestinationsAfter(ctx context.Context, arg *ListDestinatio
 
 const updateDestination = `-- name: UpdateDestination :one
 UPDATE destinations SET
-    name = COALESCE($2, name),
-    short_description = COALESCE($3, short_description),
-    status = COALESCE($4, status),
+    name = COALESCE(NULLIF($2, ''), name),
+    short_description = COALESCE(NULLIF($3, ''), short_description),
+    status = COALESCE(NULLIF($4, ''), status),
     updated_at = now()
 WHERE id = $1 RETURNING id, name, slug, county, locality, category, status, location, map_label, access_route, distance_reference, short_description, full_description, significance, history, things_to_do, suitable_audiences, duration, difficulty, seasonality, indicative_fees, opening_info, transport_notes, accessibility, facilities, safety_notes, source, content_owner, verification_status, last_updated, review_date, created_by, created_at, updated_at
 `
 
 type UpdateDestinationParams struct {
-	ID               pgtype.UUID `json:"id"`
-	Name             string      `json:"name"`
-	ShortDescription *string     `json:"short_description"`
-	Status           string      `json:"status"`
+	ID      pgtype.UUID `json:"id"`
+	Column2 interface{} `json:"column_2"`
+	Column3 interface{} `json:"column_3"`
+	Column4 interface{} `json:"column_4"`
 }
 
 func (q *Queries) UpdateDestination(ctx context.Context, arg *UpdateDestinationParams) (Destination, error) {
 	row := q.db.QueryRow(ctx, updateDestination,
 		arg.ID,
-		arg.Name,
-		arg.ShortDescription,
-		arg.Status,
+		arg.Column2,
+		arg.Column3,
+		arg.Column4,
 	)
 	var i Destination
 	err := row.Scan(

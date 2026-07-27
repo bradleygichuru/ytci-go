@@ -121,6 +121,13 @@ func (h *ActionsHandler) JoinConservation(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	_, err := h.pool.Exec(r.Context(),
+		`UPDATE conservation_activities SET current_participants = current_participants + 1 WHERE id = $1`, activityID)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to join")
+		return
+	}
+
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"status": "joined"})
 }

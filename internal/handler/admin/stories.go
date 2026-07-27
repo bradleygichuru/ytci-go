@@ -10,7 +10,7 @@ import (
 
 	"github.com/bradleygichuru/ytci-go/internal/db/gen"
 	"github.com/bradleygichuru/ytci-go/internal/handler"
-	"github.com/bradleygichuru/ytci-go/internal/model"
+	"github.com/bradleygichuru/ytci-go/internal/middleware"
 	"github.com/bradleygichuru/ytci-go/internal/pagination"
 )
 
@@ -24,48 +24,69 @@ func NewStoriesHandler(pool *pgxpool.Pool) *StoriesHandler {
 
 func (h *StoriesHandler) List(w http.ResponseWriter, r *http.Request) {
 	queries := gen.New(h.pool)
-	pr := pagination.ParseRequest(r)
-	limit := int32(pr.Limit)
+	pg := &pagination.CursorPaginator[gen.Story]{}
 
-	var stories []gen.Story
-	var err error
+	pg.WritePage(w, r,
+		func(limit int32) ([]gen.Story, error) {
+			return queries.ListStories(r.Context(), limit)
+		},
+		func(limit int32, sortValue, id string) ([]gen.Story, error) {
+			var ts pgtype.Timestamp
+			var uid pgtype.UUID
+			ts.Scan(sortValue)
+			uid.Scan(id)
+			return queries.ListStoriesAfter(r.Context(), &gen.ListStoriesAfterParams{
+				CreatedAt: ts,
+				ID:        uid,
+				Limit:     limit,
+			})
+		},
+		func(s gen.Story) (string, bool) {
+			ts := s.CreatedAt.Time.UTC().Format(time.RFC3339Nano)
+			return pagination.EncodeCursor(ts, pagination.UUIDString(s.ID.Bytes)), true
+		},
+	)
+}
 
-	if pr.Cursor != nil {
-		var ts pgtype.Timestamp
-		var id pgtype.UUID
-		ts.Scan(pr.Cursor.SortValue)
-		id.Scan(pr.Cursor.ID)
-
-		stories, err = queries.ListStoriesAfter(r.Context(), &gen.ListStoriesAfterParams{
-			CreatedAt: ts,
-			ID:        id,
-			Limit:     limit + 1,
-		})
-	} else {
-		stories, err = queries.ListStories(r.Context(), limit+1)
+func (h *StoriesHandler) Moderate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Action string `json:"action"`
+		Reason string `json:"reason"`
 	}
-	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list stories")
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
 		return
 	}
 
-	hasMore := len(stories) > int(limit)
-	items := stories
-	if hasMore {
-		items = stories[:limit]
+	storyID := r.PathValue("id")
+	if storyID == "" {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_ID", "story id is required")
+		return
 	}
 
-	resp := model.Paginated[gen.Story]{
-		Items:   items,
-		HasMore: hasMore,
+	status := "rejected"
+	if req.Action == "approve" {
+		status = "approved"
 	}
-	if hasMore && len(items) > 0 {
-		last := items[len(items)-1]
-		ts := last.CreatedAt.Time.UTC().Format(time.RFC3339Nano)
-		next := pagination.EncodeCursor(ts, pagination.UUIDString(last.ID.Bytes))
-		resp.NextCursor = &next
+
+	var storyUUID pgtype.UUID
+	storyUUID.Scan(storyID)
+
+	moderatorUUID := pgtype.UUID{}
+	moderatorUUID.Scan(middleware.UserID(r.Context()))
+
+	queries := gen.New(h.pool)
+	_, err := queries.UpdateStoryStatus(r.Context(), &gen.UpdateStoryStatusParams{
+		ID:             storyUUID,
+		Status:         status,
+		ModeratedBy:    moderatorUUID,
+		ModerationNote: &req.Reason,
+	})
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to moderate story")
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	json.NewEncoder(w).Encode(map[string]string{"status": status})
 }

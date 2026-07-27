@@ -69,8 +69,10 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 			adminR.Use(middleware.AdminGate)
 
 			adminR.Get("/destinations", destHandler.List)
+				adminR.Post("/destinations", destHandler.Create)
 			adminR.Get("/events", eventsHandler.List)
 			adminR.Get("/stories", storiesHandler.List)
+			adminR.Post("/stories/{id}/moderation", storiesHandler.Moderate)
 			adminR.Get("/courses", coursesHandler.List)
 			adminR.Get("/challenges", challengesHandler.List)
 			adminR.Get("/conservation/activities", conservationHandler.List)
@@ -114,6 +116,9 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 				authRouter.Get("/profile", profileHandler.Get)
 				authRouter.Get("/itineraries", itinerariesHandler.List)
 				authRouter.Post("/itineraries", itinerariesHandler.Create)
+				authRouter.Get("/itineraries/{id}", itinerariesHandler.Get)
+				authRouter.Delete("/itineraries/{id}", itinerariesHandler.Delete)
+				authRouter.Post("/itineraries/{id}/duplicate", itinerariesHandler.Duplicate)
 				authRouter.Post("/push/register", pushRegisterHandler.Register)
 
 				authRouter.Post("/stories", actionsHandler.CreateStory)

@@ -34,9 +34,9 @@ INSERT INTO destinations (
 
 -- name: UpdateDestination :one
 UPDATE destinations SET
-    name = COALESCE($2, name),
-    short_description = COALESCE($3, short_description),
-    status = COALESCE($4, status),
+    name = COALESCE(NULLIF($2, ''), name),
+    short_description = COALESCE(NULLIF($3, ''), short_description),
+    status = COALESCE(NULLIF($4, ''), status),
     updated_at = now()
 WHERE id = $1 RETURNING *;
 
