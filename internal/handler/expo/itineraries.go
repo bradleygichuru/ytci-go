@@ -1,6 +1,7 @@
 package expo
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -66,17 +67,21 @@ func (h *ItinerariesHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	userID := middleware.UserID(r.Context())
 
-	inputsRaw, _ := json.Marshal(map[string]any{
+	inputsRaw, err := json.Marshal(map[string]any{
 		"origin": req.Origin, "days": req.Days,
 		"budgetBand": req.BudgetBand, "interests": req.Interests,
 	})
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to serialize inputs")
+		return
+	}
 
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create itinerary")
 		return
 	}
-	defer tx.Rollback(r.Context())
+	defer tx.Rollback(context.Background())
 
 	var itineraryID string
 	err = tx.QueryRow(r.Context(),
