@@ -97,10 +97,13 @@ func (h *CourseHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var id, status string
-	h.pool.QueryRow(r.Context(),
+	if err := h.pool.QueryRow(r.Context(),
 		`INSERT INTO courses (title, description, difficulty, created_by) VALUES ($1, $2, $3, $4) RETURNING id, status`,
 		req.Title, req.Description, req.Difficulty, middleware.UserID(r.Context()),
-	).Scan(&id, &status)
+	).Scan(&id, &status); err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create course")
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)

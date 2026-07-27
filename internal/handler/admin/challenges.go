@@ -63,11 +63,14 @@ func (h *ChallengeAdminHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var id string
-	h.pool.QueryRow(r.Context(),
+	if err := h.pool.QueryRow(r.Context(),
 		`INSERT INTO challenges (title, description, badge_name, status, start_date, end_date, created_by)
 		 VALUES ($1, $2, $3, 'draft', $4, $5, $6) RETURNING id`,
 		req.Title, req.Description, req.BadgeName, req.StartDate, req.EndDate, middleware.UserID(r.Context()),
-	).Scan(&id)
+	).Scan(&id); err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create challenge")
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)

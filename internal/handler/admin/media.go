@@ -3,6 +3,7 @@ package admin
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -196,7 +197,9 @@ func (h *MediaHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.r2 != nil && objectKey != "" {
-		h.r2.DeleteObject(r.Context(), objectKey)
+		if err := h.r2.DeleteObject(r.Context(), objectKey); err != nil {
+			slog.Warn("r2 delete failed, blob may leak", "object_key", objectKey, "error", err)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

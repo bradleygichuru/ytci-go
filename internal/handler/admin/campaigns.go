@@ -133,15 +133,15 @@ func (h *CampaignAdminHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	_, err := h.pool.Exec(r.Context(),
+	if _, err := h.pool.Exec(r.Context(),
 		`UPDATE campaigns SET
 		 title = CASE WHEN $2::text != '' THEN $2 ELSE title END,
 		 status = CASE WHEN $3::text != '' THEN $3 ELSE status END,
 		 target_url = CASE WHEN $4::text != '' THEN $4 ELSE target_url END,
+		 audience = CASE WHEN $5::text != '' THEN $5 ELSE audience END,
 		 updated_at = now()
 		 WHERE id = $1`,
-		campaignID, valOrEmpty(req.Title), valOrEmpty(req.Status), valOrEmpty(req.TargetURL))
-	if err != nil {
+		campaignID, valOrEmpty(req.Title), valOrEmpty(req.Status), valOrEmpty(req.TargetURL), valOrEmpty(req.Audience)); err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update campaign")
 		return
 	}
