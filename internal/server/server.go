@@ -33,11 +33,13 @@ func New(cfg *config.Config, pool *pgxpool.Pool) *chi.Mux {
 
 	r.Get("/health", handler.Health)
 
+	jwks := middleware.NewJWKSCache(cfg.AdminJWKSURL, cfg.JWKSCacheTTL)
+
 	destHandler := admin.NewDestinationsHandler(pool)
 	feedHandler := expo.NewFeedHandler(pool)
 
 	r.Route("/v1", func(sub chi.Router) {
-		sub.Use(middleware.JWTAuth(middleware.NewJWKSCache(cfg.AdminJWKSURL, cfg.JWKSCacheTTL), cfg.JWTExpectedIss, cfg.JWTExpectedAud))
+		sub.Use(middleware.JWTAuth(jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud))
 
 		sub.Group(func(adminR chi.Router) {
 			adminR.Use(middleware.AdminGate)
@@ -47,8 +49,53 @@ func New(cfg *config.Config, pool *pgxpool.Pool) *chi.Mux {
 		sub.Route("/mobile", func(mobile chi.Router) {
 			mobile.Get("/feed", feedHandler.GetFeed)
 
-			mobile.Group(func(auth chi.Router) {
-				auth.Use(middleware.AuthGate)
+			mobile.Group(func(authRouter chi.Router) {
+				authRouter.Use(middleware.AuthGate)
+			})
+		})
+	})
+
+	return r
+}
+
+func NewWithConfig(cfg *config.Config, pool *pgxpool.Pool) (*chi.Mux, *middleware.JWKSCache) {
+	jwks := middleware.NewJWKSCache(cfg.AdminJWKSURL, cfg.JWKSCacheTTL)
+	r := newRouter(cfg, pool, jwks)
+	return r, jwks
+}
+
+func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCache) *chi.Mux {
+	r := chi.NewRouter()
+	r.Use(chimw.RequestID)
+	r.Use(chimw.RealIP)
+	r.Use(middleware.Logger)
+	r.Use(chimw.Recoverer)
+	r.Use(chimw.Timeout(30 * time.Second))
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{cfg.CORSOrigins},
+		AllowedMethods:   []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "Idempotency-Key"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	}))
+
+	r.Get("/health", handler.Health)
+
+	destHandler := admin.NewDestinationsHandler(pool)
+	feedHandler := expo.NewFeedHandler(pool)
+
+	r.Route("/v1", func(sub chi.Router) {
+		sub.Use(middleware.JWTAuth(jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud))
+
+		sub.Group(func(adminR chi.Router) {
+			adminR.Use(middleware.AdminGate)
+			adminR.Get("/destinations", destHandler.List)
+		})
+
+		sub.Route("/mobile", func(mobile chi.Router) {
+			mobile.Get("/feed", feedHandler.GetFeed)
+			mobile.Group(func(authRouter chi.Router) {
+				authRouter.Use(middleware.AuthGate)
 			})
 		})
 	})

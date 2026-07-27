@@ -213,6 +213,14 @@ type ItineraryStop struct {
 	Notes             *string     `json:"notes"`
 }
 
+type KenyaCounty struct {
+	Gid       int32       `json:"gid"`
+	Adm1Name  string      `json:"adm1_name"`
+	Adm1Pcode *string     `json:"adm1_pcode"`
+	AreaSqkm  *float64    `json:"area_sqkm"`
+	Geom      interface{} `json:"geom"`
+}
+
 type Lesson struct {
 	ID           pgtype.UUID      `json:"id"`
 	CourseID     pgtype.UUID      `json:"course_id"`
@@ -317,4 +325,24 @@ type Story struct {
 	ViewCount      *int32           `json:"view_count"`
 	CreatedAt      pgtype.Timestamp `json:"created_at"`
 	UpdatedAt      pgtype.Timestamp `json:"updated_at"`
+}
+
+type StoryInteraction struct {
+	ID              pgtype.UUID      `json:"id"`
+	UserID          pgtype.UUID      `json:"user_id"`
+	StoryID         pgtype.UUID      `json:"story_id"`
+	InteractionType string           `json:"interaction_type"`
+	CreatedAt       pgtype.Timestamp `json:"created_at"`
+}
+
+type UserProfile struct {
+	UserID           pgtype.UUID      `json:"user_id"`
+	AgeRange         *string          `json:"age_range"`
+	County           *string          `json:"county"`
+	Languages        *string          `json:"languages"`
+	Preferences      *string          `json:"preferences"`
+	ConsentGrantedAt pgtype.Timestamp `json:"consent_granted_at"`
+	CreatedBy        pgtype.UUID      `json:"created_by"`
+	CreatedAt        pgtype.Timestamp `json:"created_at"`
+	UpdatedAt        pgtype.Timestamp `json:"updated_at"`
 }

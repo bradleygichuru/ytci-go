@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/big"
@@ -41,13 +42,10 @@ func Email(ctx context.Context) string {
 }
 
 type jwk struct {
-	Kid       string `json:"kid"`
-	Kty       string `json:"kty"`
-	Alg       string `json:"alg"`
-	N         string `json:"n"`
-	E         string `json:"e"`
-	Use       string `json:"use"`
-	KeyOps    []string `json:"key_ops"`
+	Kid string `json:"kid"`
+	Kty string `json:"kty"`
+	N   string `json:"n"`
+	E   string `json:"e"`
 }
 
 type jwksResponse struct {
@@ -55,26 +53,34 @@ type jwksResponse struct {
 }
 
 type JWKSCache struct {
-	mu        sync.Mutex
-	keys      map[string]*rsa.PublicKey
-	expiresAt time.Time
-	url       string
-	ttl       time.Duration
+	mu     sync.Mutex
+	keys   map[string]*rsa.PublicKey
+	expiry time.Time
+	url    string
+	ttl    time.Duration
+	client *http.Client
 }
 
 func NewJWKSCache(jwksURL string, ttlMinutes int) *JWKSCache {
 	return &JWKSCache{
-		keys: make(map[string]*rsa.PublicKey),
-		url:  jwksURL,
-		ttl:  time.Duration(ttlMinutes) * time.Minute,
+		keys:   make(map[string]*rsa.PublicKey),
+		url:    jwksURL,
+		ttl:    time.Duration(ttlMinutes) * time.Minute,
+		client: &http.Client{Timeout: 10 * time.Second},
 	}
+}
+
+func (c *JWKSCache) Ping() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.refreshLocked()
 }
 
 func (c *JWKSCache) getPublicKey(kid string) (*rsa.PublicKey, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if time.Now().Before(c.expiresAt) {
+	if time.Now().Before(c.expiry) {
 		if key, ok := c.keys[kid]; ok {
 			return key, nil
 		}
@@ -86,31 +92,45 @@ func (c *JWKSCache) getPublicKey(kid string) (*rsa.PublicKey, error) {
 				return key, nil
 			}
 		}
-		return nil, fmt.Errorf("failed to refresh JWKS: %w", err)
+		return nil, fmt.Errorf("refresh JWKS: %w", err)
 	}
 
 	key, ok := c.keys[kid]
 	if !ok {
-		return nil, fmt.Errorf("key %s not found in JWKS", kid)
+		return nil, fmt.Errorf("%w: %q", ErrKidNotFound, kid)
 	}
 	return key, nil
 }
 
+var ErrKidNotFound = fmt.Errorf("key not found in JWKS")
+
 func (c *JWKSCache) refreshLocked() error {
 	slog.Info("refreshing JWKS", "url", c.url)
 
-	resp, err := http.Get(c.url)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url, nil)
 	if err != nil {
-		return fmt.Errorf("fetch JWKS: %w", err)
+		return fmt.Errorf("create request: %w", err)
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("fetch: %w", err)
 	}
 	defer resp.Body.Close()
 
-	var jwks jwksResponse
-	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
-		return fmt.Errorf("decode JWKS: %w", err)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("JWKS endpoint returned %d", resp.StatusCode)
 	}
 
-	newKeys := make(map[string]*rsa.PublicKey)
+	var jwks jwksResponse
+	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
+		return fmt.Errorf("decode: %w", err)
+	}
+
+	newKeys := make(map[string]*rsa.PublicKey, len(jwks.Keys))
 	for _, j := range jwks.Keys {
 		if j.Kty != "RSA" {
 			continue
@@ -124,9 +144,28 @@ func (c *JWKSCache) refreshLocked() error {
 	}
 
 	c.keys = newKeys
-	c.expiresAt = time.Now().Add(c.ttl)
+	c.expiry = time.Now().Add(c.ttl)
 	slog.Info("JWKS refreshed", "key_count", len(newKeys))
 	return nil
+}
+
+func (c *JWKSCache) lookupWithRefresh(kid string) (*rsa.PublicKey, error) {
+	key, err := c.getPublicKey(kid)
+	if err == nil {
+		return key, nil
+	}
+	if !errors.Is(err, ErrKidNotFound) {
+		return nil, err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := c.refreshLocked(); err != nil {
+		return nil, err
+	}
+	if key, ok := c.keys[kid]; ok {
+		return key, nil
+	}
+	return nil, fmt.Errorf("key %q not found after refresh", kid)
 }
 
 func (j *jwk) toPublicKey() (*rsa.PublicKey, error) {
@@ -173,24 +212,22 @@ func JWTAuth(cfg *JWKSCache, expectedIssuer, expectedAudience string) func(http.
 				opts = append(opts, jwt.WithAudience(expectedAudience))
 			}
 
-			token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+			parsed, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
 				if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
 					return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 				}
-
 				kid, ok := token.Header["kid"].(string)
 				if !ok {
 					return nil, fmt.Errorf("missing kid in JWT header")
 				}
-
-				return cfg.getPublicKey(kid)
+				return cfg.lookupWithRefresh(kid)
 			}, opts...)
 			if err != nil {
 				handler.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", fmt.Sprintf("invalid token: %v", err))
 				return
 			}
 
-			claims, ok := token.Claims.(jwt.MapClaims)
+			claims, ok := parsed.Claims.(jwt.MapClaims)
 			if !ok {
 				handler.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid token claims")
 				return

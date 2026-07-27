@@ -312,6 +312,37 @@ CREATE TABLE report_jobs (
     completed_at TIMESTAMP
 );
 
+CREATE TABLE user_profiles (
+    user_id UUID PRIMARY KEY,
+    age_range TEXT,
+    county TEXT,
+    languages TEXT,
+    preferences TEXT,
+    consent_granted_at TIMESTAMP,
+    created_by UUID NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+CREATE TABLE kenya_counties (
+    gid INTEGER PRIMARY KEY,
+    adm1_name TEXT NOT NULL,
+    adm1_pcode TEXT,
+    area_sqkm DOUBLE PRECISION,
+    geom geometry(MultiPolygon, 4326)
+);
+CREATE INDEX kenya_counties_geom_idx ON kenya_counties USING GIST (geom);
+
+CREATE TABLE story_interactions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL,
+    story_id UUID NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+    interaction_type TEXT NOT NULL CHECK (interaction_type IN ('like', 'save')),
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    UNIQUE (user_id, story_id, interaction_type)
+);
+CREATE INDEX story_interactions_story_idx ON story_interactions (story_id);
+
 -- GIST indexes for spatial queries
 CREATE INDEX IF NOT EXISTS destinations_location_idx ON destinations USING GIST (location);
 CREATE INDEX IF NOT EXISTS conservation_activities_location_idx ON conservation_activities USING GIST (location);

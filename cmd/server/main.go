@@ -34,7 +34,13 @@ func main() {
 	defer dbpool.Close()
 	slog.Info("connected to database")
 
-	r := server.New(cfg, dbpool)
+	r, jwks := server.NewWithConfig(cfg, dbpool)
+
+	if err := jwks.Ping(); err != nil {
+		slog.Error("failed to reach JWKS endpoint at startup", "url", cfg.AdminJWKSURL, "error", err)
+		os.Exit(1)
+	}
+	slog.Info("JWKS endpoint reachable")
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
