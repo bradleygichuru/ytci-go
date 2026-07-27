@@ -15,13 +15,13 @@ import (
 
 func TestHealthEndpoint(t *testing.T) {
 	cfg := &config.Config{
-		Port:           "8080",
-		DatabaseURL:    "postgres://localhost:5432/test",
-		AdminJWKSURL:   "http://localhost:8081/jwks",
-		CORSOrigins:    "*",
+		Port:         "8080",
+		DatabaseURL:  "postgres://localhost:5432/test",
+		AdminJWKSURL: "http://localhost:8081/jwks",
+		CORSOrigins:  "*",
 	}
 
-	r := server.New(cfg)
+	r := server.New(cfg, nil)
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 

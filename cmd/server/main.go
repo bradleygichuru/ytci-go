@@ -9,11 +9,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/bradleygichuru/ytci-go/internal/config"
 	"github.com/bradleygichuru/ytci-go/internal/db"
-	"github.com/bradleygichuru/ytci-go/internal/middleware"
 	"github.com/bradleygichuru/ytci-go/internal/server"
 )
 
@@ -37,27 +34,7 @@ func main() {
 	defer dbpool.Close()
 	slog.Info("connected to database")
 
-	jwksCache := middleware.NewJWKSCache(cfg.AdminJWKSURL, cfg.JWKSCacheTTL)
-
-	r := server.New(cfg)
-
-	// Mount admin routes with auth
-	r.Route("/v1", func(sub chi.Router) {
-		sub.Use(middleware.JWTAuth(jwksCache, cfg.JWTExpectedIss, cfg.JWTExpectedAud))
-
-		sub.Group(func(admin chi.Router) {
-			admin.Use(middleware.AdminGate)
-			// admin handlers will be mounted here
-		})
-
-		sub.Route("/mobile", func(mobile chi.Router) {
-			// guest mobile endpoints (no auth)
-			mobile.Group(func(auth chi.Router) {
-				auth.Use(middleware.AuthGate)
-				// authenticated mobile endpoints here
-			})
-		})
-	})
+	r := server.New(cfg, dbpool)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
