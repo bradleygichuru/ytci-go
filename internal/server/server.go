@@ -60,6 +60,7 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 	profileHandler := expo.NewProfileHandler(pool)
 	itinerariesHandler := expo.NewItinerariesHandler(pool)
 	pushRegisterHandler := expo.NewPushRegisterHandler(pool)
+	actionsHandler := expo.NewActionsHandler(pool)
 
 	r.Route("/v1", func(sub chi.Router) {
 		sub.Use(middleware.JWTAuth(jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud))
@@ -108,10 +109,20 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 
 				authRouter.Get("/bucket", bucketHandler.List)
 				authRouter.Post("/bucket", bucketHandler.Add)
+				authRouter.Delete("/bucket/{destinationId}", bucketHandler.Remove)
+				authRouter.Post("/bucket/{destinationId}/visited", bucketHandler.MarkVisited)
 				authRouter.Get("/profile", profileHandler.Get)
 				authRouter.Get("/itineraries", itinerariesHandler.List)
 				authRouter.Post("/itineraries", itinerariesHandler.Create)
 				authRouter.Post("/push/register", pushRegisterHandler.Register)
+
+				authRouter.Post("/stories", actionsHandler.CreateStory)
+				authRouter.Post("/stories/like", actionsHandler.ToggleLike)
+				authRouter.Post("/stories/save", actionsHandler.ToggleSave)
+				authRouter.Post("/challenges/{id}/join", actionsHandler.JoinChallenge)
+				authRouter.Post("/conservation/{id}/join", actionsHandler.JoinConservation)
+				authRouter.Post("/courses/{id}/enroll", actionsHandler.EnrollCourse)
+				authRouter.Post("/analytics/app-open", actionsHandler.RecordAppOpen)
 			})
 		})
 	})
