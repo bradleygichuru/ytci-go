@@ -101,23 +101,34 @@ func (h *EventsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var id pgtype.UUID
-	id.Scan(eventID)
-	queries := gen.New(h.pool)
-	event, err := queries.UpdateEvent(r.Context(), &gen.UpdateEventParams{
-		ID:          id,
-		Title:       strVal(req.Title),
-		Organizer:   "",
-		Description: req.Description,
-		Status:      strVal(req.Status),
-	})
+	var title, organizer, status string
+	if req.Title != nil {
+		title = *req.Title
+	}
+	if req.Status != nil {
+		status = *req.Status
+	}
+
+	row := h.pool.QueryRow(r.Context(),
+		`UPDATE events SET
+		 title = CASE WHEN $2::text != '' THEN $2 ELSE title END,
+		 organizer = CASE WHEN $3::text != '' THEN $3 ELSE organizer END,
+		 description = COALESCE($4::text, description),
+		 status = CASE WHEN $5::text != '' THEN $5 ELSE status END,
+		 updated_at = now()
+		 WHERE id = $1
+		 RETURNING *`,
+		eventID, title, organizer, req.Description, status)
+
+	var e gen.Event
+	err := row.Scan(&e.ID, &e.Title, &e.Organizer, &e.County, &e.Venue, &e.EventDate, &e.EndDate, &e.Type, &e.Status, &e.Description, &e.ContactEmail, &e.ContactPhone, &e.ImageUrl, &e.ReminderEnabled, &e.ReminderMinutes, &e.CreatedBy, &e.CreatedAt, &e.UpdatedAt)
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update event")
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(event)
+	json.NewEncoder(w).Encode(e)
 }
 
 func (h *EventsHandler) Delete(w http.ResponseWriter, r *http.Request) {

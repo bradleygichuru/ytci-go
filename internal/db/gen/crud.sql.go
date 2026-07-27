@@ -324,29 +324,29 @@ func (q *Queries) UpdateCampaignStatus(ctx context.Context, arg *UpdateCampaignS
 
 const updateEvent = `-- name: UpdateEvent :one
 UPDATE events SET
-    title = COALESCE($2, title),
-    organizer = COALESCE($3, organizer),
+    title = CASE WHEN LENGTH($2) > 0 THEN $2 ELSE title END,
+    organizer = CASE WHEN LENGTH($3) > 0 THEN $3 ELSE organizer END,
     description = COALESCE($4, description),
-    status = COALESCE($5, status),
+    status = CASE WHEN LENGTH($5) > 0 THEN $5 ELSE status END,
     updated_at = now()
 WHERE id = $1 RETURNING id, title, organizer, county, venue, event_date, end_date, type, status, description, contact_email, contact_phone, image_url, reminder_enabled, reminder_minutes, created_by, created_at, updated_at
 `
 
 type UpdateEventParams struct {
 	ID          pgtype.UUID `json:"id"`
-	Title       string      `json:"title"`
-	Organizer   string      `json:"organizer"`
+	Length      pgtype.Lseg `json:"length"`
+	Length_2    pgtype.Lseg `json:"length_2"`
 	Description *string     `json:"description"`
-	Status      string      `json:"status"`
+	Length_3    pgtype.Lseg `json:"length_3"`
 }
 
 func (q *Queries) UpdateEvent(ctx context.Context, arg *UpdateEventParams) (Event, error) {
 	row := q.db.QueryRow(ctx, updateEvent,
 		arg.ID,
-		arg.Title,
-		arg.Organizer,
+		arg.Length,
+		arg.Length_2,
 		arg.Description,
-		arg.Status,
+		arg.Length_3,
 	)
 	var i Event
 	err := row.Scan(

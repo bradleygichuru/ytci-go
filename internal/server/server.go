@@ -79,6 +79,8 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 			aR.Get("/courses", courseH.List)
 			aR.Get("/challenges", challengeH.List)
 			aR.Get("/conservation/activities", conservationH.List)
+			aR.Get("/conservation/evidence", conservationH.ListEvidence)
+			aR.Post("/conservation/evidence/{id}/review", conservationH.ReviewEvidence)
 			aR.Get("/campaigns", campaignH.List)
 			aR.Patch("/campaigns/{id}/status", campaignH.UpdateStatus)
 			aR.Get("/analytics/summary", analyticsH.Summary)
@@ -89,6 +91,7 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 				mediaH := admin.NewMediaHandler(pool, r2client)
 				aR.Post("/media/presign", mediaH.Presign)
 				aR.Post("/media/complete", mediaH.Complete)
+				aR.Get("/media", mediaH.List)
 			}
 			if pushClient != nil {
 				pushH := admin.NewPushHandler(pool, pushClient)
@@ -130,7 +133,9 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 				aR.Post("/stories/like", actionsH.ToggleLike)
 				aR.Post("/stories/save", actionsH.ToggleSave)
 				aR.Post("/challenges/{id}/join", actionsH.JoinChallenge)
+				aR.Post("/challenges/{id}/evidence", actionsH.SubmitChallengeEvidence)
 				aR.Post("/conservation/{id}/join", actionsH.JoinConservation)
+				aR.Post("/conservation/{id}/evidence", actionsH.SubmitConservationEvidence)
 				aR.Post("/courses/{id}/enroll", actionsH.EnrollCourse)
 				aR.Post("/events/{id}/save", actionsH.SaveEvent)
 				aR.Post("/analytics/app-open", actionsH.RecordAppOpen)

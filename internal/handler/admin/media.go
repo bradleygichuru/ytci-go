@@ -10,6 +10,7 @@ import (
 
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 	"github.com/bradleygichuru/ytci-go/internal/middleware"
+	"github.com/bradleygichuru/ytci-go/internal/model"
 	"github.com/bradleygichuru/ytci-go/internal/r2"
 )
 
@@ -118,6 +119,41 @@ func (h *MediaHandler) Complete(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"id": id, "status": status})
+}
+
+func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.pool.Query(r.Context(),
+		`SELECT id, object_key, type, status, caption, alt_text, credit, file_size_bytes, created_at
+		 FROM media_assets ORDER BY created_at DESC LIMIT 50`)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list media")
+		return
+	}
+	defer rows.Close()
+
+	type item struct {
+		ID        string  `json:"id"`
+		ObjectKey string  `json:"objectKey"`
+		Type      string  `json:"type"`
+		Status    string  `json:"status"`
+		Caption   *string `json:"caption,omitempty"`
+		AltText   *string `json:"altText,omitempty"`
+		Credit    *string `json:"credit,omitempty"`
+		FileSize  *int    `json:"fileSizeBytes,omitempty"`
+		CreatedAt string  `json:"createdAt"`
+	}
+	var items []item
+	for rows.Next() {
+		var i item
+		rows.Scan(&i.ID, &i.ObjectKey, &i.Type, &i.Status, &i.Caption, &i.AltText, &i.Credit, &i.FileSize, &i.CreatedAt)
+		items = append(items, i)
+	}
+	if items == nil {
+		items = []item{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(model.Paginated[item]{Items: items, HasMore: false})
 }
 
 func (h *MediaHandler) GetURL(w http.ResponseWriter, r *http.Request) {

@@ -179,3 +179,57 @@ func (h *ActionsHandler) SaveEvent(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
 }
+
+type evidenceRequest struct {
+	MediaIDs    string `json:"mediaIds"`
+	Description string `json:"description,omitempty"`
+}
+
+func (h *ActionsHandler) SubmitConservationEvidence(w http.ResponseWriter, r *http.Request) {
+	activityID := r.PathValue("id")
+	if activityID == "" {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_ID", "activity id is required")
+		return
+	}
+	var req evidenceRequest
+	json.NewDecoder(r.Body).Decode(&req)
+
+	var evidenceID string
+	err := h.pool.QueryRow(r.Context(),
+		`INSERT INTO conservation_evidence (user_id, activity_id, description, media_ids)
+		 VALUES ($1, $2, $3, $4) RETURNING id`,
+		middleware.UserID(r.Context()), activityID, req.Description, req.MediaIDs).Scan(&evidenceID)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to submit evidence")
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"id": evidenceID, "status": "pending"})
+}
+
+func (h *ActionsHandler) SubmitChallengeEvidence(w http.ResponseWriter, r *http.Request) {
+	challengeID := r.PathValue("id")
+	if challengeID == "" {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_ID", "challenge id is required")
+		return
+	}
+	var req evidenceRequest
+	json.NewDecoder(r.Body).Decode(&req)
+
+	var progressID string
+	err := h.pool.QueryRow(r.Context(),
+		`UPDATE challenge_progress SET
+		 status = 'submitted',
+		 evidence = COALESCE($3::jsonb, evidence),
+		 updated_at = now()
+		 WHERE user_id = $1 AND challenge_id = $2 RETURNING id`,
+		middleware.UserID(r.Context()), challengeID, req.Description).Scan(&progressID)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to submit evidence")
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"id": progressID, "status": "submitted"})
+}

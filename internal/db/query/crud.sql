@@ -5,10 +5,10 @@ RETURNING *;
 
 -- name: UpdateEvent :one
 UPDATE events SET
-    title = COALESCE($2, title),
-    organizer = COALESCE($3, organizer),
+    title = COALESCE(NULLIF($2, ''), title),
+    organizer = COALESCE(NULLIF($3, ''), organizer),
     description = COALESCE($4, description),
-    status = COALESCE($5, status),
+    status = COALESCE(NULLIF($5, ''), status),
     updated_at = now()
 WHERE id = $1 RETURNING *;
 
