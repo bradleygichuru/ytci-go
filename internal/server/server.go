@@ -1,7 +1,6 @@
 package server
 
 import (
-	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -60,6 +59,7 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 	bucketHandler := expo.NewBucketHandler(pool)
 	profileHandler := expo.NewProfileHandler(pool)
 	itinerariesHandler := expo.NewItinerariesHandler(pool)
+	pushRegisterHandler := expo.NewPushRegisterHandler(pool)
 
 	r.Route("/v1", func(sub chi.Router) {
 		sub.Use(middleware.JWTAuth(jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud))
@@ -82,7 +82,6 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 				mediaHandler := admin.NewMediaHandler(pool, r2client)
 				adminR.Post("/media/presign", mediaHandler.Presign)
 				adminR.Post("/media/complete", mediaHandler.Complete)
-				adminR.Get("/media/{id}/url", mediaHandler.GetURL)
 			}
 
 			if pushClient != nil {
@@ -97,9 +96,8 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 		sub.Route("/mobile", func(mobile chi.Router) {
 			mobile.Get("/feed", feedHandler.GetFeed)
 			mobile.Get("/destinations", destHandler.List)
-			mobile.Get("/destinations/{slug}", destHandler.List)
+			mobile.Get("/destinations/{slug}", destHandler.Get)
 			mobile.Get("/events", eventsHandler.List)
-			mobile.Get("/events/{id}", eventsHandler.List)
 			mobile.Get("/stories", storiesHandler.List)
 			mobile.Get("/courses", coursesHandler.List)
 			mobile.Get("/challenges", challengesHandler.List)
@@ -113,9 +111,7 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 				authRouter.Get("/profile", profileHandler.Get)
 				authRouter.Get("/itineraries", itinerariesHandler.List)
 				authRouter.Post("/itineraries", itinerariesHandler.Create)
-				authRouter.Post("/push/register", func(w http.ResponseWriter, r *http.Request) {
-					w.WriteHeader(http.StatusOK)
-				})
+				authRouter.Post("/push/register", pushRegisterHandler.Register)
 			})
 		})
 	})

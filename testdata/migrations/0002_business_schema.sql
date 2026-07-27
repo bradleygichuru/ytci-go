@@ -238,6 +238,14 @@ CREATE TABLE push_tokens (
     updated_at TIMESTAMP NOT NULL DEFAULT now()
 );
 
+CREATE OR REPLACE FUNCTION notify_push_scheduled()
+RETURNS trigger AS $$
+BEGIN
+  PERFORM pg_notify('push_scheduled', NEW.id::text);
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE TABLE push_notifications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     campaign_id UUID REFERENCES campaigns(id) ON DELETE SET NULL,
@@ -356,3 +364,6 @@ CREATE INDEX IF NOT EXISTS events_county_type_status_date_idx ON events (county,
 CREATE INDEX IF NOT EXISTS media_entity_type_id_idx ON media_assets (entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS push_tokens_user_active_idx ON push_tokens (user_id, is_active);
 CREATE INDEX IF NOT EXISTS bucket_list_user_idx ON bucket_list_items (user_id);
+
+CREATE TRIGGER push_notify_trigger AFTER INSERT ON push_notifications
+FOR EACH ROW EXECUTE FUNCTION notify_push_scheduled();

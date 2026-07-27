@@ -44,16 +44,63 @@ func (q *Queries) GetEventByID(ctx context.Context, id pgtype.UUID) (Event, erro
 const listEvents = `-- name: ListEvents :many
 SELECT id, title, organizer, county, venue, event_date, end_date, type, status, description, contact_email, contact_phone, image_url, reminder_enabled, reminder_minutes, created_by, created_at, updated_at FROM events
 ORDER BY event_date ASC
-LIMIT $1 OFFSET $2
+LIMIT $1
 `
 
-type ListEventsParams struct {
-	Limit  int32 `json:"limit"`
-	Offset int32 `json:"offset"`
+func (q *Queries) ListEvents(ctx context.Context, limit int32) ([]Event, error) {
+	rows, err := q.db.Query(ctx, listEvents, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Event
+	for rows.Next() {
+		var i Event
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Organizer,
+			&i.County,
+			&i.Venue,
+			&i.EventDate,
+			&i.EndDate,
+			&i.Type,
+			&i.Status,
+			&i.Description,
+			&i.ContactEmail,
+			&i.ContactPhone,
+			&i.ImageUrl,
+			&i.ReminderEnabled,
+			&i.ReminderMinutes,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
-func (q *Queries) ListEvents(ctx context.Context, arg *ListEventsParams) ([]Event, error) {
-	rows, err := q.db.Query(ctx, listEvents, arg.Limit, arg.Offset)
+const listEventsAfter = `-- name: ListEventsAfter :many
+SELECT id, title, organizer, county, venue, event_date, end_date, type, status, description, contact_email, contact_phone, image_url, reminder_enabled, reminder_minutes, created_by, created_at, updated_at FROM events
+WHERE event_date > $1 OR (event_date = $1 AND id > $2)
+ORDER BY event_date ASC, id ASC
+LIMIT $3
+`
+
+type ListEventsAfterParams struct {
+	EventDate pgtype.Date `json:"event_date"`
+	ID        pgtype.UUID `json:"id"`
+	Limit     int32       `json:"limit"`
+}
+
+func (q *Queries) ListEventsAfter(ctx context.Context, arg *ListEventsAfterParams) ([]Event, error) {
+	rows, err := q.db.Query(ctx, listEventsAfter, arg.EventDate, arg.ID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -95,69 +142,16 @@ const listEventsByCounty = `-- name: ListEventsByCounty :many
 SELECT id, title, organizer, county, venue, event_date, end_date, type, status, description, contact_email, contact_phone, image_url, reminder_enabled, reminder_minutes, created_by, created_at, updated_at FROM events
 WHERE county = $1
 ORDER BY event_date ASC
-LIMIT $2 OFFSET $3
+LIMIT $2
 `
 
 type ListEventsByCountyParams struct {
 	County string `json:"county"`
 	Limit  int32  `json:"limit"`
-	Offset int32  `json:"offset"`
 }
 
 func (q *Queries) ListEventsByCounty(ctx context.Context, arg *ListEventsByCountyParams) ([]Event, error) {
-	rows, err := q.db.Query(ctx, listEventsByCounty, arg.County, arg.Limit, arg.Offset)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Event
-	for rows.Next() {
-		var i Event
-		if err := rows.Scan(
-			&i.ID,
-			&i.Title,
-			&i.Organizer,
-			&i.County,
-			&i.Venue,
-			&i.EventDate,
-			&i.EndDate,
-			&i.Type,
-			&i.Status,
-			&i.Description,
-			&i.ContactEmail,
-			&i.ContactPhone,
-			&i.ImageUrl,
-			&i.ReminderEnabled,
-			&i.ReminderMinutes,
-			&i.CreatedBy,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listEventsByType = `-- name: ListEventsByType :many
-SELECT id, title, organizer, county, venue, event_date, end_date, type, status, description, contact_email, contact_phone, image_url, reminder_enabled, reminder_minutes, created_by, created_at, updated_at FROM events
-WHERE type = $1
-ORDER BY event_date ASC
-LIMIT $2 OFFSET $3
-`
-
-type ListEventsByTypeParams struct {
-	Type   string `json:"type"`
-	Limit  int32  `json:"limit"`
-	Offset int32  `json:"offset"`
-}
-
-func (q *Queries) ListEventsByType(ctx context.Context, arg *ListEventsByTypeParams) ([]Event, error) {
-	rows, err := q.db.Query(ctx, listEventsByType, arg.Type, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listEventsByCounty, arg.County, arg.Limit)
 	if err != nil {
 		return nil, err
 	}

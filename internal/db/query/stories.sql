@@ -2,7 +2,14 @@
 SELECT * FROM stories
 WHERE status = 'approved'
 ORDER BY created_at DESC
-LIMIT $1 OFFSET $2;
+LIMIT $1;
+
+-- name: ListStoriesAfter :many
+SELECT * FROM stories
+WHERE status = 'approved'
+  AND (created_at < $1 OR (created_at = $1 AND id < $2))
+ORDER BY created_at DESC, id DESC
+LIMIT $3;
 
 -- name: GetStoryByID :one
 SELECT * FROM stories WHERE id = $1;

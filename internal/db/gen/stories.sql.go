@@ -85,16 +85,61 @@ const listStories = `-- name: ListStories :many
 SELECT id, creator_id, destination_id, caption, journal, tags, status, moderated_by, moderation_note, moderated_at, like_count, save_count, view_count, created_at, updated_at FROM stories
 WHERE status = 'approved'
 ORDER BY created_at DESC
-LIMIT $1 OFFSET $2
+LIMIT $1
 `
 
-type ListStoriesParams struct {
-	Limit  int32 `json:"limit"`
-	Offset int32 `json:"offset"`
+func (q *Queries) ListStories(ctx context.Context, limit int32) ([]Story, error) {
+	rows, err := q.db.Query(ctx, listStories, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Story
+	for rows.Next() {
+		var i Story
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatorID,
+			&i.DestinationID,
+			&i.Caption,
+			&i.Journal,
+			&i.Tags,
+			&i.Status,
+			&i.ModeratedBy,
+			&i.ModerationNote,
+			&i.ModeratedAt,
+			&i.LikeCount,
+			&i.SaveCount,
+			&i.ViewCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
-func (q *Queries) ListStories(ctx context.Context, arg *ListStoriesParams) ([]Story, error) {
-	rows, err := q.db.Query(ctx, listStories, arg.Limit, arg.Offset)
+const listStoriesAfter = `-- name: ListStoriesAfter :many
+SELECT id, creator_id, destination_id, caption, journal, tags, status, moderated_by, moderation_note, moderated_at, like_count, save_count, view_count, created_at, updated_at FROM stories
+WHERE status = 'approved'
+  AND (created_at < $1 OR (created_at = $1 AND id < $2))
+ORDER BY created_at DESC, id DESC
+LIMIT $3
+`
+
+type ListStoriesAfterParams struct {
+	CreatedAt pgtype.Timestamp `json:"created_at"`
+	ID        pgtype.UUID      `json:"id"`
+	Limit     int32            `json:"limit"`
+}
+
+func (q *Queries) ListStoriesAfter(ctx context.Context, arg *ListStoriesAfterParams) ([]Story, error) {
+	rows, err := q.db.Query(ctx, listStoriesAfter, arg.CreatedAt, arg.ID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}

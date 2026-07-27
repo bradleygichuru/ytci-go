@@ -346,16 +346,79 @@ func (q *Queries) GetDestinationBySlug(ctx context.Context, slug string) (Destin
 const listDestinations = `-- name: ListDestinations :many
 SELECT id, name, slug, county, locality, category, status, location, map_label, access_route, distance_reference, short_description, full_description, significance, history, things_to_do, suitable_audiences, duration, difficulty, seasonality, indicative_fees, opening_info, transport_notes, accessibility, facilities, safety_notes, source, content_owner, verification_status, last_updated, review_date, created_by, created_at, updated_at FROM destinations
 ORDER BY created_at DESC
-LIMIT $1 OFFSET $2
+LIMIT $1
 `
 
-type ListDestinationsParams struct {
-	Limit  int32 `json:"limit"`
-	Offset int32 `json:"offset"`
+func (q *Queries) ListDestinations(ctx context.Context, limit int32) ([]Destination, error) {
+	rows, err := q.db.Query(ctx, listDestinations, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Destination
+	for rows.Next() {
+		var i Destination
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Slug,
+			&i.County,
+			&i.Locality,
+			&i.Category,
+			&i.Status,
+			&i.Location,
+			&i.MapLabel,
+			&i.AccessRoute,
+			&i.DistanceReference,
+			&i.ShortDescription,
+			&i.FullDescription,
+			&i.Significance,
+			&i.History,
+			&i.ThingsToDo,
+			&i.SuitableAudiences,
+			&i.Duration,
+			&i.Difficulty,
+			&i.Seasonality,
+			&i.IndicativeFees,
+			&i.OpeningInfo,
+			&i.TransportNotes,
+			&i.Accessibility,
+			&i.Facilities,
+			&i.SafetyNotes,
+			&i.Source,
+			&i.ContentOwner,
+			&i.VerificationStatus,
+			&i.LastUpdated,
+			&i.ReviewDate,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
-func (q *Queries) ListDestinations(ctx context.Context, arg *ListDestinationsParams) ([]Destination, error) {
-	rows, err := q.db.Query(ctx, listDestinations, arg.Limit, arg.Offset)
+const listDestinationsAfter = `-- name: ListDestinationsAfter :many
+SELECT id, name, slug, county, locality, category, status, location, map_label, access_route, distance_reference, short_description, full_description, significance, history, things_to_do, suitable_audiences, duration, difficulty, seasonality, indicative_fees, opening_info, transport_notes, accessibility, facilities, safety_notes, source, content_owner, verification_status, last_updated, review_date, created_by, created_at, updated_at FROM destinations
+WHERE created_at < $1 OR (created_at = $1 AND id < $2)
+ORDER BY created_at DESC, id DESC
+LIMIT $3
+`
+
+type ListDestinationsAfterParams struct {
+	CreatedAt pgtype.Timestamp `json:"created_at"`
+	ID        pgtype.UUID      `json:"id"`
+	Limit     int32            `json:"limit"`
+}
+
+func (q *Queries) ListDestinationsAfter(ctx context.Context, arg *ListDestinationsAfterParams) ([]Destination, error) {
+	rows, err := q.db.Query(ctx, listDestinationsAfter, arg.CreatedAt, arg.ID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}

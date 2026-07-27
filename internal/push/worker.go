@@ -24,16 +24,50 @@ func NewWorker(pool *pgxpool.Pool, client *Client) *Worker {
 }
 
 func (w *Worker) Start(ctx context.Context) {
-	go w.listen(ctx)
-	slog.Info("push notification worker started")
+	go w.listenPGNotify(ctx)
+	go w.cleanupTicker(ctx)
+	slog.Info("push worker started with pg_notify listener")
 }
 
 func (w *Worker) Stop() {
 	close(w.done)
 }
 
-func (w *Worker) listen(ctx context.Context) {
-	ticker := time.NewTicker(10 * time.Second)
+func (w *Worker) listenPGNotify(ctx context.Context) {
+	conn, err := w.pool.Acquire(ctx)
+	if err != nil {
+		slog.Error("push worker: acquire connection", "error", err)
+		return
+	}
+	defer conn.Release()
+
+	_, err = conn.Exec(ctx, "LISTEN push_scheduled")
+	if err != nil {
+		slog.Error("push worker: listen push_scheduled", "error", err)
+		return
+	}
+	slog.Info("push worker: listening on push_scheduled")
+
+	for {
+		select {
+		case <-w.done:
+			return
+		case <-ctx.Done():
+			return
+		default:
+			notification, err := conn.Conn().WaitForNotification(ctx)
+			if err != nil {
+				time.Sleep(5 * time.Second)
+				continue
+			}
+			slog.Info("push worker: received notification", "channel", notification.Channel, "payload", notification.Payload)
+			w.processScheduled(ctx)
+		}
+	}
+}
+
+func (w *Worker) cleanupTicker(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
 	for {
@@ -50,92 +84,85 @@ func (w *Worker) listen(ctx context.Context) {
 
 func (w *Worker) processScheduled(ctx context.Context) {
 	rows, err := w.pool.Query(ctx,
-		`SELECT id, title, body, image_url, data, target_audience
+		`SELECT id, title, body, COALESCE(image_url, ''), COALESCE(data, ''), COALESCE(target_audience, '')
 		 FROM push_notifications
 		 WHERE scheduled_at <= now() AND status = 'scheduled'
 		 ORDER BY scheduled_at
 		 LIMIT 5
 		 FOR UPDATE SKIP LOCKED`)
 	if err != nil {
-		slog.Error("push worker: failed to query scheduled", "error", err)
+		slog.Error("push worker: query scheduled", "error", err)
 		return
 	}
 	defer rows.Close()
 
-	type scheduled struct {
-		id              string
-		title           string
-		body            string
-		imageURL        *string
-		data            *string
-		targetAudience  *string
-	}
-	var jobs []scheduled
+	var jobs []job
 	for rows.Next() {
-		var s scheduled
-		if err := rows.Scan(&s.id, &s.title, &s.body, &s.imageURL, &s.data, &s.targetAudience); err != nil {
-			slog.Error("push worker: failed to scan row", "error", err)
+		var j job
+		if err := rows.Scan(&j.id, &j.title, &j.body, &j.imageURL, &j.data, &j.targetAudience); err != nil {
+			slog.Error("push worker: scan", "error", err)
 			continue
 		}
-		jobs = append(jobs, s)
+		jobs = append(jobs, j)
 	}
 
-	for _, job := range jobs {
-		_, err = w.pool.Exec(ctx,
-			`UPDATE push_notifications SET status = 'sending' WHERE id = $1`, job.id)
-		if err != nil {
-			slog.Error("push worker: failed to mark sending", "id", job.id, "error", err)
-			continue
-		}
-
-		tokens := w.resolveTokens(ctx, job.targetAudience)
-		if len(tokens) == 0 {
-			w.pool.Exec(ctx,
-				`UPDATE push_notifications SET status = 'sent', sent_at = now(), recipient_count = 0 WHERE id = $1`, job.id)
-			continue
-		}
-
-		messages := make([]ExpoPushMessage, len(tokens))
-		for i, tok := range tokens {
-			messages[i] = ExpoPushMessage{
-				To:    tok,
-				Title: job.title,
-				Body:  job.body,
-				Sound: "default",
-			}
-			if job.data != nil {
-				var dataMap map[string]any
-				json.Unmarshal([]byte(*job.data), &dataMap)
-				messages[i].Data = dataMap
-			}
-		}
-
-		result, err := w.client.SendMessages(ctx, messages)
-		if err != nil {
-			slog.Error("push worker: send failed", "id", job.id, "error", err)
-			w.pool.Exec(ctx,
-				`UPDATE push_notifications SET status = 'failed' WHERE id = $1`, job.id)
-			continue
-		}
-
-		_, err = w.pool.Exec(ctx,
-			`UPDATE push_notifications SET status = 'sent', sent_at = now(), recipient_count = $2 WHERE id = $1`,
-			job.id, result.Sent)
-		if err != nil {
-			slog.Error("push worker: failed to mark sent", "id", job.id, "error", err)
-		}
-
-		slog.Info("push notification sent", "id", job.id, "sent", result.Sent, "failed", result.Failed)
-
-		go w.recordCleanup(ctx, job.id, result)
+	for _, j := range jobs {
+		w.sendOne(ctx, j)
 	}
 }
 
-func (w *Worker) resolveTokens(ctx context.Context, audience *string) []string {
-	query := `SELECT token FROM push_tokens WHERE is_active = true`
-	rows, err := w.pool.Query(ctx, query)
+func (w *Worker) sendOne(ctx context.Context, j job) {
+	_, err := w.pool.Exec(ctx,
+		`UPDATE push_notifications SET status = 'sending' WHERE id = $1`, j.id)
 	if err != nil {
-		slog.Error("push worker: failed to resolve tokens", "error", err)
+		slog.Error("push worker: mark sending", "id", j.id, "error", err)
+		return
+	}
+
+	tokens := w.resolveTokens(ctx)
+	if len(tokens) == 0 {
+		w.pool.Exec(ctx,
+			`UPDATE push_notifications SET status = 'sent', sent_at = now(), recipient_count = 0 WHERE id = $1`, j.id)
+		return
+	}
+
+	messages := make([]ExpoPushMessage, len(tokens))
+	for i, tok := range tokens {
+		msg := ExpoPushMessage{To: tok, Title: j.title, Body: j.body, Sound: "default"}
+		if j.data != "" {
+			var dataMap map[string]any
+			if err := json.Unmarshal([]byte(j.data), &dataMap); err == nil {
+				msg.Data = dataMap
+			}
+		}
+		messages[i] = msg
+	}
+
+	result, err := w.client.SendMessages(ctx, messages)
+	if err != nil {
+		slog.Error("push worker: send", "id", j.id, "error", err)
+		w.pool.Exec(ctx, `UPDATE push_notifications SET status = 'failed' WHERE id = $1`, j.id)
+		return
+	}
+
+	w.pool.Exec(ctx,
+		`UPDATE push_notifications SET status = 'sent', sent_at = now(), recipient_count = $2 WHERE id = $1`,
+		j.id, result.Sent)
+	slog.Info("push sent", "id", j.id, "sent", result.Sent, "failed", result.Failed)
+
+	for _, errMsg := range result.Errors {
+		if errMsg == "DeviceNotRegistered" {
+			w.pool.Exec(ctx, `UPDATE push_tokens SET is_active = false WHERE token IN (
+				SELECT token FROM push_notifications WHERE id = $1
+			)`, j.id)
+		}
+	}
+}
+
+func (w *Worker) resolveTokens(ctx context.Context) []string {
+	rows, err := w.pool.Query(ctx, `SELECT token FROM push_tokens WHERE is_active = true`)
+	if err != nil {
+		slog.Error("push worker: resolve tokens", "error", err)
 		return nil
 	}
 	defer rows.Close()
@@ -149,10 +176,11 @@ func (w *Worker) resolveTokens(ctx context.Context, audience *string) []string {
 	return tokens
 }
 
-func (w *Worker) recordCleanup(ctx context.Context, jobID string, result *SendResult) {
-	for _, errMsg := range result.Errors {
-		if errMsg == "DeviceNotRegistered" {
-			slog.Info("push worker: cleaning up stale token")
-		}
-	}
+type job struct {
+	id             string
+	title          string
+	body           string
+	imageURL       string
+	data           string
+	targetAudience string
 }

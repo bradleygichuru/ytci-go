@@ -3,9 +3,13 @@ package admin
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/bradleygichuru/ytci-go/internal/handler"
+	"github.com/bradleygichuru/ytci-go/internal/middleware"
 	"github.com/bradleygichuru/ytci-go/internal/model"
 )
 
@@ -19,13 +23,13 @@ func NewAnalyticsHandler(pool *pgxpool.Pool) *AnalyticsHandler {
 
 func (h *AnalyticsHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]any{
-		"dau":                   0,
-		"wau":                   0,
-		"mau":                   0,
-		"newRegistrations":      0,
-		"itinerariesGenerated":  0,
-		"storiesSubmitted":      0,
-		"courseEnrollments":     0,
+		"dau":                    0,
+		"wau":                    0,
+		"mau":                    0,
+		"newRegistrations":       0,
+		"itinerariesGenerated":   0,
+		"storiesSubmitted":       0,
+		"courseEnrollments":      0,
 		"conservationParticipants": 0,
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -41,17 +45,41 @@ func (h *AnalyticsHandler) ReportsList(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-func (h *AnalyticsHandler) Export(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Format   string   `json:"format"`
-		DateFrom string   `json:"dateFrom"`
-		DateTo   string   `json:"dateTo"`
-		Sections []string `json:"sections"`
-	}
-	json.NewDecoder(r.Body).Decode(&req)
+type exportRequest struct {
+	Format   string   `json:"format"`
+	DateFrom string   `json:"dateFrom"`
+	DateTo   string   `json:"dateTo"`
+	Sections []string `json:"sections"`
+}
 
-	result := map[string]string{"reportId": "", "status": "queued"}
+func (h *AnalyticsHandler) Export(w http.ResponseWriter, r *http.Request) {
+	var req exportRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
+		return
+	}
+
+	if req.Format != "csv" && req.Format != "pdf" {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_FORMAT", "format must be csv or pdf")
+		return
+	}
+
+	var reportID string
+	err := h.pool.QueryRow(r.Context(),
+		`INSERT INTO report_jobs (requested_by, format, date_from, date_to, sections, status)
+		 VALUES ($1, $2, $3, $4, $5, 'generating') RETURNING id`,
+		middleware.UserID(r.Context()), req.Format, req.DateFrom, req.DateTo, strings.Join(req.Sections, ","),
+	).Scan(&reportID)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create report")
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(result)
+	json.NewEncoder(w).Encode(map[string]string{
+		"reportId": reportID,
+		"status":   "generating",
+		"createdAt": time.Now().UTC().Format(time.RFC3339),
+	})
 }

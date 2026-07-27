@@ -1,7 +1,13 @@
 -- name: ListDestinations :many
 SELECT * FROM destinations
 ORDER BY created_at DESC
-LIMIT $1 OFFSET $2;
+LIMIT $1;
+
+-- name: ListDestinationsAfter :many
+SELECT * FROM destinations
+WHERE created_at < $1 OR (created_at = $1 AND id < $2)
+ORDER BY created_at DESC, id DESC
+LIMIT $3;
 
 -- name: GetDestinationBySlug :one
 SELECT * FROM destinations WHERE slug = $1 LIMIT 1;
