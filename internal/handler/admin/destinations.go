@@ -76,6 +76,9 @@ func (h *DestinationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Category           string   `json:"category"`
 		Lat                *float64 `json:"lat,omitempty"`
 		Lng                *float64 `json:"lng,omitempty"`
+		MapLabel           string   `json:"mapLabel,omitempty"`
+		AccessRoute        string   `json:"accessRoute,omitempty"`
+		DistanceReference  string   `json:"distanceReference,omitempty"`
 		ShortDescription   string   `json:"shortDescription,omitempty"`
 		FullDescription    string   `json:"fullDescription,omitempty"`
 		Significance       string   `json:"significance,omitempty"`
@@ -93,6 +96,7 @@ func (h *DestinationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		SafetyNotes        string   `json:"safetyNotes,omitempty"`
 		Source             string   `json:"source,omitempty"`
 		ContentOwner       string   `json:"contentOwner,omitempty"`
+		VerificationStatus string   `json:"verificationStatus,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
@@ -109,6 +113,9 @@ func (h *DestinationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Status:             "draft",
 		StMakepoint:        req.Lng,
 		StMakepoint_2:      req.Lat,
+		MapLabel:           strPtr(req.MapLabel),
+		AccessRoute:        strPtr(req.AccessRoute),
+		DistanceReference:  strPtr(req.DistanceReference),
 		ShortDescription:   strPtr(req.ShortDescription),
 		FullDescription:    strPtr(req.FullDescription),
 		Significance:       strPtr(req.Significance),
@@ -126,6 +133,7 @@ func (h *DestinationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		SafetyNotes:        strPtr(req.SafetyNotes),
 		Source:             strPtr(req.Source),
 		ContentOwner:       strPtr(req.ContentOwner),
+		VerificationStatus: strPtr(req.VerificationStatus),
 	})
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create destination")
@@ -140,23 +148,35 @@ func (h *DestinationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 func (h *DestinationsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	destID := r.PathValue("id")
 	var req struct {
-		Name               *string `json:"name,omitempty"`
-		ShortDescription   *string `json:"shortDescription,omitempty"`
-		FullDescription    *string `json:"fullDescription,omitempty"`
-		Significance       *string `json:"significance,omitempty"`
-		History            *string `json:"history,omitempty"`
-		ThingsToDo         *string `json:"thingsToDo,omitempty"`
-		SuitableAudiences  *string `json:"suitableAudiences,omitempty"`
-		Duration           *string `json:"duration,omitempty"`
-		Difficulty         *string `json:"difficulty,omitempty"`
-		Seasonality        *string `json:"seasonality,omitempty"`
-		IndicativeFees     *string `json:"indicativeFees,omitempty"`
-		OpeningInfo        *string `json:"openingInfo,omitempty"`
-		TransportNotes     *string `json:"transportNotes,omitempty"`
-		Accessibility      *string `json:"accessibility,omitempty"`
-		Facilities         *string `json:"facilities,omitempty"`
-		SafetyNotes        *string `json:"safetyNotes,omitempty"`
-		Status             *string `json:"status,omitempty"`
+		Name               *string  `json:"name,omitempty"`
+		Slug               *string  `json:"slug,omitempty"`
+		County             *string  `json:"county,omitempty"`
+		Locality           *string  `json:"locality,omitempty"`
+		Category           *string  `json:"category,omitempty"`
+		Lat                *float64 `json:"lat,omitempty"`
+		Lng                *float64 `json:"lng,omitempty"`
+		MapLabel           *string  `json:"mapLabel,omitempty"`
+		AccessRoute        *string  `json:"accessRoute,omitempty"`
+		DistanceReference  *string  `json:"distanceReference,omitempty"`
+		ShortDescription   *string  `json:"shortDescription,omitempty"`
+		FullDescription    *string  `json:"fullDescription,omitempty"`
+		Significance       *string  `json:"significance,omitempty"`
+		History            *string  `json:"history,omitempty"`
+		ThingsToDo         *string  `json:"thingsToDo,omitempty"`
+		SuitableAudiences  *string  `json:"suitableAudiences,omitempty"`
+		Duration           *string  `json:"duration,omitempty"`
+		Difficulty         *string  `json:"difficulty,omitempty"`
+		Seasonality        *string  `json:"seasonality,omitempty"`
+		IndicativeFees     *string  `json:"indicativeFees,omitempty"`
+		OpeningInfo        *string  `json:"openingInfo,omitempty"`
+		TransportNotes     *string  `json:"transportNotes,omitempty"`
+		Accessibility      *string  `json:"accessibility,omitempty"`
+		Facilities         *string  `json:"facilities,omitempty"`
+		SafetyNotes        *string  `json:"safetyNotes,omitempty"`
+		Source             *string  `json:"source,omitempty"`
+		ContentOwner       *string  `json:"contentOwner,omitempty"`
+		VerificationStatus *string  `json:"verificationStatus,omitempty"`
+		Status             *string  `json:"status,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
@@ -166,29 +186,46 @@ func (h *DestinationsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	_, err := h.pool.Exec(r.Context(),
 		`UPDATE destinations SET
 		 name = CASE WHEN $2::text != '' THEN $2 ELSE name END,
-		 short_description = COALESCE($3::text, short_description),
-		 full_description = COALESCE($4::text, full_description),
-		 significance = COALESCE($5::text, significance),
-		 history = COALESCE($6::text, history),
-		 things_to_do = COALESCE($7::text, things_to_do),
-		 suitable_audiences = COALESCE($8::text, suitable_audiences),
-		 duration = COALESCE($9::text, duration),
-		 difficulty = COALESCE($10::text, difficulty),
-		 seasonality = COALESCE($11::text, seasonality),
-		 indicative_fees = COALESCE($12::text, indicative_fees),
-		 opening_info = COALESCE($13::text, opening_info),
-		 transport_notes = COALESCE($14::text, transport_notes),
-		 accessibility = COALESCE($15::text, accessibility),
-		 facilities = COALESCE($16::text, facilities),
-		 safety_notes = COALESCE($17::text, safety_notes),
-		 status = CASE WHEN $18::text != '' THEN $18 ELSE status END,
+		 slug = CASE WHEN $3::text != '' THEN $3 ELSE slug END,
+		 county = CASE WHEN $4::text != '' THEN $4 ELSE county END,
+		 locality = COALESCE($5::text, locality),
+		 category = CASE WHEN $6::text != '' THEN $6 ELSE category END,
+		 location = CASE WHEN $7 IS NOT NULL AND $8 IS NOT NULL THEN ST_SetSRID(ST_MakePoint($7, $8), 4326) ELSE location END,
+		 map_label = COALESCE($9::text, map_label),
+		 access_route = COALESCE($10::text, access_route),
+		 distance_reference = COALESCE($11::text, distance_reference),
+		 short_description = COALESCE($12::text, short_description),
+		 full_description = COALESCE($13::text, full_description),
+		 significance = COALESCE($14::text, significance),
+		 history = COALESCE($15::text, history),
+		 things_to_do = COALESCE($16::text, things_to_do),
+		 suitable_audiences = COALESCE($17::text, suitable_audiences),
+		 duration = COALESCE($18::text, duration),
+		 difficulty = COALESCE($19::text, difficulty),
+		 seasonality = COALESCE($20::text, seasonality),
+		 indicative_fees = COALESCE($21::text, indicative_fees),
+		 opening_info = COALESCE($22::text, opening_info),
+		 transport_notes = COALESCE($23::text, transport_notes),
+		 accessibility = COALESCE($24::text, accessibility),
+		 facilities = COALESCE($25::text, facilities),
+		 safety_notes = COALESCE($26::text, safety_notes),
+		 source = COALESCE($27::text, source),
+		 content_owner = COALESCE($28::text, content_owner),
+		 verification_status = COALESCE($29::text, verification_status),
+		 status = CASE WHEN $30::text != '' THEN $30 ELSE status END,
 		 updated_at = now()
 		 WHERE id = $1`,
-		destID, valOrEmpty(req.Name), req.ShortDescription, req.FullDescription,
+		destID, valOrEmpty(req.Name), valOrEmpty(req.Slug),
+		valOrEmpty(req.County), req.Locality, valOrEmpty(req.Category),
+		req.Lng, req.Lat,
+		req.MapLabel, req.AccessRoute, req.DistanceReference,
+		req.ShortDescription, req.FullDescription,
 		req.Significance, req.History, req.ThingsToDo, req.SuitableAudiences,
-		req.Duration, req.Difficulty, req.Seasonality, req.IndicativeFees,
-		req.OpeningInfo, req.TransportNotes, req.Accessibility, req.Facilities,
-		req.SafetyNotes, valOrEmpty(req.Status))
+		req.Duration, req.Difficulty, req.Seasonality,
+		req.IndicativeFees, req.OpeningInfo, req.TransportNotes,
+		req.Accessibility, req.Facilities, req.SafetyNotes,
+		req.Source, req.ContentOwner, req.VerificationStatus,
+		valOrEmpty(req.Status))
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update destination")
 		return
@@ -212,32 +249,34 @@ func (h *DestinationsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 func (h *DestinationsHandler) AddMedia(w http.ResponseWriter, r *http.Request) {
 	destID := r.PathValue("id")
 	var req struct {
-		ObjectKey    string `json:"objectKey"`
-		Type         string `json:"type"`
-		Caption      string `json:"caption,omitempty"`
-		AltText      string `json:"altText,omitempty"`
-		Credit       string `json:"credit,omitempty"`
-		DisplayOrder int    `json:"displayOrder,omitempty"`
+		HeroMediaID    string   `json:"heroMediaId,omitempty"`
+		GalleryMediaIDs []string `json:"galleryMediaIds,omitempty"`
+		VideoMediaID   string   `json:"videoMediaId,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
 		return
 	}
 
-	var mediaID string
-	err := h.pool.QueryRow(r.Context(),
-		`INSERT INTO media_assets (entity_type, entity_id, object_key, type, caption, alt_text, credit, display_order, status)
-		 VALUES ('destination', $1, $2, $3, $4, $5, $6, $7, 'ready') RETURNING id`,
-		destID, req.ObjectKey, req.Type, req.Caption, req.AltText, req.Credit, req.DisplayOrder,
-	).Scan(&mediaID)
-	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to add media")
-		return
+	if req.HeroMediaID != "" {
+		h.pool.Exec(r.Context(),
+			`UPDATE media_assets SET entity_type = 'destination', entity_id = $1 WHERE id = $2`,
+			destID, req.HeroMediaID)
+	}
+	for _, gid := range req.GalleryMediaIDs {
+		h.pool.Exec(r.Context(),
+			`UPDATE media_assets SET entity_type = 'destination', entity_id = $1 WHERE id = $2`,
+			destID, gid)
+	}
+	if req.VideoMediaID != "" {
+		h.pool.Exec(r.Context(),
+			`UPDATE media_assets SET entity_type = 'destination', entity_id = $1 WHERE id = $2`,
+			destID, req.VideoMediaID)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"id": mediaID, "status": "linked"})
+	json.NewEncoder(w).Encode(map[string]string{"status": "linked"})
 }
 
 func (h *DestinationsHandler) Nearby(w http.ResponseWriter, r *http.Request) {

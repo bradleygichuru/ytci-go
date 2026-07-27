@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -83,6 +84,8 @@ func (h *ChallengeAdminHandler) Update(w http.ResponseWriter, r *http.Request) {
 		Title       *string `json:"title,omitempty"`
 		Description *string `json:"description,omitempty"`
 		BadgeName   *string `json:"badgeName,omitempty"`
+		StartDate   *string `json:"startDate,omitempty"`
+		EndDate     *string `json:"endDate,omitempty"`
 		Status      *string `json:"status,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -90,15 +93,31 @@ func (h *ChallengeAdminHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := h.pool.Exec(r.Context(),
-		`UPDATE challenges SET
-		 title = CASE WHEN $2::text != '' THEN $2 ELSE title END,
-		 description = COALESCE($3::text, description),
-		 badge_name = COALESCE($4::text, badge_name),
-		 status = CASE WHEN $5::text != '' THEN $5 ELSE status END,
-		 updated_at = now()
-		 WHERE id = $1`,
-		challengeID, valOrEmpty(req.Title), req.Description, req.BadgeName, valOrEmpty(req.Status))
+	query := `UPDATE challenges SET`
+	args := []any{challengeID}
+	n := 2
+
+	if req.Title != nil {
+		query += fmt.Sprintf(` title = $%d,`, n); args = append(args, *req.Title); n++
+	}
+	if req.Description != nil {
+		query += fmt.Sprintf(` description = $%d,`, n); args = append(args, *req.Description); n++
+	}
+	if req.BadgeName != nil {
+		query += fmt.Sprintf(` badge_name = $%d,`, n); args = append(args, *req.BadgeName); n++
+	}
+	if req.StartDate != nil {
+		query += fmt.Sprintf(` start_date = $%d::date,`, n); args = append(args, *req.StartDate); n++
+	}
+	if req.EndDate != nil {
+		query += fmt.Sprintf(` end_date = $%d::date,`, n); args = append(args, *req.EndDate); n++
+	}
+	if req.Status != nil {
+		query += fmt.Sprintf(` status = $%d,`, n); args = append(args, *req.Status); n++
+	}
+	query += ` updated_at = now() WHERE id = $1`
+
+	_, err := h.pool.Exec(r.Context(), query, args...)
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update challenge")
 		return
@@ -109,11 +128,12 @@ func (h *ChallengeAdminHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 func (h *ChallengeAdminHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	challengeID := r.PathValue("id")
-	_, err := h.pool.Exec(r.Context(), `DELETE FROM challenges WHERE id = $1`, challengeID)
+	_, err := h.pool.Exec(r.Context(),
+		`UPDATE challenges SET status = 'cancelled', updated_at = now() WHERE id = $1`, challengeID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to delete challenge")
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to cancel challenge")
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+	json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
 }
