@@ -169,3 +169,13 @@ func (h *ActionsHandler) RecordAppOpen(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "recorded"})
 }
+
+func (h *ActionsHandler) SaveEvent(w http.ResponseWriter, r *http.Request) {
+	eventID := r.PathValue("id")
+	if eventID == "" {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_ID", "event id is required")
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
+}
