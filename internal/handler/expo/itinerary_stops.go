@@ -47,15 +47,36 @@ func (h *ItineraryStopsHandler) UpsertStops(w http.ResponseWriter, r *http.Reque
 	}
 
 	userID := middleware.UserID(r.Context())
-	h.pool.Exec(r.Context(),
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to begin transaction")
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	_, err = tx.Exec(r.Context(),
 		`DELETE FROM itinerary_stops USING itineraries WHERE itinerary_stops.itinerary_id = $1 AND itineraries.id = $1 AND itineraries.user_id = $2`,
 		itineraryID, userID)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to clear stops")
+		return
+	}
 
 	for _, s := range req.Stops {
-		h.pool.Exec(r.Context(),
+		_, err = tx.Exec(r.Context(),
 			`INSERT INTO itinerary_stops (itinerary_id, destination_id, day, display_order, title, description, estimated_cost)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 			itineraryID, s.DestinationID, s.Day, s.DisplayOrder, s.Title, s.Description, s.EstimatedCost)
+		if err != nil {
+			handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to insert stop")
+			return
+		}
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to commit")
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
