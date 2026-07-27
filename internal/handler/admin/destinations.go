@@ -1,7 +1,9 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -246,37 +248,60 @@ func (h *DestinationsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "archived"})
 }
 
+func (h *DestinationsHandler) linkMedia(ctx context.Context, destID, mediaID string) error {
+	tag, err := h.pool.Exec(ctx,
+		`UPDATE media_assets SET entity_type = 'destination', entity_id = $1 WHERE id = $2`,
+		destID, mediaID)
+	if err != nil {
+		return fmt.Errorf("db: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("media %q not found", mediaID)
+	}
+	return nil
+}
+
 func (h *DestinationsHandler) AddMedia(w http.ResponseWriter, r *http.Request) {
 	destID := r.PathValue("id")
 	var req struct {
-		HeroMediaID    string   `json:"heroMediaId,omitempty"`
+		HeroMediaID     string   `json:"heroMediaId,omitempty"`
 		GalleryMediaIDs []string `json:"galleryMediaIds,omitempty"`
-		VideoMediaID   string   `json:"videoMediaId,omitempty"`
+		VideoMediaID    string   `json:"videoMediaId,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
 		return
 	}
 
+	var fails []string
 	if req.HeroMediaID != "" {
-		h.pool.Exec(r.Context(),
-			`UPDATE media_assets SET entity_type = 'destination', entity_id = $1 WHERE id = $2`,
-			destID, req.HeroMediaID)
+		if err := h.linkMedia(r.Context(), destID, req.HeroMediaID); err != nil {
+			fails = append(fails, fmt.Sprintf("hero: %v", err))
+		}
 	}
 	for _, gid := range req.GalleryMediaIDs {
-		h.pool.Exec(r.Context(),
-			`UPDATE media_assets SET entity_type = 'destination', entity_id = $1 WHERE id = $2`,
-			destID, gid)
+		if err := h.linkMedia(r.Context(), destID, gid); err != nil {
+			fails = append(fails, fmt.Sprintf("gallery %q: %v", gid, err))
+		}
 	}
 	if req.VideoMediaID != "" {
-		h.pool.Exec(r.Context(),
-			`UPDATE media_assets SET entity_type = 'destination', entity_id = $1 WHERE id = $2`,
-			destID, req.VideoMediaID)
+		if err := h.linkMedia(r.Context(), destID, req.VideoMediaID); err != nil {
+			fails = append(fails, fmt.Sprintf("video: %v", err))
+		}
+	}
+
+	if len(fails) > 0 {
+		for _, f := range fails {
+			slog.Warn("add media", "error", f)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"status": "linked"})
+	json.NewEncoder(w).Encode(map[string]any{
+		"status": "linked",
+		"errors": fails,
+	})
 }
 
 func (h *DestinationsHandler) Nearby(w http.ResponseWriter, r *http.Request) {
