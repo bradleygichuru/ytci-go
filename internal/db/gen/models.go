@@ -186,6 +186,12 @@ type Event struct {
 	UpdatedAt       pgtype.Timestamp `json:"updated_at"`
 }
 
+type EventSafe struct {
+	UserID    pgtype.UUID      `json:"user_id"`
+	EventID   pgtype.UUID      `json:"event_id"`
+	CreatedAt pgtype.Timestamp `json:"created_at"`
+}
+
 type Itinerary struct {
 	ID          pgtype.UUID      `json:"id"`
 	UserID      pgtype.UUID      `json:"user_id"`
@@ -333,6 +339,16 @@ type StoryInteraction struct {
 	StoryID         pgtype.UUID      `json:"story_id"`
 	InteractionType string           `json:"interaction_type"`
 	CreatedAt       pgtype.Timestamp `json:"created_at"`
+}
+
+type StoryReport struct {
+	ID         pgtype.UUID      `json:"id"`
+	StoryID    pgtype.UUID      `json:"story_id"`
+	ReportedBy pgtype.UUID      `json:"reported_by"`
+	Reason     string           `json:"reason"`
+	Details    *string          `json:"details"`
+	Reviewed   *bool            `json:"reviewed"`
+	CreatedAt  pgtype.Timestamp `json:"created_at"`
 }
 
 type UserProfile struct {
