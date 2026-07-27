@@ -13,6 +13,12 @@ import (
 	"github.com/bradleygichuru/ytci-go/internal/middleware"
 )
 
+type question struct {
+	Q           string   `json:"q"`
+	Options     []string `json:"options"`
+	CorrectIdx  int      `json:"correct_index"`
+}
+
 // CourseCRUD adds course create/update endpoints (US 36)
 type CourseCRUD struct {
 	pool *pgxpool.Pool
@@ -59,30 +65,64 @@ func NewQuizHandler(pool *pgxpool.Pool) *QuizHandler {
 
 func (h *QuizHandler) Evaluate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		CourseID string   `json:"courseId"`
-		Answers  []answer `json:"answers"`
+		QuizID  string   `json:"quizId"`
+		Answers []struct {
+			QuestionIndex int `json:"questionIndex"`
+			ChosenIndex   int `json:"chosenIndex"`
+		} `json:"answers"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
 		return
 	}
 
-	userID := middleware.UserID(r.Context())
-	correct := 0
-	total := len(req.Answers)
-
-	for _, a := range req.Answers {
-		if a.CorrectIndex == a.ChosenIndex {
-			correct++
-		}
-		passThreshold := 70
-		_ = passThreshold
-
-		_ = userID
-		_ = h.pool
+	var questionsJSON string
+	err := h.pool.QueryRow(r.Context(),
+		`SELECT questions::text, pass_threshold FROM quizzes WHERE id = $1`, req.QuizID,
+	).Scan(&questionsJSON)
+	if err != nil {
+		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "quiz not found")
+		return
 	}
 
-	passed := correct >= total*70/100
+	var storedQuestions []question
+	if err := json.Unmarshal([]byte(questionsJSON), &storedQuestions); err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "invalid quiz data")
+		return
+	}
+
+	userID := middleware.UserID(r.Context())
+	correct := 0
+	total := len(storedQuestions)
+
+	for _, a := range req.Answers {
+		if a.QuestionIndex < len(storedQuestions) {
+			if storedQuestions[a.QuestionIndex].CorrectIdx == a.ChosenIndex {
+				correct++
+			}
+		}
+	}
+
+	passThreshold := 70
+	score := 0
+	if total > 0 {
+		score = correct * 100 / total
+	}
+	passed := score >= passThreshold
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err = h.pool.Exec(r.Context(),
+		`UPDATE course_enrollments
+		 SET quiz_attempts = jsonb_set(
+		     COALESCE(quiz_attempts, '{}'::jsonb),
+		     array[$1::text],
+		     $2::jsonb,
+		     true
+		 )
+		 WHERE user_id = $3 AND course_id IN (SELECT course_id FROM quizzes WHERE id = $1)`,
+		req.QuizID,
+		fmt.Sprintf(`{"score":%d,"passed":%v,"attempted_at":"%s"}`, score, passed, now),
+		userID)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
@@ -91,12 +131,6 @@ func (h *QuizHandler) Evaluate(w http.ResponseWriter, r *http.Request) {
 		"correct": correct,
 		"total":   total,
 	})
-}
-
-type answer struct {
-	QuestionIndex int `json:"questionIndex"`
-	ChosenIndex   int `json:"chosenIndex"`
-	CorrectIndex  int `json:"correctIndex"`
 }
 
 // ChallengeAdminCRUD handles admin challenge create (US 44)

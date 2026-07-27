@@ -176,6 +176,15 @@ func (h *ActionsHandler) SaveEvent(w http.ResponseWriter, r *http.Request) {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_ID", "event id is required")
 		return
 	}
+
+	_, err := h.pool.Exec(r.Context(),
+		`INSERT INTO event_saves (user_id, event_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+		middleware.UserID(r.Context()), eventID)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to save event")
+		return
+	}
+
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
 }

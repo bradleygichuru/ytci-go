@@ -362,6 +362,13 @@ CREATE INDEX IF NOT EXISTS stories_status_idx ON stories (status);
 CREATE INDEX IF NOT EXISTS stories_created_idx ON stories (created_at);
 CREATE INDEX IF NOT EXISTS events_county_type_status_date_idx ON events (county, type, status, event_date);
 CREATE INDEX IF NOT EXISTS media_entity_type_id_idx ON media_assets (entity_type, entity_id);
+CREATE TABLE event_saves (
+    user_id UUID NOT NULL,
+    event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, event_id)
+);
+
 CREATE INDEX IF NOT EXISTS push_tokens_user_active_idx ON push_tokens (user_id, is_active);
 CREATE INDEX IF NOT EXISTS bucket_list_user_idx ON bucket_list_items (user_id);
 
