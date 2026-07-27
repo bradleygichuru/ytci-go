@@ -50,7 +50,7 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 
 	r.Route("/v1", func(sub chi.Router) {
 		sub.Use(middleware.JWTAuth(jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud))
-		mountAdminRoutes(sub, h, pool, r2client, pushClient)
+		mountAdminRoutes(sub, h, r2client)
 		mountMobileRoutes(sub, h)
 	})
 
@@ -76,10 +76,12 @@ type handlers struct {
 	pushReg   *expo.PushRegisterHandler
 	actions   *expo.ActionsHandler
 	mStories  *expo.StoriesHandler
+	media     *admin.MediaHandler
+	pushAdmin *admin.PushHandler
 }
 
 func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Client) *handlers {
-	return &handlers{
+	h := &handlers{
 		dest:      admin.NewDestinationsHandler(pool),
 		events:    admin.NewEventsHandler(pool),
 		stories:   admin.NewStoriesHandler(pool),
@@ -98,10 +100,15 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 		pushReg:   expo.NewPushRegisterHandler(pool),
 		actions:   expo.NewActionsHandler(pool),
 		mStories:  expo.NewStoriesHandler(pool),
+		media:     admin.NewMediaHandler(pool, r2client),
 	}
+	if pushClient != nil {
+		h.pushAdmin = admin.NewPushHandler(pool, pushClient)
+	}
+	return h
 }
 
-func mountAdminRoutes(sub chi.Router, h *handlers, pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Client) {
+func mountAdminRoutes(sub chi.Router, h *handlers, r2client r2.Store) {
 	sub.Group(func(aR chi.Router) {
 		aR.Use(middleware.AdminGate)
 
@@ -138,20 +145,18 @@ func mountAdminRoutes(sub chi.Router, h *handlers, pool *pgxpool.Pool, r2client 
 		aR.Patch("/campaigns/{id}", h.campaign.Update)
 		aR.Delete("/campaigns/{id}", h.campaign.Delete)
 
-		mediaH := admin.NewMediaHandler(pool, r2client)
-		aR.Patch("/media/{id}", mediaH.UpdateMetadata)
-		aR.Get("/media", mediaH.List)
+		aR.Patch("/media/{id}", h.media.UpdateMetadata)
+		aR.Get("/media", h.media.List)
 		if r2client != nil {
-			aR.Post("/media/presign", mediaH.Presign)
-			aR.Post("/media/complete", mediaH.Complete)
-			aR.Delete("/media/{id}", mediaH.Delete)
+			aR.Post("/media/presign", h.media.Presign)
+			aR.Post("/media/complete", h.media.Complete)
+			aR.Delete("/media/{id}", h.media.Delete)
 		}
-		if pushClient != nil {
-			pushH := admin.NewPushHandler(pool, pushClient)
-			aR.Post("/push/send", pushH.Send)
-			aR.Post("/push/schedule", pushH.Schedule)
-			aR.Get("/push/history", pushH.History)
-			aR.Get("/push/history/{id}", pushH.HistoryDetail)
+		if h.pushAdmin != nil {
+			aR.Post("/push/send", h.pushAdmin.Send)
+			aR.Post("/push/schedule", h.pushAdmin.Schedule)
+			aR.Get("/push/history", h.pushAdmin.History)
+			aR.Get("/push/history/{id}", h.pushAdmin.HistoryDetail)
 		}
 	})
 }
@@ -188,6 +193,8 @@ func mountMobileRoutes(sub chi.Router, h *handlers) {
 			aR.Put("/itineraries/{id}/stops", h.itinStops.UpsertStops)
 			aR.Post("/push/register", h.pushReg.Register)
 
+			aR.Post("/media/presign", h.media.Presign)
+			aR.Post("/media/complete", h.media.Complete)
 			aR.Post("/stories", h.actions.CreateStory)
 			aR.Post("/stories/like", h.actions.ToggleLike)
 			aR.Post("/stories/save", h.actions.ToggleSave)
