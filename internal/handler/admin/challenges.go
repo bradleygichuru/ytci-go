@@ -76,3 +76,44 @@ func (h *ChallengeAdminHandler) Create(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"id": id, "status": "draft"})
 }
+
+func (h *ChallengeAdminHandler) Update(w http.ResponseWriter, r *http.Request) {
+	challengeID := r.PathValue("id")
+	var req struct {
+		Title       *string `json:"title,omitempty"`
+		Description *string `json:"description,omitempty"`
+		BadgeName   *string `json:"badgeName,omitempty"`
+		Status      *string `json:"status,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
+		return
+	}
+
+	_, err := h.pool.Exec(r.Context(),
+		`UPDATE challenges SET
+		 title = CASE WHEN $2::text != '' THEN $2 ELSE title END,
+		 description = COALESCE($3::text, description),
+		 badge_name = COALESCE($4::text, badge_name),
+		 status = CASE WHEN $5::text != '' THEN $5 ELSE status END,
+		 updated_at = now()
+		 WHERE id = $1`,
+		challengeID, valOrEmpty(req.Title), req.Description, req.BadgeName, valOrEmpty(req.Status))
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update challenge")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
+}
+
+func (h *ChallengeAdminHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	challengeID := r.PathValue("id")
+	_, err := h.pool.Exec(r.Context(), `DELETE FROM challenges WHERE id = $1`, challengeID)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to delete challenge")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+}

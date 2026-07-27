@@ -134,6 +134,8 @@ func mountAdminRoutes(sub chi.Router, h *handlers, r2client r2.Store) {
 		aR.Post("/quizzes/evaluate", h.quiz.Evaluate)
 		aR.Get("/challenges", h.challenge.List)
 		aR.Post("/challenges", h.challenge.Create)
+		aR.Patch("/challenges/{id}", h.challenge.Update)
+		aR.Delete("/challenges/{id}", h.challenge.Delete)
 		aR.Get("/conservation/activities", h.conserv.List)
 		aR.Post("/conservation/activities", h.conserv.Create)
 		aR.Patch("/conservation/activities/{id}", h.conserv.Update)
@@ -144,6 +146,12 @@ func mountAdminRoutes(sub chi.Router, h *handlers, r2client r2.Store) {
 		aR.Post("/campaigns", h.campaign.Create)
 		aR.Patch("/campaigns/{id}", h.campaign.Update)
 		aR.Delete("/campaigns/{id}", h.campaign.Delete)
+
+		aR.Get("/analytics/summary", h.analytics.Summary)
+		aR.Get("/analytics/reports", h.analytics.ReportsList)
+		aR.Post("/analytics/reports/export", h.analytics.Export)
+
+		aR.Post("/destinations/{id}/media", h.dest.AddMedia)
 
 		aR.Patch("/media/{id}", h.media.UpdateMetadata)
 		aR.Get("/media", h.media.List)
