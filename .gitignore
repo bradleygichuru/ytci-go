@@ -1,0 +1,6 @@
+bin/
+.env
+*.local
+.DS_Store
+*.swp
+*.swo
