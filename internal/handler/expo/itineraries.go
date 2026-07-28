@@ -1,7 +1,6 @@
 package expo
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 
@@ -81,7 +80,7 @@ func (h *ItinerariesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create itinerary")
 		return
 	}
-	defer tx.Rollback(context.Background())
+	defer tx.Rollback(r.Context())
 
 	var itineraryID string
 	err = tx.QueryRow(r.Context(),
@@ -198,7 +197,7 @@ func (h *ItinerariesHandler) Duplicate(w http.ResponseWriter, r *http.Request) {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to duplicate")
 		return
 	}
-	defer tx.Rollback(context.Background())
+	defer tx.Rollback(r.Context())
 
 	var newID string
 	err = tx.QueryRow(r.Context(),

@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -66,7 +67,11 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := r.RemoteAddr
 		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-			ip = fwd
+			if idx := strings.IndexByte(fwd, ','); idx != -1 {
+				ip = strings.TrimSpace(fwd[:idx])
+			} else {
+				ip = fwd
+			}
 		}
 
 		limiter := rl.getClient(ip)

@@ -1,7 +1,6 @@
 package expo
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 
@@ -54,7 +53,7 @@ func (h *ItineraryStopsHandler) UpsertStops(w http.ResponseWriter, r *http.Reque
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to begin transaction")
 		return
 	}
-	defer tx.Rollback(context.Background())
+	defer tx.Rollback(r.Context())
 
 	_, err = tx.Exec(r.Context(),
 		`DELETE FROM itinerary_stops USING itineraries WHERE itinerary_stops.itinerary_id = $1 AND itineraries.id = $1 AND itineraries.user_id = $2`,
