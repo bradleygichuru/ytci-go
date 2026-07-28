@@ -88,6 +88,8 @@ type handlers struct {
 	mStories  *expo.StoriesHandler
 	media     *admin.MediaHandler
 	pushAdmin *admin.PushHandler
+	comments  *expo.CommentHandler
+	adminComments *admin.AdminCommentHandler
 }
 
 func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Client) *handlers {
@@ -111,6 +113,8 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 		actions:   expo.NewActionsHandler(pool),
 		mStories:  expo.NewStoriesHandler(pool),
 		media:     admin.NewMediaHandler(pool, r2client),
+		comments:  expo.NewCommentHandler(pool),
+		adminComments: admin.NewAdminCommentHandler(pool),
 	}
 	if pushClient != nil {
 		h.pushAdmin = admin.NewPushHandler(pool, pushClient)
@@ -176,6 +180,9 @@ func mountAdminRoutes(sub chi.Router, h *handlers, r2client r2.Store) {
 			aR.Get("/push/history", h.pushAdmin.History)
 			aR.Get("/push/history/{id}", h.pushAdmin.HistoryDetail)
 		}
+
+		aR.Get("/comments/moderation", h.adminComments.ModerationList)
+		aR.Post("/comments/moderation/{cid}", h.adminComments.Moderate)
 	})
 }
 
@@ -231,6 +238,13 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 			aR.Post("/courses/{id}/enroll", h.actions.EnrollCourse)
 			aR.Post("/events/{id}/save", h.actions.SaveEvent)
 			aR.Post("/analytics/app-open", h.actions.RecordAppOpen)
+
+			aR.Post("/stories/{id}/comments", h.comments.CreateComment)
+			aR.Post("/stories/{id}/comments/{cid}/replies", h.comments.CreateReply)
+			aR.Patch("/stories/{id}/comments/{cid}", h.comments.UpdateComment)
+			aR.Delete("/stories/{id}/comments/{cid}", h.comments.DeleteComment)
+			aR.Post("/stories/{id}/comments/{cid}/like", h.comments.ToggleLike)
+			aR.Post("/stories/{id}/comments/{cid}/report", h.comments.ReportComment)
 		})
 	})
 }
@@ -245,4 +259,6 @@ func mountPublicRoutes(pub chi.Router, h *handlers) {
 	pub.Get("/courses", h.course.ListMobile)
 	pub.Get("/challenges", h.challenge.ListMobile)
 	pub.Get("/conservation", h.conserv.ListMobile)
+
+	pub.Get("/stories/{id}/comments", h.comments.ListComments)
 }

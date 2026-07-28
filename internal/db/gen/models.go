@@ -71,6 +71,14 @@ type ChallengeProgress struct {
 	UpdatedAt      pgtype.Timestamp `json:"updated_at"`
 }
 
+type CommentInteraction struct {
+	ID              pgtype.UUID      `json:"id"`
+	UserID          pgtype.UUID      `json:"user_id"`
+	CommentID       pgtype.UUID      `json:"comment_id"`
+	InteractionType string           `json:"interaction_type"`
+	CreatedAt       pgtype.Timestamp `json:"created_at"`
+}
+
 type ConservationActivity struct {
 	ID                  pgtype.UUID      `json:"id"`
 	Title               string           `json:"title"`
@@ -264,6 +272,15 @@ type MediaAsset struct {
 	UpdatedAt      pgtype.Timestamp `json:"updated_at"`
 }
 
+type PendingMediaUpload struct {
+	ObjectKey   string           `json:"object_key"`
+	UserID      pgtype.UUID      `json:"user_id"`
+	ContentType string           `json:"content_type"`
+	FileSize    int64            `json:"file_size"`
+	ExpiresAt   pgtype.Timestamp `json:"expires_at"`
+	CreatedAt   pgtype.Timestamp `json:"created_at"`
+}
+
 type PushNotification struct {
 	ID             pgtype.UUID      `json:"id"`
 	CampaignID     pgtype.UUID      `json:"campaign_id"`
@@ -333,6 +350,18 @@ type Story struct {
 	UpdatedAt      pgtype.Timestamp `json:"updated_at"`
 }
 
+type StoryComment struct {
+	ID        pgtype.UUID      `json:"id"`
+	StoryID   pgtype.UUID      `json:"story_id"`
+	AuthorID  pgtype.UUID      `json:"author_id"`
+	ParentID  pgtype.UUID      `json:"parent_id"`
+	Body      string           `json:"body"`
+	Status    string           `json:"status"`
+	LikeCount *int32           `json:"like_count"`
+	CreatedAt pgtype.Timestamp `json:"created_at"`
+	UpdatedAt pgtype.Timestamp `json:"updated_at"`
+}
+
 type StoryInteraction struct {
 	ID              pgtype.UUID      `json:"id"`
 	UserID          pgtype.UUID      `json:"user_id"`
@@ -361,4 +390,5 @@ type UserProfile struct {
 	CreatedBy        pgtype.UUID      `json:"created_by"`
 	CreatedAt        pgtype.Timestamp `json:"created_at"`
 	UpdatedAt        pgtype.Timestamp `json:"updated_at"`
+	DisplayName      *string          `json:"display_name"`
 }
