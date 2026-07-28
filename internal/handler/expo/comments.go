@@ -126,11 +126,15 @@ func (h *CommentHandler) ListComments(w http.ResponseWriter, r *http.Request) {
 
 	items := make([]commentResponse, 0, len(topComments))
 	for _, tc := range topComments {
+		authorName := tc.AuthorName
+		if tc.Status == "deleted" {
+			authorName = "[deleted]"
+		}
 		c := commentResponse{
 			ID:         uuidString(tc.ID),
 			StoryID:    uuidString(tc.StoryID),
 			AuthorID:   uuidString(tc.AuthorID),
-			AuthorName: tc.AuthorName,
+			AuthorName: authorName,
 			Body:       tc.Body,
 			Status:     tc.Status,
 			LikeCount:  int(ptrToInt32(tc.LikeCount)),
@@ -140,10 +144,14 @@ func (h *CommentHandler) ListComments(w http.ResponseWriter, r *http.Request) {
 		}
 
 		for _, rep := range repliesMap[tc.ID] {
+			repAuthorName := rep.AuthorName
+			if rep.Status == "deleted" {
+				repAuthorName = "[deleted]"
+			}
 			r := replyResponse{
 				ID:         uuidString(rep.ID),
 				AuthorID:   uuidString(rep.AuthorID),
-				AuthorName: rep.AuthorName,
+				AuthorName: repAuthorName,
 				Body:       rep.Body,
 				Status:     rep.Status,
 				LikeCount:  int(ptrToInt32(rep.LikeCount)),
@@ -309,7 +317,7 @@ func (h *CommentHandler) UpdateComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updated, err := queries.UpdateCommentBody(r.Context(), &gen.UpdateCommentBodyParams{
+	_, err = queries.UpdateCommentBody(r.Context(), &gen.UpdateCommentBodyParams{
 		ID:   toUUID(commentID),
 		Body: req.Body,
 	})
@@ -319,7 +327,14 @@ func (h *CommentHandler) UpdateComment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": updated.Status})
+	json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update comment")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
 }
 
 func (h *CommentHandler) DeleteComment(w http.ResponseWriter, r *http.Request) {
@@ -344,19 +359,32 @@ func (h *CommentHandler) DeleteComment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	isAuthor := uuidString(existing.AuthorID) == userID
-	if !isAuthor {
-		handler.WriteError(w, http.StatusForbidden, "FORBIDDEN", "you can only delete your own comments")
+	if isAuthor {
+		_, err = queries.SoftDeleteComment(r.Context(), toUUID(commentID))
+		if err != nil {
+			handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to delete comment")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 		return
 	}
 
-	_, err = queries.SoftDeleteComment(r.Context(), toUUID(commentID))
-	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to delete comment")
+	var storyCreatorID string
+	err = h.pool.QueryRow(r.Context(),
+		`SELECT creator_id FROM stories WHERE id = $1`, existing.StoryID).Scan(&storyCreatorID)
+	if err == nil && storyCreatorID == userID {
+		_, err = queries.SoftDeleteComment(r.Context(), toUUID(commentID))
+		if err != nil {
+			handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to delete comment")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+	handler.WriteError(w, http.StatusForbidden, "FORBIDDEN", "you can only delete your own comments")
 }
 
 func (h *CommentHandler) ToggleLike(w http.ResponseWriter, r *http.Request) {
