@@ -321,13 +321,13 @@ CREATE TABLE report_jobs (
 );
 
 CREATE TABLE user_profiles (
-    user_id UUID PRIMARY KEY,
+    user_id TEXT PRIMARY KEY,
     age_range TEXT,
     county TEXT,
     languages TEXT,
     preferences TEXT,
     consent_granted_at TIMESTAMP,
-    created_by UUID NOT NULL,
+    created_by TEXT NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT now(),
     updated_at TIMESTAMP NOT NULL DEFAULT now()
 );
@@ -399,7 +399,7 @@ ALTER TABLE user_profiles ADD COLUMN display_name TEXT;
 CREATE TABLE story_comments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     story_id UUID NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
-    author_id UUID NOT NULL,
+    author_id TEXT NOT NULL,
     parent_id UUID REFERENCES story_comments(id) ON DELETE CASCADE,
     body TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('published', 'deleted')),
@@ -413,7 +413,7 @@ CREATE INDEX story_comments_parent_idx ON story_comments (parent_id);
 
 CREATE TABLE comment_interactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL,
+    user_id TEXT NOT NULL,
     comment_id UUID NOT NULL REFERENCES story_comments(id) ON DELETE CASCADE,
     interaction_type TEXT NOT NULL CHECK (interaction_type = 'like'),
     created_at TIMESTAMP NOT NULL DEFAULT now(),

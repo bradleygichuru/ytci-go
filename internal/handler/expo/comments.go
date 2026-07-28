@@ -133,7 +133,7 @@ func (h *CommentHandler) ListComments(w http.ResponseWriter, r *http.Request) {
 		c := commentResponse{
 			ID:         uuidString(tc.ID),
 			StoryID:    uuidString(tc.StoryID),
-			AuthorID:   uuidString(tc.AuthorID),
+			AuthorID:   tc.AuthorID,
 			AuthorName: authorName,
 			Body:       tc.Body,
 			Status:     tc.Status,
@@ -150,7 +150,7 @@ func (h *CommentHandler) ListComments(w http.ResponseWriter, r *http.Request) {
 			}
 			r := replyResponse{
 				ID:         uuidString(rep.ID),
-				AuthorID:   uuidString(rep.AuthorID),
+				AuthorID:   rep.AuthorID,
 				AuthorName: repAuthorName,
 				Body:       rep.Body,
 				Status:     rep.Status,
@@ -215,7 +215,7 @@ func (h *CommentHandler) CreateComment(w http.ResponseWriter, r *http.Request) {
 	queries := gen.New(h.pool)
 	comment, err := queries.CreateComment(r.Context(), &gen.CreateCommentParams{
 		StoryID:  toUUID(storyID),
-		AuthorID: toUUID(middleware.UserID(r.Context())),
+		AuthorID: middleware.UserID(r.Context()),
 		Body:     req.Body,
 		ParentID: pgtype.UUID{},
 	})
@@ -267,7 +267,7 @@ func (h *CommentHandler) CreateReply(w http.ResponseWriter, r *http.Request) {
 
 	comment, err := queries.CreateComment(r.Context(), &gen.CreateCommentParams{
 		StoryID:  toUUID(storyID),
-		AuthorID: toUUID(middleware.UserID(r.Context())),
+		AuthorID: middleware.UserID(r.Context()),
 		Body:     req.Body,
 		ParentID: toUUID(parentID),
 	})
@@ -312,7 +312,7 @@ func (h *CommentHandler) UpdateComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if uuidString(existing.AuthorID) != userID {
+	if existing.AuthorID != userID {
 		handler.WriteError(w, http.StatusForbidden, "FORBIDDEN", "you can only edit your own comments")
 		return
 	}
@@ -351,7 +351,7 @@ func (h *CommentHandler) DeleteComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isAuthor := uuidString(existing.AuthorID) == userID
+	isAuthor := existing.AuthorID == userID
 	if isAuthor {
 		_, err = queries.SoftDeleteComment(r.Context(), toUUID(commentID))
 		if err != nil {
@@ -390,7 +390,7 @@ func (h *CommentHandler) ToggleLike(w http.ResponseWriter, r *http.Request) {
 	queries := gen.New(h.pool)
 
 	_, err := queries.ToggleCommentInteraction(r.Context(), &gen.ToggleCommentInteractionParams{
-		UserID:          toUUID(middleware.UserID(r.Context())),
+		UserID:          middleware.UserID(r.Context()),
 		CommentID:       toUUID(commentID),
 		InteractionType: "like",
 	})

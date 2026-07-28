@@ -74,7 +74,7 @@ func (h *AdminCommentHandler) ModerationList(w http.ResponseWriter, r *http.Requ
 		items[i] = item{
 			ID:           uuidToStr(c.ID),
 			StoryID:      uuidToStr(c.StoryID),
-			AuthorID:     uuidToStr(c.AuthorID),
+			AuthorID:     c.AuthorID,
 			AuthorName:   c.AuthorName,
 			Body:         c.Body,
 			Status:       c.Status,

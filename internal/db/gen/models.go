@@ -73,7 +73,7 @@ type ChallengeProgress struct {
 
 type CommentInteraction struct {
 	ID              pgtype.UUID      `json:"id"`
-	UserID          pgtype.UUID      `json:"user_id"`
+	UserID          string           `json:"user_id"`
 	CommentID       pgtype.UUID      `json:"comment_id"`
 	InteractionType string           `json:"interaction_type"`
 	CreatedAt       pgtype.Timestamp `json:"created_at"`
@@ -351,15 +351,16 @@ type Story struct {
 }
 
 type StoryComment struct {
-	ID        pgtype.UUID      `json:"id"`
-	StoryID   pgtype.UUID      `json:"story_id"`
-	AuthorID  pgtype.UUID      `json:"author_id"`
-	ParentID  pgtype.UUID      `json:"parent_id"`
-	Body      string           `json:"body"`
-	Status    string           `json:"status"`
-	LikeCount *int32           `json:"like_count"`
-	CreatedAt pgtype.Timestamp `json:"created_at"`
-	UpdatedAt pgtype.Timestamp `json:"updated_at"`
+	ID             pgtype.UUID      `json:"id"`
+	StoryID        pgtype.UUID      `json:"story_id"`
+	AuthorID       string           `json:"author_id"`
+	ParentID       pgtype.UUID      `json:"parent_id"`
+	Body           string           `json:"body"`
+	Status         string           `json:"status"`
+	LikeCount      *int32           `json:"like_count"`
+	ModerationNote *string          `json:"moderation_note"`
+	CreatedAt      pgtype.Timestamp `json:"created_at"`
+	UpdatedAt      pgtype.Timestamp `json:"updated_at"`
 }
 
 type StoryInteraction struct {
@@ -381,13 +382,13 @@ type StoryReport struct {
 }
 
 type UserProfile struct {
-	UserID           pgtype.UUID      `json:"user_id"`
+	UserID           string           `json:"user_id"`
 	AgeRange         *string          `json:"age_range"`
 	County           *string          `json:"county"`
 	Languages        *string          `json:"languages"`
 	Preferences      *string          `json:"preferences"`
 	ConsentGrantedAt pgtype.Timestamp `json:"consent_granted_at"`
-	CreatedBy        pgtype.UUID      `json:"created_by"`
+	CreatedBy        string           `json:"created_by"`
 	CreatedAt        pgtype.Timestamp `json:"created_at"`
 	UpdatedAt        pgtype.Timestamp `json:"updated_at"`
 	DisplayName      *string          `json:"display_name"`
