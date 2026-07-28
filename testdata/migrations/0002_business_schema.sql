@@ -390,7 +390,6 @@ CREATE TABLE pending_media_uploads (
     user_id UUID NOT NULL,
     content_type TEXT NOT NULL,
     file_size BIGINT NOT NULL,
-    uploaded BOOLEAN DEFAULT false,
     expires_at TIMESTAMP NOT NULL DEFAULT (now() + interval '5 minutes'),
     created_at TIMESTAMP NOT NULL DEFAULT now()
 );

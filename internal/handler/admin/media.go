@@ -82,11 +82,7 @@ func (h *MediaHandler) Presign(w http.ResponseWriter, r *http.Request) {
 		_, err := h.pool.Exec(r.Context(),
 			`INSERT INTO pending_media_uploads (object_key, user_id, content_type, file_size)
 			 VALUES ($1, $2, $3, $4)
-			 ON CONFLICT (object_key) DO UPDATE SET
-			 user_id = EXCLUDED.user_id,
-			 content_type = EXCLUDED.content_type,
-			 file_size = EXCLUDED.file_size,
-			 expires_at = EXCLUDED.expires_at`,
+			 ON CONFLICT (object_key) DO NOTHING`,
 			objectKey, userID, req.ContentType, req.FileSizeBytes)
 		if err != nil {
 			slog.Warn("failed to insert pending media record", "error", err)
@@ -123,7 +119,7 @@ func (h *MediaHandler) Complete(w http.ResponseWriter, r *http.Request) {
 		var pendingCount int
 		err := h.pool.QueryRow(r.Context(),
 			`SELECT COUNT(*) FROM pending_media_uploads
-			 WHERE object_key = $1 AND user_id = $2 AND expires_at > now() AND NOT uploaded`,
+			 WHERE object_key = $1 AND user_id = $2 AND expires_at > now()`,
 			req.ObjectKey, userID).Scan(&pendingCount)
 		if err != nil || pendingCount == 0 {
 			handler.WriteError(w, http.StatusForbidden, "FORBIDDEN", "media upload not authorized or expired")
