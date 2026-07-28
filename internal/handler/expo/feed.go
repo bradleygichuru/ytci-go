@@ -26,20 +26,6 @@ func NewFeedHandler(pool *pgxpool.Pool) *FeedHandler {
 	return &FeedHandler{pool: pool}
 }
 
-func (h *FeedHandler) querySection(slogAttr string, dest *[]json.RawMessage, query string) {
-	*dest = []json.RawMessage{}
-	rows, err := h.pool.Query(nil, query)
-	if err != nil {
-		slog.Warn("feed: "+slogAttr, "error", err)
-		return
-	}
-	defer rows.Close()
-
-	if rows.Next() {
-		rows.Scan(dest)
-	}
-}
-
 func (h *FeedHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 	var feed FeedItem
 	var wg sync.WaitGroup

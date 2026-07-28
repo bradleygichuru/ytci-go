@@ -1,6 +1,7 @@
 package server
 
 import (
+	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -180,7 +181,9 @@ func mountAdminRoutes(sub chi.Router, h *handlers, r2client r2.Store) {
 
 func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimiter *middleware.RateLimiter) {
 	sub.Route("/mobile", func(m chi.Router) {
-		m.Use(authLimiter.Middleware)
+		m.Use(authLimiter.MiddlewareKeyed(func(r *http.Request) string {
+			return middleware.UserID(r.Context())
+		}))
 		m.Get("/feed", h.feed.GetFeed)
 		m.Get("/destinations", h.dest.ListMobile)
 		m.Get("/destinations/{slug}", h.dest.GetMobile)

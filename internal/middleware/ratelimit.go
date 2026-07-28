@@ -79,6 +79,22 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 	})
 }
 
+func (rl *RateLimiter) MiddlewareKeyed(keyFn func(r *http.Request) string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			key := keyFn(r)
+
+			limiter := rl.getClient(key)
+			if !limiter.Allow() {
+				w.Header().Set("Retry-After", "60")
+				handler.WriteError(w, http.StatusTooManyRequests, "RATE_LIMITED", "too many requests")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 func PublicRateLimiter() *RateLimiter {
 	return NewRateLimiter(1, 60)
 }

@@ -174,7 +174,11 @@ func (h *ActionsHandler) RecordAppOpen(w http.ResponseWriter, r *http.Request) {
 	err := h.pool.QueryRow(r.Context(),
 		`SELECT COUNT(*) FROM app_opens WHERE user_id = $1 AND opened_at > now() - interval '5 minutes'`,
 		userID).Scan(&recent)
-	if err != nil || recent > 0 {
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to check recent app opens")
+		return
+	}
+	if recent > 0 {
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{"status": "recorded"})
 		return
