@@ -187,7 +187,7 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 		m.Get("/feed", h.feed.GetFeed)
 		m.Get("/destinations", h.dest.ListMobile)
 		m.Get("/destinations/{slug}", h.dest.GetMobile)
-		m.Get("/destinations/nearby", h.dest.Nearby)
+		m.Get("/destinations/nearby", h.dest.NearbyMobile)
 		m.Get("/events", h.events.ListMobile)
 		m.Get("/events/{id}", h.events.Get)
 		m.Get("/stories", h.mStories.ListEnriched)

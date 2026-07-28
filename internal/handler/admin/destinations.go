@@ -352,6 +352,36 @@ func (h *DestinationsHandler) GetMobile(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(dest)
 }
 
+func (h *DestinationsHandler) NearbyMobile(w http.ResponseWriter, r *http.Request) {
+	latStr := r.URL.Query().Get("lat")
+	lngStr := r.URL.Query().Get("lng")
+	radiusStr := r.URL.Query().Get("radius_km")
+
+	lat, _ := strconv.ParseFloat(latStr, 64)
+	lng, _ := strconv.ParseFloat(lngStr, 64)
+	radiusMeters := 50.0 * 1000
+	if r, err := strconv.ParseFloat(radiusStr, 64); err == nil && r > 0 {
+		radiusMeters = r * 1000
+	}
+
+	queries := gen.New(h.pool)
+	results, err := queries.FindNearbyMobileDestinations(r.Context(), &gen.FindNearbyMobileDestinationsParams{
+		StMakepoint:   lng,
+		StMakepoint_2: lat,
+		StDwithin:     radiusMeters,
+		Limit:         20,
+	})
+	if err != nil {
+		slog.Warn("nearby query failed", "error", err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]json.RawMessage{})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(results)
+}
+
 func (h *DestinationsHandler) Nearby(w http.ResponseWriter, r *http.Request) {
 	latStr := r.URL.Query().Get("lat")
 	lngStr := r.URL.Query().Get("lng")
