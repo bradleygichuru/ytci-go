@@ -384,3 +384,13 @@ CREATE TABLE story_reports (
 
 CREATE TRIGGER push_notify_trigger AFTER INSERT ON push_notifications
 FOR EACH ROW EXECUTE FUNCTION notify_push_scheduled();
+
+CREATE TABLE pending_media_uploads (
+    object_key TEXT PRIMARY KEY,
+    user_id UUID NOT NULL,
+    content_type TEXT NOT NULL,
+    file_size BIGINT NOT NULL,
+    uploaded BOOLEAN DEFAULT false,
+    expires_at TIMESTAMP NOT NULL DEFAULT (now() + interval '5 minutes'),
+    created_at TIMESTAMP NOT NULL DEFAULT now()
+);

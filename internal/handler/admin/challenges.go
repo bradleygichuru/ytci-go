@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/bradleygichuru/ytci-go/internal/db/gen"
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 	"github.com/bradleygichuru/ytci-go/internal/middleware"
 	"github.com/bradleygichuru/ytci-go/internal/model"
@@ -18,6 +19,20 @@ type ChallengeAdminHandler struct {
 
 func NewChallengeAdminHandler(pool *pgxpool.Pool) *ChallengeAdminHandler {
 	return &ChallengeAdminHandler{pool: pool}
+}
+
+func (h *ChallengeAdminHandler) ListMobile(w http.ResponseWriter, r *http.Request) {
+	queries := gen.New(h.pool)
+	challenges, err := queries.ListActiveChallenges(r.Context(), 50)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list challenges")
+		return
+	}
+	if challenges == nil {
+		challenges = []gen.ListActiveChallengesRow{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(challenges)
 }
 
 func (h *ChallengeAdminHandler) List(w http.ResponseWriter, r *http.Request) {

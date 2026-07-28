@@ -156,7 +156,7 @@ func (h *ItinerariesHandler) Update(w http.ResponseWriter, r *http.Request) {
 		 status = COALESCE($3::text, status),
 		 updated_at = now()
 		 WHERE id = $1 AND user_id = $4`,
-		itineraryID, deref(req.Title), deref(req.Status), middleware.UserID(r.Context()))
+		itineraryID, req.Title, req.Status, middleware.UserID(r.Context()))
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update")
 		return
@@ -164,13 +164,6 @@ func (h *ItinerariesHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
-}
-
-func deref(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
 }
 
 func (h *ItinerariesHandler) Delete(w http.ResponseWriter, r *http.Request) {
@@ -198,15 +191,39 @@ func (h *ItinerariesHandler) Duplicate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userID := middleware.UserID(r.Context())
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to duplicate")
+		return
+	}
+	defer tx.Rollback(context.Background())
+
 	var newID string
-	err := h.pool.QueryRow(r.Context(),
+	err = tx.QueryRow(r.Context(),
 		`INSERT INTO itineraries (user_id, title, inputs, status)
 		 SELECT user_id, title || ' (copy)', inputs, 'draft'
 		 FROM itineraries WHERE id = $1 AND user_id = $2
 		 RETURNING id`,
-		itineraryID, middleware.UserID(r.Context())).Scan(&newID)
+		itineraryID, userID).Scan(&newID)
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to duplicate")
+		return
+	}
+
+	_, err = tx.Exec(r.Context(),
+		`INSERT INTO itinerary_stops (itinerary_id, destination_id, day, display_order, title, description, estimated_cost)
+		 SELECT $1, destination_id, day, display_order, title, description, estimated_cost
+		 FROM itinerary_stops WHERE itinerary_id = $2`,
+		newID, itineraryID)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to duplicate stops")
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to finish duplicate")
 		return
 	}
 

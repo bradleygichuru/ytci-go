@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bradleygichuru/ytci-go/internal/handler"
@@ -33,7 +34,9 @@ func (h *StoriesHandler) ListEnriched(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r.Context())
 	hasAuth := userID != ""
 
-	enrichJoin := ""
+	var enrichJoin string
+	var query string
+
 	if hasAuth {
 		enrichJoin = `LEFT JOIN LATERAL (
 			SELECT EXISTS(SELECT 1 FROM story_interactions si2
@@ -41,15 +44,20 @@ func (h *StoriesHandler) ListEnriched(w http.ResponseWriter, r *http.Request) {
 			EXISTS(SELECT 1 FROM story_interactions si3
 			 WHERE si3.story_id = s.id AND si3.user_id = $1 AND si3.interaction_type = 'save') AS saved
 		) en ON true`
+		query = `SELECT s.id, s.caption, s.like_count, s.save_count, s.created_at, en.liked, en.saved
+			 FROM stories s ` + enrichJoin + ` WHERE s.status = 'approved' ORDER BY s.created_at DESC LIMIT 50`
+	} else {
+		query = `SELECT s.id, s.caption, s.like_count, s.save_count, s.created_at
+			 FROM stories s WHERE s.status = 'approved' ORDER BY s.created_at DESC LIMIT 50`
 	}
 
-	query := `SELECT s.id, s.caption, s.like_count, s.save_count, s.created_at`
+	var rows pgx.Rows
+	var err error
 	if hasAuth {
-		query += `, en.liked, en.saved`
+		rows, err = h.pool.Query(r.Context(), query, userID)
+	} else {
+		rows, err = h.pool.Query(r.Context(), query)
 	}
-	query += ` FROM stories s ` + enrichJoin + ` WHERE s.status = 'approved' ORDER BY s.created_at DESC LIMIT 50`
-
-	rows, err := h.pool.Query(r.Context(), query, userID)
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list stories")
 		return

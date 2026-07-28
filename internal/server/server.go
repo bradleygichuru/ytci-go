@@ -48,10 +48,19 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 
 	h := mountHandlers(pool, r2client, pushClient)
 
+	publicLimiter := middleware.PublicRateLimiter()
+
+	r.Route("/v1/public", func(pub chi.Router) {
+		pub.Use(publicLimiter.Middleware)
+		mountPublicRoutes(pub, h)
+	})
+
+	authLimiter := middleware.AuthenticatedRateLimiter()
+
 	r.Route("/v1", func(sub chi.Router) {
 		sub.Use(middleware.JWTAuth(jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud))
 		mountAdminRoutes(sub, h, r2client)
-		mountMobileRoutes(sub, h)
+		mountMobileRoutes(sub, h, r2client, authLimiter)
 	})
 
 	return r
@@ -169,18 +178,19 @@ func mountAdminRoutes(sub chi.Router, h *handlers, r2client r2.Store) {
 	})
 }
 
-func mountMobileRoutes(sub chi.Router, h *handlers) {
+func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimiter *middleware.RateLimiter) {
 	sub.Route("/mobile", func(m chi.Router) {
+		m.Use(authLimiter.Middleware)
 		m.Get("/feed", h.feed.GetFeed)
-		m.Get("/destinations", h.dest.List)
-		m.Get("/destinations/{slug}", h.dest.Get)
+		m.Get("/destinations", h.dest.ListMobile)
+		m.Get("/destinations/{slug}", h.dest.GetMobile)
 		m.Get("/destinations/nearby", h.dest.Nearby)
-		m.Get("/events", h.events.List)
+		m.Get("/events", h.events.ListMobile)
 		m.Get("/events/{id}", h.events.Get)
 		m.Get("/stories", h.mStories.ListEnriched)
-		m.Get("/courses", h.course.List)
-		m.Get("/challenges", h.challenge.List)
-		m.Get("/conservation", h.conserv.List)
+		m.Get("/courses", h.course.ListMobile)
+		m.Get("/challenges", h.challenge.ListMobile)
+		m.Get("/conservation", h.conserv.ListMobile)
 
 		m.Group(func(aR chi.Router) {
 			aR.Use(middleware.AuthGate)
@@ -201,8 +211,12 @@ func mountMobileRoutes(sub chi.Router, h *handlers) {
 			aR.Put("/itineraries/{id}/stops", h.itinStops.UpsertStops)
 			aR.Post("/push/register", h.pushReg.Register)
 
-			aR.Post("/media/presign", h.media.Presign)
-			aR.Post("/media/complete", h.media.Complete)
+			if r2client != nil {
+				aR.Post("/media/presign", h.media.Presign)
+				aR.Post("/media/complete", h.media.Complete)
+			}
+			aR.Get("/media/{objectKey}", h.media.GetURL)
+
 			aR.Post("/stories", h.actions.CreateStory)
 			aR.Post("/stories/like", h.actions.ToggleLike)
 			aR.Post("/stories/save", h.actions.ToggleSave)
@@ -216,4 +230,16 @@ func mountMobileRoutes(sub chi.Router, h *handlers) {
 			aR.Post("/analytics/app-open", h.actions.RecordAppOpen)
 		})
 	})
+}
+
+func mountPublicRoutes(pub chi.Router, h *handlers) {
+	pub.Get("/feed", h.feed.GetFeed)
+	pub.Get("/destinations", h.dest.ListMobile)
+	pub.Get("/destinations/{slug}", h.dest.GetMobile)
+	pub.Get("/destinations/nearby", h.dest.Nearby)
+	pub.Get("/events", h.events.ListMobile)
+	pub.Get("/stories", h.mStories.ListEnriched)
+	pub.Get("/courses", h.course.ListMobile)
+	pub.Get("/challenges", h.challenge.ListMobile)
+	pub.Get("/conservation", h.conserv.ListMobile)
 }

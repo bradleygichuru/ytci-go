@@ -145,16 +145,18 @@ func (w *Worker) sendOne(ctx context.Context, j job) {
 		return
 	}
 
+	summaryErrMsgs := make([]string, len(result.Errors))
+	copy(summaryErrMsgs, result.Errors)
+
 	w.pool.Exec(ctx,
 		`UPDATE push_notifications SET status = 'sent', sent_at = now(), recipient_count = $2 WHERE id = $1`,
 		j.id, result.Sent)
-	slog.Info("push sent", "id", j.id, "sent", result.Sent, "failed", result.Failed)
+	slog.Info("push sent", "id", j.id, "sent", result.Sent, "failed", result.Failed, "errors", summaryErrMsgs)
 
-	for _, errMsg := range result.Errors {
-		if errMsg == "DeviceNotRegistered" {
-			w.pool.Exec(ctx, `UPDATE push_tokens SET is_active = false WHERE token IN (
-				SELECT token FROM push_notifications WHERE id = $1
-			)`, j.id)
+	for token := range result.TokenErrors {
+		if _, err := w.pool.Exec(ctx,
+			`UPDATE push_tokens SET is_active = false WHERE token = $1`, token); err != nil {
+			slog.Warn("push worker: failed to deactivate token", "token", token, "error", err)
 		}
 	}
 }

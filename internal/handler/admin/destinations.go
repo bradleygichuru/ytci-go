@@ -322,6 +322,36 @@ func (h *DestinationsHandler) AddMedia(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *DestinationsHandler) ListMobile(w http.ResponseWriter, r *http.Request) {
+	queries := gen.New(h.pool)
+	dests, err := queries.ListMobileDestinations(r.Context(), 50)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list destinations")
+		return
+	}
+	if dests == nil {
+		dests = []gen.ListMobileDestinationsRow{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(dests)
+}
+
+func (h *DestinationsHandler) GetMobile(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	if slug == "" {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_SLUG", "destination slug is required")
+		return
+	}
+	queries := gen.New(h.pool)
+	dest, err := queries.GetMobileDestinationBySlug(r.Context(), slug)
+	if err != nil {
+		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "destination not found")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(dest)
+}
+
 func (h *DestinationsHandler) Nearby(w http.ResponseWriter, r *http.Request) {
 	latStr := r.URL.Query().Get("lat")
 	lngStr := r.URL.Query().Get("lng")

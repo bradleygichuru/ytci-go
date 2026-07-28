@@ -62,7 +62,14 @@ type toggleRequest struct {
 
 func (h *ActionsHandler) toggleInteraction(w http.ResponseWriter, r *http.Request, interactionType string) {
 	var req toggleRequest
-	json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
+		return
+	}
+	if req.StoryID == "" {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "storyId is required")
+		return
+	}
 
 	tag, err := h.pool.Exec(r.Context(),
 		`DELETE FROM story_interactions WHERE user_id = $1 AND story_id = $2 AND interaction_type = $3`,
@@ -156,11 +163,26 @@ func (h *ActionsHandler) RecordAppOpen(w http.ResponseWriter, r *http.Request) {
 		Platform   string `json:"platform"`
 		AppVersion string `json:"appVersion"`
 	}
-	json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
+		return
+	}
 
-	_, err := h.pool.Exec(r.Context(),
+	userID := middleware.UserID(r.Context())
+
+	var recent int
+	err := h.pool.QueryRow(r.Context(),
+		`SELECT COUNT(*) FROM app_opens WHERE user_id = $1 AND opened_at > now() - interval '5 minutes'`,
+		userID).Scan(&recent)
+	if err != nil || recent > 0 {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"status": "recorded"})
+		return
+	}
+
+	_, err = h.pool.Exec(r.Context(),
 		`INSERT INTO app_opens (user_id, platform, app_version) VALUES ($1, $2, $3)`,
-		middleware.UserID(r.Context()), req.Platform, req.AppVersion)
+		userID, req.Platform, req.AppVersion)
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to record app open")
 		return
@@ -201,7 +223,14 @@ func (h *ActionsHandler) SubmitConservationEvidence(w http.ResponseWriter, r *ht
 		return
 	}
 	var req evidenceRequest
-	json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
+		return
+	}
+	if req.Description == "" && req.MediaIDs == "" {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "description or mediaIds is required")
+		return
+	}
 
 	var evidenceID string
 	err := h.pool.QueryRow(r.Context(),
@@ -224,13 +253,20 @@ func (h *ActionsHandler) SubmitChallengeEvidence(w http.ResponseWriter, r *http.
 		return
 	}
 	var req evidenceRequest
-	json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
+		return
+	}
+	if req.Description == "" && req.MediaIDs == "" {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "description or mediaIds is required")
+		return
+	}
 
 	var progressID string
 	err := h.pool.QueryRow(r.Context(),
 		`UPDATE challenge_progress SET
 		 status = 'submitted',
-		 evidence = COALESCE($3::jsonb, evidence),
+		 evidence = CASE WHEN $3::text != '' THEN jsonb_build_object('description', $3::text) ELSE evidence END,
 		 updated_at = now()
 		 WHERE user_id = $1 AND challenge_id = $2 RETURNING id`,
 		middleware.UserID(r.Context()), challengeID, req.Description).Scan(&progressID)

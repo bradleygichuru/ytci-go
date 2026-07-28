@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-
 )
 
 type FeedItem struct {
@@ -26,104 +26,159 @@ func NewFeedHandler(pool *pgxpool.Pool) *FeedHandler {
 	return &FeedHandler{pool: pool}
 }
 
+func (h *FeedHandler) querySection(slogAttr string, dest *[]json.RawMessage, query string) {
+	*dest = []json.RawMessage{}
+	rows, err := h.pool.Query(nil, query)
+	if err != nil {
+		slog.Warn("feed: "+slogAttr, "error", err)
+		return
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		rows.Scan(dest)
+	}
+}
+
 func (h *FeedHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 	var feed FeedItem
+	var wg sync.WaitGroup
+	ctx := r.Context()
 
-	rows, err := h.pool.Query(r.Context(),
-		`SELECT json_agg(sub) FROM (
-			SELECT id, name, slug, short_description, county, updated_at
-			FROM destinations WHERE status = 'published'
-			ORDER BY updated_at DESC LIMIT 5
-		) sub`)
-	if err == nil {
-		if rows.Next() {
-			rows.Scan(&feed.TrendingDestinations)
+	wg.Add(6)
+	go func() {
+		defer wg.Done()
+		rows, err := h.pool.Query(ctx,
+			`SELECT COALESCE(json_agg(sub), '[]'::json) FROM (
+				SELECT id, name, slug, short_description, county, updated_at
+				FROM destinations WHERE status = 'published'
+				ORDER BY updated_at DESC LIMIT 5
+			) sub`)
+		if err == nil {
+			if rows.Next() {
+				rows.Scan(&feed.TrendingDestinations)
+			}
+			rows.Close()
+		} else {
+			slog.Warn("feed: trending destinations", "error", err)
+			feed.TrendingDestinations = []json.RawMessage{}
 		}
-		rows.Close()
-	} else {
-		slog.Warn("feed: trending destinations", "error", err)
-		feed.TrendingDestinations = []json.RawMessage{}
-	}
+		if feed.TrendingDestinations == nil {
+			feed.TrendingDestinations = []json.RawMessage{}
+		}
+	}()
 
-	rows, err = h.pool.Query(r.Context(),
-		`SELECT json_agg(sub) FROM (
-			SELECT id, title, county, venue, event_date, type
-			FROM events WHERE status = 'scheduled'
-			ORDER BY event_date ASC LIMIT 5
-		) sub`)
-	if err == nil {
-		if rows.Next() {
-			rows.Scan(&feed.UpcomingEvents)
+	go func() {
+		defer wg.Done()
+		rows, err := h.pool.Query(ctx,
+			`SELECT COALESCE(json_agg(sub), '[]'::json) FROM (
+				SELECT id, title, county, venue, event_date, type
+				FROM events WHERE status = 'scheduled'
+				ORDER BY event_date ASC LIMIT 5
+			) sub`)
+		if err == nil {
+			if rows.Next() {
+				rows.Scan(&feed.UpcomingEvents)
+			}
+			rows.Close()
+		} else {
+			slog.Warn("feed: upcoming events", "error", err)
+			feed.UpcomingEvents = []json.RawMessage{}
 		}
-		rows.Close()
-	} else {
-		slog.Warn("feed: upcoming events", "error", err)
-		feed.UpcomingEvents = []json.RawMessage{}
-	}
+		if feed.UpcomingEvents == nil {
+			feed.UpcomingEvents = []json.RawMessage{}
+		}
+	}()
 
-	rows, err = h.pool.Query(r.Context(),
-		`SELECT json_agg(sub) FROM (
-			SELECT id, caption, like_count, created_at
-			FROM stories WHERE status = 'approved'
-			ORDER BY created_at DESC LIMIT 5
-		) sub`)
-	if err == nil {
-		if rows.Next() {
-			rows.Scan(&feed.FeaturedStories)
+	go func() {
+		defer wg.Done()
+		rows, err := h.pool.Query(ctx,
+			`SELECT COALESCE(json_agg(sub), '[]'::json) FROM (
+				SELECT id, caption, like_count, created_at
+				FROM stories WHERE status = 'approved'
+				ORDER BY created_at DESC LIMIT 5
+			) sub`)
+		if err == nil {
+			if rows.Next() {
+				rows.Scan(&feed.FeaturedStories)
+			}
+			rows.Close()
+		} else {
+			slog.Warn("feed: featured stories", "error", err)
+			feed.FeaturedStories = []json.RawMessage{}
 		}
-		rows.Close()
-	} else {
-		slog.Warn("feed: featured stories", "error", err)
-		feed.FeaturedStories = []json.RawMessage{}
-	}
+		if feed.FeaturedStories == nil {
+			feed.FeaturedStories = []json.RawMessage{}
+		}
+	}()
 
-	rows, err = h.pool.Query(r.Context(),
-		`SELECT json_agg(sub) FROM (
-			SELECT id, title, banner_url, type, start_date
-			FROM campaigns WHERE status = 'active'
-			ORDER BY start_date ASC LIMIT 5
-		) sub`)
-	if err == nil {
-		if rows.Next() {
-			rows.Scan(&feed.ActiveCampaigns)
+	go func() {
+		defer wg.Done()
+		rows, err := h.pool.Query(ctx,
+			`SELECT COALESCE(json_agg(sub), '[]'::json) FROM (
+				SELECT id, title, banner_url, type, start_date
+				FROM campaigns WHERE status = 'active'
+				ORDER BY start_date ASC LIMIT 5
+			) sub`)
+		if err == nil {
+			if rows.Next() {
+				rows.Scan(&feed.ActiveCampaigns)
+			}
+			rows.Close()
+		} else {
+			slog.Warn("feed: active campaigns", "error", err)
+			feed.ActiveCampaigns = []json.RawMessage{}
 		}
-		rows.Close()
-	} else {
-		slog.Warn("feed: active campaigns", "error", err)
-		feed.ActiveCampaigns = []json.RawMessage{}
-	}
+		if feed.ActiveCampaigns == nil {
+			feed.ActiveCampaigns = []json.RawMessage{}
+		}
+	}()
 
-	rows, err = h.pool.Query(r.Context(),
-		`SELECT json_agg(sub) FROM (
-			SELECT id, title, difficulty
-			FROM courses WHERE status = 'published'
-			ORDER BY updated_at DESC LIMIT 5
-		) sub`)
-	if err == nil {
-		if rows.Next() {
-			rows.Scan(&feed.HighlightedCourses)
+	go func() {
+		defer wg.Done()
+		rows, err := h.pool.Query(ctx,
+			`SELECT COALESCE(json_agg(sub), '[]'::json) FROM (
+				SELECT id, title, difficulty
+				FROM courses WHERE status = 'published'
+				ORDER BY updated_at DESC LIMIT 5
+			) sub`)
+		if err == nil {
+			if rows.Next() {
+				rows.Scan(&feed.HighlightedCourses)
+			}
+			rows.Close()
+		} else {
+			slog.Warn("feed: highlighted courses", "error", err)
+			feed.HighlightedCourses = []json.RawMessage{}
 		}
-		rows.Close()
-	} else {
-		slog.Warn("feed: highlighted courses", "error", err)
-		feed.HighlightedCourses = []json.RawMessage{}
-	}
+		if feed.HighlightedCourses == nil {
+			feed.HighlightedCourses = []json.RawMessage{}
+		}
+	}()
 
-	rows, err = h.pool.Query(r.Context(),
-		`SELECT json_agg(sub) FROM (
-			SELECT id, title, badge_name, end_date
-			FROM challenges WHERE status = 'active'
-			ORDER BY end_date ASC LIMIT 3
-		) sub`)
-	if err == nil {
-		if rows.Next() {
-			rows.Scan(&feed.ActiveChallenges)
+	go func() {
+		defer wg.Done()
+		rows, err := h.pool.Query(ctx,
+			`SELECT COALESCE(json_agg(sub), '[]'::json) FROM (
+				SELECT id, title, badge_name, end_date
+				FROM challenges WHERE status = 'active'
+				ORDER BY end_date ASC LIMIT 3
+			) sub`)
+		if err == nil {
+			if rows.Next() {
+				rows.Scan(&feed.ActiveChallenges)
+			}
+			rows.Close()
+		} else {
+			slog.Warn("feed: active challenges", "error", err)
+			feed.ActiveChallenges = []json.RawMessage{}
 		}
-		rows.Close()
-	} else {
-		slog.Warn("feed: active challenges", "error", err)
-		feed.ActiveChallenges = []json.RawMessage{}
-	}
+		if feed.ActiveChallenges == nil {
+			feed.ActiveChallenges = []json.RawMessage{}
+		}
+	}()
+
+	wg.Wait()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(feed)

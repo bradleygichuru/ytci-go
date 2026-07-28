@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/bradleygichuru/ytci-go/internal/db/gen"
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 	"github.com/bradleygichuru/ytci-go/internal/middleware"
 	"github.com/bradleygichuru/ytci-go/internal/model"
@@ -46,6 +47,20 @@ func (h *CourseHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(model.Paginated[item]{Items: items, HasMore: false})
+}
+
+func (h *CourseHandler) ListMobile(w http.ResponseWriter, r *http.Request) {
+	queries := gen.New(h.pool)
+	courses, err := queries.ListPublishedCourses(r.Context(), 50)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list courses")
+		return
+	}
+	if courses == nil {
+		courses = []gen.ListPublishedCoursesRow{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(courses)
 }
 
 func (h *CourseHandler) Get(w http.ResponseWriter, r *http.Request) {

@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/bradleygichuru/ytci-go/internal/db/gen"
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 	"github.com/bradleygichuru/ytci-go/internal/middleware"
 	"github.com/bradleygichuru/ytci-go/internal/model"
@@ -17,6 +18,20 @@ type ConservationAdminHandler struct {
 
 func NewConservationAdminHandler(pool *pgxpool.Pool) *ConservationAdminHandler {
 	return &ConservationAdminHandler{pool: pool}
+}
+
+func (h *ConservationAdminHandler) ListMobile(w http.ResponseWriter, r *http.Request) {
+	queries := gen.New(h.pool)
+	activities, err := queries.ListPublicConservation(r.Context(), 50)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list conservation activities")
+		return
+	}
+	if activities == nil {
+		activities = []gen.ListPublicConservationRow{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(activities)
 }
 
 func (h *ConservationAdminHandler) List(w http.ResponseWriter, r *http.Request) {

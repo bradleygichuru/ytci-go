@@ -76,6 +76,23 @@ func (h *MediaHandler) Presign(w http.ResponseWriter, r *http.Request) {
 	}
 
 	objectKey := fmt.Sprintf("media/%d/%s", time.Now().Unix(), req.FileName)
+
+	userID := middleware.UserID(r.Context())
+	if h.pool != nil {
+		_, err := h.pool.Exec(r.Context(),
+			`INSERT INTO pending_media_uploads (object_key, user_id, content_type, file_size)
+			 VALUES ($1, $2, $3, $4)
+			 ON CONFLICT (object_key) DO UPDATE SET
+			 user_id = EXCLUDED.user_id,
+			 content_type = EXCLUDED.content_type,
+			 file_size = EXCLUDED.file_size,
+			 expires_at = EXCLUDED.expires_at`,
+			objectKey, userID, req.ContentType, req.FileSizeBytes)
+		if err != nil {
+			slog.Warn("failed to insert pending media record", "error", err)
+		}
+	}
+
 	uploadURL, err := h.r2.PresignedPutURL(r.Context(), objectKey, 5*time.Minute)
 	if err != nil {
 		handler.WriteError(w, http.StatusServiceUnavailable, "STORAGE_UNAVAILABLE", "failed to generate upload URL")
@@ -100,6 +117,23 @@ func (h *MediaHandler) Complete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userID := middleware.UserID(r.Context())
+
+	if h.pool != nil {
+		var pendingCount int
+		err := h.pool.QueryRow(r.Context(),
+			`SELECT COUNT(*) FROM pending_media_uploads
+			 WHERE object_key = $1 AND user_id = $2 AND expires_at > now() AND NOT uploaded`,
+			req.ObjectKey, userID).Scan(&pendingCount)
+		if err != nil || pendingCount == 0 {
+			handler.WriteError(w, http.StatusForbidden, "FORBIDDEN", "media upload not authorized or expired")
+			return
+		}
+		h.pool.Exec(r.Context(),
+			`DELETE FROM pending_media_uploads WHERE object_key = $1 AND user_id = $2`,
+			req.ObjectKey, userID)
+	}
+
 	status := "pending_review"
 	role := middleware.RoleFromCtx(r.Context())
 	if role == "super_admin" || role == "administrator" || role == "moderator" {
@@ -109,7 +143,7 @@ func (h *MediaHandler) Complete(w http.ResponseWriter, r *http.Request) {
 	row := h.pool.QueryRow(r.Context(),
 		`INSERT INTO media_assets (object_key, status, uploaded_by, caption, alt_text, credit, thumbnail_key, type)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, 'image') RETURNING id`,
-		req.ObjectKey, status, middleware.UserID(r.Context()), req.Caption, req.AltText, req.Credit, req.ThumbnailKey)
+		req.ObjectKey, status, userID, req.Caption, req.AltText, req.Credit, req.ThumbnailKey)
 
 	var id string
 	if err := row.Scan(&id); err != nil {

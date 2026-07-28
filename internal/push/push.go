@@ -62,13 +62,14 @@ func New(expoPushToken string) *Client {
 }
 
 type SendResult struct {
-	Sent     int
-	Failed   int
-	Errors   []string
+	Sent        int
+	Failed      int
+	Errors      []string
+	TokenErrors map[string]string
 }
 
 func (c *Client) SendMessages(ctx context.Context, messages []ExpoPushMessage) (*SendResult, error) {
-	result := &SendResult{}
+	result := &SendResult{TokenErrors: make(map[string]string)}
 
 	chunks := chunkMessages(messages, 100)
 	for _, chunk := range chunks {
@@ -94,12 +95,15 @@ func (c *Client) SendMessages(ctx context.Context, messages []ExpoPushMessage) (
 		}
 		resp.Body.Close()
 
-		for _, r := range pushResp.Data {
+		for i, r := range pushResp.Data {
 			if r.Status == "ok" {
 				result.Sent++
 			} else {
 				result.Failed++
 				result.Errors = append(result.Errors, r.Message)
+				if r.Message == "DeviceNotRegistered" && i < len(chunk) {
+					result.TokenErrors[chunk[i].To] = r.Message
+				}
 			}
 		}
 	}

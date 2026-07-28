@@ -23,6 +23,20 @@ func NewEventsHandler(pool *pgxpool.Pool) *EventsHandler {
 	return &EventsHandler{pool: pool}
 }
 
+func (h *EventsHandler) ListMobile(w http.ResponseWriter, r *http.Request) {
+	queries := gen.New(h.pool)
+	events, err := queries.ListScheduledEvents(r.Context(), 50)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list events")
+		return
+	}
+	if events == nil {
+		events = []gen.ListScheduledEventsRow{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(events)
+}
+
 func (h *EventsHandler) List(w http.ResponseWriter, r *http.Request) {
 	queries := gen.New(h.pool)
 	pg := &pagination.CursorPaginator[gen.Event]{}
