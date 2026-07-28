@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -38,7 +39,7 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 	r.Use(chimw.Recoverer)
 	r.Use(chimw.Timeout(30 * time.Second))
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{cfg.CORSOrigins},
+		AllowedOrigins:   splitOrigins(cfg.CORSOrigins),
 		AllowedMethods:   []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "Idempotency-Key"},
 		AllowCredentials: true,
@@ -261,4 +262,19 @@ func mountPublicRoutes(pub chi.Router, h *handlers) {
 	pub.Get("/conservation", h.conserv.ListMobile)
 
 	pub.Get("/stories/{id}/comments", h.comments.ListComments)
+}
+
+func splitOrigins(s string) []string {
+	if s == "" {
+		return []string{}
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		trimmed := strings.TrimSpace(p)
+		if trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
