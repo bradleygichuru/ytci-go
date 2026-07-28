@@ -328,13 +328,6 @@ func (h *CommentHandler) UpdateComment(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
-	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update comment")
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
 }
 
 func (h *CommentHandler) DeleteComment(w http.ResponseWriter, r *http.Request) {
@@ -406,6 +399,15 @@ func (h *CommentHandler) ToggleLike(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cid := toUUID(commentID)
+	var cnt int64
+	h.pool.QueryRow(r.Context(),
+		`SELECT COUNT(*) FROM comment_interactions WHERE comment_id = $1 AND interaction_type = 'like'`,
+		cid).Scan(&cnt)
+	h.pool.Exec(r.Context(),
+		`UPDATE story_comments SET like_count = $2 WHERE id = $1`,
+		cid, cnt)
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "toggled"})
 }
@@ -426,14 +428,23 @@ func (h *CommentHandler) ReportComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	queries := gen.New(h.pool)
+
+	existing, err := queries.GetCommentByID(r.Context(), toUUID(commentID))
+	if err != nil {
+		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "comment not found")
+		return
+	}
+
 	var details string
 	if req.Details != nil {
 		details = *req.Details
 	}
+	details = "comment_id: " + uuidString(existing.ID) + " | " + details
 
-	_, err := h.pool.Exec(r.Context(),
+	_, err = h.pool.Exec(r.Context(),
 		`INSERT INTO story_reports (story_id, reported_by, reason, details) VALUES ($1, $2, $3, $4)`,
-		toUUID(commentID), middleware.UserID(r.Context()), req.Reason, details)
+		existing.StoryID, middleware.UserID(r.Context()), req.Reason, details)
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to report comment")
 		return
