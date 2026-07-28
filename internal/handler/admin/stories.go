@@ -2,8 +2,8 @@ package admin
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -100,7 +100,8 @@ func (h *StoriesHandler) ModerationList(w http.ResponseWriter, r *http.Request) 
 
 	query := `SELECT s.id, s.creator_id, u.name AS creator_handle, s.caption,
 		COALESCE(ma.media_type, '') AS media_type,
-		ma.thumbnail_key, ma.object_key,
+		COALESCE(ma.thumbnail_key, '') AS thumbnail_key,
+		COALESCE(ma.object_key, '') AS object_key,
 		COALESCE(d.name, '') AS location,
 		COALESCE(s.tags, '[]') AS tags,
 		s.status, s.like_count, s.save_count, s.created_at
@@ -151,18 +152,22 @@ func (h *StoriesHandler) ModerationList(w http.ResponseWriter, r *http.Request) 
 			CreatorHandle string
 			Caption       string
 			MediaType     string
-			ThumbnailKey  *string
-			ObjectKey     *string
+			ThumbnailKey  string
+			ObjectKey     string
 			Location      string
 			TagsJSON      string
 			Status        string
 			LikeCount     int
 			SaveCount     int
-			CreatedAt     string
+			CreatedAt     time.Time
 		}
-		rows.Scan(&i.ID, &i.CreatorID, &i.CreatorHandle, &i.Caption,
+		err := rows.Scan(&i.ID, &i.CreatorID, &i.CreatorHandle, &i.Caption,
 			&i.MediaType, &i.ThumbnailKey, &i.ObjectKey, &i.Location,
 			&i.TagsJSON, &i.Status, &i.LikeCount, &i.SaveCount, &i.CreatedAt)
+		if err != nil {
+			slog.Warn("scan moderation row", "error", err)
+			continue
+		}
 
 		out := item{
 			ID:            i.ID,
@@ -174,39 +179,30 @@ func (h *StoriesHandler) ModerationList(w http.ResponseWriter, r *http.Request) 
 			Status:        i.Status,
 			LikeCount:     i.LikeCount,
 			SaveCount:     i.SaveCount,
-			SubmittedAt:   i.CreatedAt,
+			SubmittedAt:   i.CreatedAt.Format(time.RFC3339),
 		}
 
-		thumbKey := ""
-		if i.ThumbnailKey != nil {
-			thumbKey = *i.ThumbnailKey
-		} else if i.ObjectKey != nil {
-			thumbKey = *i.ObjectKey
+		thumbKey := i.ThumbnailKey
+		if thumbKey == "" {
+			thumbKey = i.ObjectKey
 		}
 		if thumbKey != "" && h.r2 != nil {
 			url, err := h.r2.PresignedGetURL(r.Context(), thumbKey, 15*time.Minute)
-			if err == nil {
+			if err != nil {
+				slog.Warn("presign thumb", "key", thumbKey, "error", err)
+			} else {
 				out.ThumbUrl = url
 			}
 		}
 
-		tags := []string{}
-		if len(i.TagsJSON) > 2 {
-			raw := i.TagsJSON
-			raw = strings.TrimPrefix(raw, "[")
-			raw = strings.TrimSuffix(raw, "]")
-			if raw != "" {
-				for _, t := range strings.Split(raw, ",") {
-					t = strings.Trim(t, " \"")
-					if t != "" {
-						tags = append(tags, t)
-					}
-				}
-			}
-		}
+		var tags []string
+		json.Unmarshal([]byte(i.TagsJSON), &tags)
 		out.Tags = tags
 
 		items = append(items, out)
+	}
+	if err := rows.Err(); err != nil {
+		slog.Error("rows iteration", "error", err)
 	}
 	if items == nil {
 		items = []item{}

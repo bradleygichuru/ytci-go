@@ -188,9 +188,13 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 			Credit        *string
 			FileSize      *int
 			ThumbnailKey  *string
-			CreatedAt     string
+			CreatedAt     time.Time
 		}
-		rows.Scan(&i.ID, &i.ObjectKey, &i.Type, &i.Status, &i.Caption, &i.AltText, &i.Credit, &i.FileSize, &i.ThumbnailKey, &i.CreatedAt)
+		err := rows.Scan(&i.ID, &i.ObjectKey, &i.Type, &i.Status, &i.Caption, &i.AltText, &i.Credit, &i.FileSize, &i.ThumbnailKey, &i.CreatedAt)
+		if err != nil {
+			slog.Warn("scan media row", "error", err)
+			continue
+		}
 
 		out := item{
 			ID:        i.ID,
@@ -201,7 +205,7 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 			AltText:   i.AltText,
 			Credit:    i.Credit,
 			FileSize:  i.FileSize,
-			CreatedAt: i.CreatedAt,
+			CreatedAt: i.CreatedAt.Format(time.RFC3339),
 		}
 
 		if h.r2 != nil {
@@ -218,6 +222,9 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 		}
 
 		items = append(items, out)
+	}
+	if err := rows.Err(); err != nil {
+		slog.Error("rows iteration", "error", err)
 	}
 	if items == nil {
 		items = []item{}
