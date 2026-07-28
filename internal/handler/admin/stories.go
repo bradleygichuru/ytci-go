@@ -2,8 +2,8 @@ package admin
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -14,14 +14,16 @@ import (
 	"github.com/bradleygichuru/ytci-go/internal/middleware"
 	"github.com/bradleygichuru/ytci-go/internal/model"
 	"github.com/bradleygichuru/ytci-go/internal/pagination"
+	"github.com/bradleygichuru/ytci-go/internal/r2"
 )
 
 type StoriesHandler struct {
 	pool *pgxpool.Pool
+	r2   r2.Store
 }
 
-func NewStoriesHandler(pool *pgxpool.Pool) *StoriesHandler {
-	return &StoriesHandler{pool: pool}
+func NewStoriesHandler(pool *pgxpool.Pool, r2client r2.Store) *StoriesHandler {
+	return &StoriesHandler{pool: pool, r2: r2client}
 }
 
 func (h *StoriesHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -96,17 +98,29 @@ func (h *StoriesHandler) Moderate(w http.ResponseWriter, r *http.Request) {
 func (h *StoriesHandler) ModerationList(w http.ResponseWriter, r *http.Request) {
 	statusFilter := r.URL.Query().Get("status")
 
-	query := `SELECT id, creator_id, caption, status, like_count, save_count, created_at
-		FROM stories`
+	query := `SELECT s.id, s.creator_id, u.name AS creator_handle, s.caption,
+		COALESCE(ma.media_type, '') AS media_type,
+		ma.thumbnail_key, ma.object_key,
+		COALESCE(d.name, '') AS location,
+		COALESCE(s.tags, '[]') AS tags,
+		s.status, s.like_count, s.save_count, s.created_at
+		FROM stories s
+		JOIN users u ON u.id = s.creator_id
+		LEFT JOIN destinations d ON d.id = s.destination_id
+		LEFT JOIN LATERAL (
+			SELECT ma.type AS media_type, ma.thumbnail_key, ma.object_key
+			FROM media_assets ma
+			WHERE ma.entity_type = 'story' AND ma.entity_id = s.id::text
+			ORDER BY ma.display_order ASC, ma.created_at ASC
+			LIMIT 1
+		) ma ON true`
 	args := []any{}
-	n := 1
 
 	if statusFilter != "" {
-		query += fmt.Sprintf(` WHERE status = $%d`, n)
+		query += ` WHERE s.status = $1`
 		args = append(args, statusFilter)
-		n++
 	}
-	query += ` ORDER BY created_at DESC LIMIT 50`
+	query += ` ORDER BY s.created_at DESC LIMIT 50`
 
 	rows, err := h.pool.Query(r.Context(), query, args...)
 	if err != nil {
@@ -116,19 +130,83 @@ func (h *StoriesHandler) ModerationList(w http.ResponseWriter, r *http.Request) 
 	defer rows.Close()
 
 	type item struct {
-		ID         string `json:"id"`
-		CreatorID  string `json:"creatorId"`
-		Caption    string `json:"caption"`
-		Status     string `json:"status"`
-		LikeCount  int    `json:"likeCount"`
-		SaveCount  int    `json:"saveCount"`
-		CreatedAt  string `json:"createdAt"`
+		ID            string   `json:"id"`
+		CreatorID     string   `json:"creatorId"`
+		CreatorHandle string   `json:"creatorHandle"`
+		Caption       string   `json:"caption"`
+		MediaType     string   `json:"mediaType"`
+		ThumbUrl      string   `json:"thumbUrl"`
+		Location      string   `json:"location"`
+		Tags          []string `json:"tags"`
+		Status        string   `json:"status"`
+		LikeCount     int      `json:"likeCount"`
+		SaveCount     int      `json:"saveCount"`
+		SubmittedAt   string   `json:"submittedAt"`
 	}
 	var items []item
 	for rows.Next() {
-		var i item
-		rows.Scan(&i.ID, &i.CreatorID, &i.Caption, &i.Status, &i.LikeCount, &i.SaveCount, &i.CreatedAt)
-		items = append(items, i)
+		var i struct {
+			ID            string
+			CreatorID     string
+			CreatorHandle string
+			Caption       string
+			MediaType     string
+			ThumbnailKey  *string
+			ObjectKey     *string
+			Location      string
+			TagsJSON      string
+			Status        string
+			LikeCount     int
+			SaveCount     int
+			CreatedAt     string
+		}
+		rows.Scan(&i.ID, &i.CreatorID, &i.CreatorHandle, &i.Caption,
+			&i.MediaType, &i.ThumbnailKey, &i.ObjectKey, &i.Location,
+			&i.TagsJSON, &i.Status, &i.LikeCount, &i.SaveCount, &i.CreatedAt)
+
+		out := item{
+			ID:            i.ID,
+			CreatorID:     i.CreatorID,
+			CreatorHandle: i.CreatorHandle,
+			Caption:       i.Caption,
+			MediaType:     i.MediaType,
+			Location:      i.Location,
+			Status:        i.Status,
+			LikeCount:     i.LikeCount,
+			SaveCount:     i.SaveCount,
+			SubmittedAt:   i.CreatedAt,
+		}
+
+		thumbKey := ""
+		if i.ThumbnailKey != nil {
+			thumbKey = *i.ThumbnailKey
+		} else if i.ObjectKey != nil {
+			thumbKey = *i.ObjectKey
+		}
+		if thumbKey != "" && h.r2 != nil {
+			url, err := h.r2.PresignedGetURL(r.Context(), thumbKey, 15*time.Minute)
+			if err == nil {
+				out.ThumbUrl = url
+			}
+		}
+
+		tags := []string{}
+		if len(i.TagsJSON) > 2 {
+			raw := i.TagsJSON
+			raw = strings.TrimPrefix(raw, "[")
+			raw = strings.TrimSuffix(raw, "]")
+			if raw != "" {
+				for _, t := range strings.Split(raw, ",") {
+					t = strings.Trim(t, " \"")
+					if t != "" {
+						tags = append(tags, t)
+					}
+				}
+			}
+		}
+		out.Tags = tags
+
+		items = append(items, out)
 	}
 	if items == nil {
 		items = []item{}

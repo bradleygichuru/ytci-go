@@ -97,7 +97,7 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 	h := &handlers{
 		dest:      admin.NewDestinationsHandler(pool),
 		events:    admin.NewEventsHandler(pool),
-		stories:   admin.NewStoriesHandler(pool),
+		stories:   admin.NewStoriesHandler(pool, r2client),
 		course:    admin.NewCourseHandler(pool),
 		challenge: admin.NewChallengeAdminHandler(pool),
 		conserv:   admin.NewConservationAdminHandler(pool),

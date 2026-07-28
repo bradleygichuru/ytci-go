@@ -154,7 +154,8 @@ func (h *MediaHandler) Complete(w http.ResponseWriter, r *http.Request) {
 
 func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.pool.Query(r.Context(),
-		`SELECT id, object_key, type, status, caption, alt_text, credit, file_size_bytes, created_at
+		`SELECT id, object_key, type, status, caption, alt_text, credit, file_size_bytes,
+		 thumbnail_key, created_at
 		 FROM media_assets ORDER BY created_at DESC LIMIT 50`)
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list media")
@@ -163,21 +164,60 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type item struct {
-		ID        string  `json:"id"`
-		ObjectKey string  `json:"objectKey"`
-		Type      string  `json:"type"`
-		Status    string  `json:"status"`
-		Caption   *string `json:"caption,omitempty"`
-		AltText   *string `json:"altText,omitempty"`
-		Credit    *string `json:"credit,omitempty"`
-		FileSize  *int    `json:"fileSizeBytes,omitempty"`
-		CreatedAt string  `json:"createdAt"`
+		ID           string  `json:"id"`
+		ObjectKey    string  `json:"objectKey"`
+		Type         string  `json:"type"`
+		Status       string  `json:"status"`
+		Url          string  `json:"url"`
+		ThumbnailUrl string  `json:"thumbnailUrl"`
+		Caption      *string `json:"caption,omitempty"`
+		AltText      *string `json:"altText,omitempty"`
+		Credit       *string `json:"credit,omitempty"`
+		FileSize     *int    `json:"fileSizeBytes,omitempty"`
+		CreatedAt    string  `json:"createdAt"`
 	}
 	var items []item
 	for rows.Next() {
-		var i item
-		rows.Scan(&i.ID, &i.ObjectKey, &i.Type, &i.Status, &i.Caption, &i.AltText, &i.Credit, &i.FileSize, &i.CreatedAt)
-		items = append(items, i)
+		var i struct {
+			ID            string
+			ObjectKey     string
+			Type          string
+			Status        string
+			Caption       *string
+			AltText       *string
+			Credit        *string
+			FileSize      *int
+			ThumbnailKey  *string
+			CreatedAt     string
+		}
+		rows.Scan(&i.ID, &i.ObjectKey, &i.Type, &i.Status, &i.Caption, &i.AltText, &i.Credit, &i.FileSize, &i.ThumbnailKey, &i.CreatedAt)
+
+		out := item{
+			ID:        i.ID,
+			ObjectKey: i.ObjectKey,
+			Type:      i.Type,
+			Status:    i.Status,
+			Caption:   i.Caption,
+			AltText:   i.AltText,
+			Credit:    i.Credit,
+			FileSize:  i.FileSize,
+			CreatedAt: i.CreatedAt,
+		}
+
+		if h.r2 != nil {
+			url, err := h.r2.PresignedGetURL(r.Context(), i.ObjectKey, 15*time.Minute)
+			if err == nil {
+				out.Url = url
+			}
+			if i.ThumbnailKey != nil {
+				tURL, err := h.r2.PresignedGetURL(r.Context(), *i.ThumbnailKey, 15*time.Minute)
+				if err == nil {
+					out.ThumbnailUrl = tURL
+				}
+			}
+		}
+
+		items = append(items, out)
 	}
 	if items == nil {
 		items = []item{}
