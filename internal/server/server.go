@@ -239,7 +239,7 @@ func mountPublicRoutes(pub chi.Router, h *handlers) {
 	pub.Get("/feed", h.feed.GetFeed)
 	pub.Get("/destinations", h.dest.ListMobile)
 	pub.Get("/destinations/{slug}", h.dest.GetMobile)
-	pub.Get("/destinations/nearby", h.dest.Nearby)
+	pub.Get("/destinations/nearby", h.dest.NearbyMobile)
 	pub.Get("/events", h.events.ListMobile)
 	pub.Get("/stories", h.mStories.ListEnriched)
 	pub.Get("/courses", h.course.ListMobile)
