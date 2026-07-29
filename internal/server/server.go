@@ -92,6 +92,7 @@ type handlers struct {
 	comments  *expo.CommentHandler
 	adminComments *admin.AdminCommentHandler
 	account   *expo.AccountHandler
+	mobileCourses *expo.CourseHandler
 }
 
 func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Client) *handlers {
@@ -118,6 +119,7 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 		comments:  expo.NewCommentHandler(pool),
 		adminComments: admin.NewAdminCommentHandler(pool),
 		account:   expo.NewAccountHandler(pool, r2client),
+		mobileCourses: expo.NewCourseHandler(pool),
 	}
 	if pushClient != nil {
 		h.pushAdmin = admin.NewPushHandler(pool, pushClient)
@@ -204,6 +206,12 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 		m.Get("/courses", h.course.ListMobile)
 		m.Get("/challenges", h.challenge.ListMobile)
 		m.Get("/conservation", h.conserv.ListMobile)
+		m.Get("/courses/{id}", h.mobileCourses.GetCourseDetail)
+		m.Get("/courses/{id}/lessons", h.mobileCourses.ListLessons)
+		m.Get("/courses/{id}/lessons/{lessonId}", h.mobileCourses.GetLesson)
+		m.Get("/challenges/{id}", h.challenge.ChallengeDetail)
+		m.Get("/conservation/{id}", h.conserv.ConservationDetail)
+		m.Get("/stories/{id}", h.mStories.StoryDetail)
 
 		m.Group(func(aR chi.Router) {
 			aR.Use(middleware.AuthGate)
@@ -242,6 +250,15 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 			aR.Post("/events/{id}/save", h.actions.SaveEvent)
 			aR.Post("/analytics/app-open", h.actions.RecordAppOpen)
 			aR.Post("/account/delete", h.account.Delete)
+			aR.Get("/courses/{id}/quiz", h.mobileCourses.GetQuiz)
+			aR.Post("/courses/{id}/quiz/submit", h.mobileCourses.SubmitQuiz)
+			aR.Get("/courses/{id}/certificate", h.mobileCourses.GetCertificate)
+			aR.Get("/challenges/{id}/leaderboard", h.challenge.Leaderboard)
+			aR.Get("/profile/badges", h.profile.Badges)
+			aR.Get("/profile/consent", h.profile.ConsentGet)
+			aR.Patch("/profile/consent", h.profile.ConsentUpdate)
+			aR.Get("/stories/mine", h.mStories.MyStories)
+			aR.Get("/events/saved", h.actions.ListSavedEvents)
 
 			aR.Post("/stories/{id}/comments", h.comments.CreateComment)
 			aR.Post("/stories/{id}/comments/{cid}/replies", h.comments.CreateReply)

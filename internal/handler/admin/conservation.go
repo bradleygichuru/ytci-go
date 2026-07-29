@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bradleygichuru/ytci-go/internal/db/gen"
@@ -187,6 +188,55 @@ func (h *ConservationAdminHandler) ReviewEvidence(w http.ResponseWriter, r *http
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": status})
+}
+
+func (h *ConservationAdminHandler) ConservationDetail(w http.ResponseWriter, r *http.Request) {
+	activityID := r.PathValue("id")
+
+	var id, title, organizer, privacyLevel, status, createdAt string
+	var description, locationLabel, eventDate, impactMetric *string
+	var impactTarget, participantLimit, currentParticipants *int
+	var lng, lat *float64
+
+	err := h.pool.QueryRow(r.Context(),
+		`SELECT id, title, organizer, description,
+			ST_X(location::geometry) AS lng, ST_Y(location::geometry) AS lat,
+			location_label, privacy_level, event_date::text,
+			impact_metric, impact_target, participant_limit, current_participants,
+			status, created_at::text
+		 FROM conservation_activities
+		 WHERE id = $1 AND privacy_level = 'public'`, activityID,
+	).Scan(&id, &title, &organizer, &description, &lng, &lat, &locationLabel, &privacyLevel,
+		&eventDate, &impactMetric, &impactTarget, &participantLimit, &currentParticipants,
+		&status, &createdAt)
+	if err == pgx.ErrNoRows {
+		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "activity not found")
+		return
+	}
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get activity")
+		return
+	}
+
+	resp := map[string]any{
+		"id":                 id,
+		"title":              title,
+		"organizer":          organizer,
+		"description":        description,
+		"lng":                lng,
+		"lat":                lat,
+		"locationLabel":      locationLabel,
+		"privacyLevel":       privacyLevel,
+		"eventDate":          eventDate,
+		"impactMetric":       impactMetric,
+		"impactTarget":       impactTarget,
+		"participantLimit":   participantLimit,
+		"currentParticipants": currentParticipants,
+		"status":             status,
+		"createdAt":          createdAt,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 func valOrNilFloat(f *float64) interface{} {

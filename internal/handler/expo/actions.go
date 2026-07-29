@@ -8,6 +8,7 @@ import (
 
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 	"github.com/bradleygichuru/ytci-go/internal/middleware"
+	"github.com/bradleygichuru/ytci-go/internal/model"
 )
 
 type ActionsHandler struct {
@@ -213,6 +214,50 @@ func (h *ActionsHandler) SaveEvent(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
+}
+
+func (h *ActionsHandler) ListSavedEvents(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.UserID(r.Context())
+	rows, err := h.pool.Query(r.Context(),
+		`SELECT e.id, e.title, e.organizer, e.county, e.venue, e.event_date::text, e.type, e.image_url
+		 FROM event_saves es
+		 JOIN events e ON e.id = es.event_id
+		 WHERE es.user_id = $1
+		 ORDER BY e.event_date ASC
+		 LIMIT 50`, userID)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list saved events")
+		return
+	}
+	defer rows.Close()
+
+	type savedEvent struct {
+		ID        string  `json:"id"`
+		Title     string  `json:"title"`
+		Organizer string  `json:"organizer"`
+		County    string  `json:"county"`
+		Venue     *string `json:"venue,omitempty"`
+		EventDate string  `json:"eventDate"`
+		Type      string  `json:"type"`
+		ImageURL  *string `json:"imageUrl,omitempty"`
+	}
+
+	var items []savedEvent
+	for rows.Next() {
+		var i savedEvent
+		rows.Scan(&i.ID, &i.Title, &i.Organizer, &i.County, &i.Venue, &i.EventDate, &i.Type, &i.ImageURL)
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to iterate events")
+		return
+	}
+	if items == nil {
+		items = []savedEvent{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(model.Paginated[savedEvent]{Items: items, HasMore: false})
 }
 
 type evidenceRequest struct {

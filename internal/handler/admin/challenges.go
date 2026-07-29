@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bradleygichuru/ytci-go/internal/db/gen"
@@ -151,4 +152,97 @@ func (h *ChallengeAdminHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
+}
+
+func (h *ChallengeAdminHandler) ChallengeDetail(w http.ResponseWriter, r *http.Request) {
+	challengeID := r.PathValue("id")
+
+	var id, title, status, createdAt string
+	var description, rules, badgeName, badgeIcon, eligibility, startDate, endDate *string
+	var currentParticipants *int
+
+	err := h.pool.QueryRow(r.Context(),
+		`SELECT id, title, description, rules, badge_name, badge_icon_url,
+			eligibility::text, start_date::text, end_date::text, status, created_at::text
+		 FROM challenges WHERE id = $1 AND status = 'active'`, challengeID,
+	).Scan(&id, &title, &description, &rules, &badgeName, &badgeIcon,
+		&eligibility, &startDate, &endDate, &status, &createdAt)
+	if err == pgx.ErrNoRows {
+		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "challenge not found")
+		return
+	}
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get challenge")
+		return
+	}
+
+	err = h.pool.QueryRow(r.Context(),
+		`SELECT COUNT(*)
+		 FROM challenge_progress WHERE challenge_id = $1`, challengeID,
+	).Scan(&currentParticipants)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get challenge stats")
+		return
+	}
+
+	resp := map[string]any{
+		"id":                 id,
+		"title":              title,
+		"description":        description,
+		"rules":              rules,
+		"badgeName":          badgeName,
+		"badgeIconUrl":       badgeIcon,
+		"eligibility":        eligibility,
+		"startDate":          startDate,
+		"endDate":            endDate,
+		"status":             status,
+		"currentParticipants": currentParticipants,
+		"createdAt":          createdAt,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+type leaderboardEntry struct {
+	UserID   string  `json:"userId"`
+	UserName string  `json:"userName"`
+	Rank     int     `json:"rank"`
+	Status   string  `json:"status"`
+	BadgeAwardedAt *string `json:"badgeAwardedAt,omitempty"`
+}
+
+func (h *ChallengeAdminHandler) Leaderboard(w http.ResponseWriter, r *http.Request) {
+	challengeID := r.PathValue("id")
+	rows, err := h.pool.Query(r.Context(),
+		`WITH ranked AS (
+			SELECT cp.user_id, cp.status, cp.badge_awarded_at,
+				ROW_NUMBER() OVER (ORDER BY cp.badge_awarded_at ASC NULLS LAST, cp.created_at ASC) AS rank
+			FROM challenge_progress cp
+			WHERE cp.challenge_id = $1 AND cp.status = 'approved'
+		)
+		SELECT r.user_id, COALESCE(up.display_name, 'Anonymous'), r.rank, r.status, r.badge_awarded_at::text
+		FROM ranked r
+		LEFT JOIN user_profiles up ON up.user_id = r.user_id
+		ORDER BY r.rank`, challengeID)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get leaderboard")
+		return
+	}
+	defer rows.Close()
+
+	var items []leaderboardEntry
+	for rows.Next() {
+		var i leaderboardEntry
+		rows.Scan(&i.UserID, &i.UserName, &i.Rank, &i.Status, &i.BadgeAwardedAt)
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to iterate leaderboard")
+		return
+	}
+	if items == nil {
+		items = []leaderboardEntry{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(items)
 }
