@@ -91,6 +91,7 @@ type handlers struct {
 	pushAdmin *admin.PushHandler
 	comments  *expo.CommentHandler
 	adminComments *admin.AdminCommentHandler
+	account   *expo.AccountHandler
 }
 
 func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Client) *handlers {
@@ -116,6 +117,7 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 		media:     admin.NewMediaHandler(pool, r2client),
 		comments:  expo.NewCommentHandler(pool),
 		adminComments: admin.NewAdminCommentHandler(pool),
+		account:   expo.NewAccountHandler(pool, r2client),
 	}
 	if pushClient != nil {
 		h.pushAdmin = admin.NewPushHandler(pool, pushClient)
@@ -239,6 +241,7 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 			aR.Post("/courses/{id}/enroll", h.actions.EnrollCourse)
 			aR.Post("/events/{id}/save", h.actions.SaveEvent)
 			aR.Post("/analytics/app-open", h.actions.RecordAppOpen)
+			aR.Post("/account/delete", h.account.Delete)
 
 			aR.Post("/stories/{id}/comments", h.comments.CreateComment)
 			aR.Post("/stories/{id}/comments/{cid}/replies", h.comments.CreateReply)

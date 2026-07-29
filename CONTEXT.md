@@ -92,6 +92,20 @@ _Avoid_: Alert, message, notification campaign
 A record of a user opening the mobile app. Deduplicated with a 5-minute cooldown to prevent double-counting from rapid app-switching. Used for DAU/WAU/MAU calculations.
 _Avoid_: Session start, launch event, foreground event
 
+### Account & Deletion
+
+**Account**:
+The better-auth authentication record stored in the `users` table (id, email, role, name). Managed by better-auth on the TanStack dashboard side. The Account ties a user to their credentials and sessions.
+_Avoid_: Auth record, login, identity
+
+**User**:
+The collection of all YTCI-side data linked to a `user_id` across the platform — profile, stories, interactions, itineraries, activity records, push tokens. Distinct from the Account (the auth record); the User is what gets cleaned up when the Account is deleted.
+_Avoid_: Account holder, member, person
+
+**Account Deletion**:
+The irreversible operation that deletes the Account and cleans or anonymizes the User's YTCI data. Content that other users can see (stories, comments, itineraries, challenge progress) is anonymized by setting FK columns to NULL. Personal-only data (bucket list, push tokens, app opens, user profile) is hard-deleted. Media in R2 associated with failed or abandoned pre-upload intents is cleaned up best-effort after the transaction commits.
+_Avoid_: Account removal, user purge, sign-up removal
+
 ### Internal
 
 **Admin API**:
