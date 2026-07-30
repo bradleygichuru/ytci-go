@@ -137,8 +137,8 @@ func (h *MediaHandler) Complete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	row := h.pool.QueryRow(r.Context(),
-		`INSERT INTO media_assets (object_key, status, uploaded_by, caption, alt_text, credit, thumbnail_key, type)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, 'image') RETURNING id`,
+		`INSERT INTO media_assets (object_key, status, uploaded_by, caption, alt_text, credit, thumbnail_key, type, entity_type, entity_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, 'image', 'unlinked', '00000000-0000-0000-0000-000000000000') RETURNING id`,
 		req.ObjectKey, status, userID, req.Caption, req.AltText, req.Credit, req.ThumbnailKey)
 
 	var id string

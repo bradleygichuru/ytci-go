@@ -9,11 +9,13 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bradleygichuru/ytci-go/internal/db/gen"
 	"github.com/bradleygichuru/ytci-go/internal/handler"
+	"github.com/bradleygichuru/ytci-go/internal/model"
 	"github.com/bradleygichuru/ytci-go/internal/pagination"
 )
 
@@ -26,29 +28,123 @@ func NewDestinationsHandler(pool *pgxpool.Pool) *DestinationsHandler {
 }
 
 func (h *DestinationsHandler) List(w http.ResponseWriter, r *http.Request) {
-	queries := gen.New(h.pool)
-	pg := &pagination.CursorPaginator[gen.Destination]{}
+	pr := pagination.ParseRequest(r)
+	limit := int32(pr.Limit) + 1
 
-	pg.WritePage(w, r,
-		func(limit int32) ([]gen.Destination, error) {
-			return queries.ListDestinations(r.Context(), limit)
-		},
-		func(limit int32, sortValue, id string) ([]gen.Destination, error) {
-			var ts pgtype.Timestamp
-			var uid pgtype.UUID
-			ts.Scan(sortValue)
-			uid.Scan(id)
-			return queries.ListDestinationsAfter(r.Context(), &gen.ListDestinationsAfterParams{
-				CreatedAt: ts,
-				ID:        uid,
-				Limit:     limit,
-			})
-		},
-		func(d gen.Destination) (string, bool) {
-			ts := d.CreatedAt.Time.UTC().Format(time.RFC3339Nano)
-			return pagination.EncodeCursor(ts, pagination.UUIDString(d.ID.Bytes)), true
-		},
-	)
+	type adminDestination struct {
+		ID                  pgtype.UUID      `json:"id"`
+		Name                string           `json:"name"`
+		Slug                string           `json:"slug"`
+		County              string           `json:"county"`
+		Locality            *string          `json:"locality"`
+		Category            string           `json:"category"`
+		Status              string           `json:"status"`
+		MapLabel            *string          `json:"map_label"`
+		AccessRoute         *string          `json:"access_route"`
+		DistanceReference   *string          `json:"distance_reference"`
+		ShortDescription    *string          `json:"short_description"`
+		FullDescription     *string          `json:"full_description"`
+		Significance        *string          `json:"significance"`
+		History             *string          `json:"history"`
+		ThingsToDo          *string          `json:"things_to_do"`
+		SuitableAudiences   *string          `json:"suitable_audiences"`
+		Duration            *string          `json:"duration"`
+		Difficulty          *string          `json:"difficulty"`
+		Seasonality         *string          `json:"seasonality"`
+		IndicativeFees      *string          `json:"indicative_fees"`
+		OpeningInfo         *string          `json:"opening_info"`
+		TransportNotes      *string          `json:"transport_notes"`
+		Accessibility       *string          `json:"accessibility"`
+		Facilities          *string          `json:"facilities"`
+		SafetyNotes         *string          `json:"safety_notes"`
+		Source              *string          `json:"source"`
+		ContentOwner        *string          `json:"content_owner"`
+		VerificationStatus  *string          `json:"verification_status"`
+		CreatedAt           pgtype.Timestamp `json:"created_at"`
+		UpdatedAt           pgtype.Timestamp `json:"updated_at"`
+		Media               json.RawMessage  `json:"media"`
+	}
+
+	q := `SELECT d.id, d.name, d.slug, d.county, d.locality, d.category,
+		d.status, d.map_label, d.access_route, d.distance_reference,
+		d.short_description, d.full_description, d.significance, d.history,
+		d.things_to_do, d.suitable_audiences, d.duration, d.difficulty,
+		d.seasonality, d.indicative_fees, d.opening_info, d.transport_notes,
+		d.accessibility, d.facilities, d.safety_notes, d.source,
+		d.content_owner, d.verification_status, d.created_at, d.updated_at,
+		COALESCE(
+			(SELECT json_agg(json_build_object(
+				'objectKey', ma.object_key,
+				'thumbnailKey', ma.thumbnail_key,
+				'type', ma.type,
+				'altText', ma.alt_text,
+				'caption', ma.caption,
+				'credit', ma.credit
+			) ORDER BY ma.display_order)
+			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
+			'[]'::json
+		) AS media
+		FROM destinations d`
+
+	var rows pgx.Rows
+	var err error
+
+	if pr.Cursor != nil {
+		var ts pgtype.Timestamp
+		var uid pgtype.UUID
+		if e := ts.Scan(pr.Cursor.SortValue); e != nil {
+			handler.WriteError(w, http.StatusBadRequest, "INVALID_CURSOR", "invalid cursor")
+			return
+		}
+		if e := uid.Scan(pr.Cursor.ID); e != nil {
+			handler.WriteError(w, http.StatusBadRequest, "INVALID_CURSOR", "invalid cursor")
+			return
+		}
+		rows, err = h.pool.Query(r.Context(),
+			q+` WHERE (d.created_at, d.id) < ($1, $2) ORDER BY d.created_at DESC, d.id DESC LIMIT $3`,
+			ts, uid, limit)
+	} else {
+		rows, err = h.pool.Query(r.Context(),
+			q+` ORDER BY d.created_at DESC, d.id DESC LIMIT $1`, limit)
+	}
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list destinations")
+		return
+	}
+	defer rows.Close()
+
+	var items []adminDestination
+	for rows.Next() {
+		var i adminDestination
+		rows.Scan(&i.ID, &i.Name, &i.Slug, &i.County, &i.Locality, &i.Category,
+			&i.Status, &i.MapLabel, &i.AccessRoute, &i.DistanceReference,
+			&i.ShortDescription, &i.FullDescription, &i.Significance, &i.History,
+			&i.ThingsToDo, &i.SuitableAudiences, &i.Duration, &i.Difficulty,
+			&i.Seasonality, &i.IndicativeFees, &i.OpeningInfo, &i.TransportNotes,
+			&i.Accessibility, &i.Facilities, &i.SafetyNotes, &i.Source,
+			&i.ContentOwner, &i.VerificationStatus, &i.CreatedAt, &i.UpdatedAt, &i.Media)
+		items = append(items, i)
+	}
+
+	hasMore := len(items) > int(limit-1)
+	result := items
+	if hasMore {
+		result = items[:limit-1]
+	}
+	if result == nil {
+		result = []adminDestination{}
+	}
+
+	resp := model.Paginated[adminDestination]{Items: result, HasMore: hasMore}
+	if hasMore && len(result) > 0 {
+		last := result[len(result)-1]
+		ts := last.CreatedAt.Time.UTC().Format(time.RFC3339Nano)
+		c := pagination.EncodeCursor(ts, pagination.UUIDString(last.ID.Bytes))
+		resp.NextCursor = &c
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 func (h *DestinationsHandler) Get(w http.ResponseWriter, r *http.Request) {
@@ -58,8 +154,70 @@ func (h *DestinationsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	queries := gen.New(h.pool)
-	dest, err := queries.GetDestinationBySlug(r.Context(), slug)
+	type adminDetail struct {
+		ID                  pgtype.UUID      `json:"id"`
+		Name                string           `json:"name"`
+		Slug                string           `json:"slug"`
+		County              string           `json:"county"`
+		Locality            *string          `json:"locality"`
+		Category            string           `json:"category"`
+		Status              string           `json:"status"`
+		MapLabel            *string          `json:"map_label"`
+		AccessRoute         *string          `json:"access_route"`
+		DistanceReference   *string          `json:"distance_reference"`
+		ShortDescription    *string          `json:"short_description"`
+		FullDescription     *string          `json:"full_description"`
+		Significance        *string          `json:"significance"`
+		History             *string          `json:"history"`
+		ThingsToDo          *string          `json:"things_to_do"`
+		SuitableAudiences   *string          `json:"suitable_audiences"`
+		Duration            *string          `json:"duration"`
+		Difficulty          *string          `json:"difficulty"`
+		Seasonality         *string          `json:"seasonality"`
+		IndicativeFees      *string          `json:"indicative_fees"`
+		OpeningInfo         *string          `json:"opening_info"`
+		TransportNotes      *string          `json:"transport_notes"`
+		Accessibility       *string          `json:"accessibility"`
+		Facilities          *string          `json:"facilities"`
+		SafetyNotes         *string          `json:"safety_notes"`
+		Source              *string          `json:"source"`
+		ContentOwner        *string          `json:"content_owner"`
+		VerificationStatus  *string          `json:"verification_status"`
+		CreatedAt           pgtype.Timestamp `json:"created_at"`
+		UpdatedAt           pgtype.Timestamp `json:"updated_at"`
+		Media               json.RawMessage  `json:"media"`
+	}
+
+	q := `SELECT d.id, d.name, d.slug, d.county, d.locality, d.category,
+		d.status, d.map_label, d.access_route, d.distance_reference,
+		d.short_description, d.full_description, d.significance, d.history,
+		d.things_to_do, d.suitable_audiences, d.duration, d.difficulty,
+		d.seasonality, d.indicative_fees, d.opening_info, d.transport_notes,
+		d.accessibility, d.facilities, d.safety_notes, d.source,
+		d.content_owner, d.verification_status, d.created_at, d.updated_at,
+		COALESCE(
+			(SELECT json_agg(json_build_object(
+				'objectKey', ma.object_key,
+				'thumbnailKey', ma.thumbnail_key,
+				'type', ma.type,
+				'altText', ma.alt_text,
+				'caption', ma.caption,
+				'credit', ma.credit
+			) ORDER BY ma.display_order)
+			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
+			'[]'::json
+		) AS media
+		FROM destinations d WHERE d.slug = $1`
+
+	var dest adminDetail
+	err := h.pool.QueryRow(r.Context(), q, slug).Scan(
+		&dest.ID, &dest.Name, &dest.Slug, &dest.County, &dest.Locality, &dest.Category,
+		&dest.Status, &dest.MapLabel, &dest.AccessRoute, &dest.DistanceReference,
+		&dest.ShortDescription, &dest.FullDescription, &dest.Significance, &dest.History,
+		&dest.ThingsToDo, &dest.SuitableAudiences, &dest.Duration, &dest.Difficulty,
+		&dest.Seasonality, &dest.IndicativeFees, &dest.OpeningInfo, &dest.TransportNotes,
+		&dest.Accessibility, &dest.Facilities, &dest.SafetyNotes, &dest.Source,
+		&dest.ContentOwner, &dest.VerificationStatus, &dest.CreatedAt, &dest.UpdatedAt, &dest.Media)
 	if err != nil {
 		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "destination not found")
 		return
