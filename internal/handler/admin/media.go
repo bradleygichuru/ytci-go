@@ -298,7 +298,10 @@ func (h *MediaHandler) Delete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *MediaHandler) GetURL(w http.ResponseWriter, r *http.Request) {
-	objectKey := r.PathValue("id")
+	objectKey := r.PathValue("objectKey")
+	if objectKey == "" {
+		objectKey = r.PathValue("id")
+	}
 
 	url, err := h.r2.PresignedGetURL(r.Context(), objectKey, 15*time.Minute)
 	if err != nil {

@@ -401,7 +401,9 @@ func (h *DestinationsHandler) ListMobile(w http.ResponseWriter, r *http.Request)
 			&i.AccessRoute, &i.DistanceReference,
 			&i.Lng, &i.Lat, &mediaJSON, &i.CreatedAt, &i.UpdatedAt)
 		if mediaJSON != nil {
-			json.Unmarshal(mediaJSON, &i.Media)
+			if err := json.Unmarshal(mediaJSON, &i.Media); err != nil {
+				slog.Warn("failed to unmarshal destination media", "dest_id", i.ID, "error", err)
+			}
 		}
 		if i.Media == nil {
 			i.Media = []mobileMedia{}
@@ -496,7 +498,9 @@ func (h *DestinationsHandler) GetMobile(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if mediaJSON != nil {
-		json.Unmarshal(mediaJSON, &dest.Media)
+		if err := json.Unmarshal(mediaJSON, &dest.Media); err != nil {
+			slog.Warn("failed to unmarshal destination detail media", "dest_id", dest.ID, "error", err)
+		}
 	}
 	if dest.Media == nil {
 		dest.Media = []mobileMedia{}
@@ -604,7 +608,9 @@ func (h *DestinationsHandler) NearbyMobile(w http.ResponseWriter, r *http.Reques
 			&i.AccessRoute, &i.DistanceReference,
 			&i.Lng, &i.Lat, &mediaJSON, &i.DistanceMeters, &i.CreatedAt, &i.UpdatedAt)
 		if mediaJSON != nil {
-			json.Unmarshal(mediaJSON, &i.Media)
+			if err := json.Unmarshal(mediaJSON, &i.Media); err != nil {
+				slog.Warn("failed to unmarshal nearby media", "dest_id", i.ID, "error", err)
+			}
 		}
 		if i.Media == nil {
 			i.Media = []nearbyMobileMedia{}

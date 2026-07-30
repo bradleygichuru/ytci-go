@@ -2,6 +2,7 @@ package expo
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -93,7 +94,9 @@ func (h *StoriesHandler) ListEnriched(w http.ResponseWriter, r *http.Request) {
 			rows.Scan(&i.ID, &i.Caption, &mediaJSON, &i.LikeCount, &i.SaveCount, &i.CreatedAt, &i.IsLiked, &i.IsSaved)
 		}
 		if mediaJSON != nil {
-			json.Unmarshal(mediaJSON, &i.Media)
+			if err := json.Unmarshal(mediaJSON, &i.Media); err != nil {
+				slog.Warn("failed to unmarshal story media", "story_id", i.ID, "error", err)
+			}
 		}
 		if i.Media == nil {
 			i.Media = []mediaItem{}
@@ -166,7 +169,9 @@ func (h *StoriesHandler) StoryDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if mediaJSON != nil {
-		json.Unmarshal(mediaJSON, &s.Media)
+		if err := json.Unmarshal(mediaJSON, &s.Media); err != nil {
+			slog.Warn("failed to unmarshal story detail media", "story_id", s.ID, "error", err)
+		}
 	}
 	if s.Media == nil {
 		s.Media = []mediaItem{}
@@ -213,7 +218,9 @@ func (h *StoriesHandler) MyStories(w http.ResponseWriter, r *http.Request) {
 		var mediaJSON []byte
 		rows.Scan(&i.ID, &i.Caption, &mediaJSON, &i.Status, &i.LikeCount, &i.CreatedAt)
 		if mediaJSON != nil {
-			json.Unmarshal(mediaJSON, &i.Media)
+			if err := json.Unmarshal(mediaJSON, &i.Media); err != nil {
+				slog.Warn("failed to unmarshal my story media", "story_id", i.ID, "error", err)
+			}
 		}
 		if i.Media == nil {
 			i.Media = []mediaItem{}
