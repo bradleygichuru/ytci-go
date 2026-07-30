@@ -279,6 +279,89 @@ func JWTAuth(cfg *JWKSCache, expectedIssuer, expectedAudience string) func(http.
 	}
 }
 
+// OptionalAuth parses a JWT or better-auth session token when present and
+// attaches user context values, but does not reject the request when the
+// Authorization header is missing or the token is invalid. This lets guests
+// access read-only mobile endpoints while still allowing authenticated users
+// to receive personalized responses (e.g. isLiked, isSaved).
+func OptionalAuth(cfg *JWKSCache, expectedIssuer, expectedAudience string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			tokenStr := extractBearerToken(r)
+			if tokenStr == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Session token fallback.
+			if cfg.pool != nil && strings.Count(tokenStr, ".") < 2 {
+				parts := strings.SplitN(tokenStr, ".", 2)
+				sessionID := parts[0]
+				var userID, role, email string
+				err := cfg.pool.QueryRow(r.Context(),
+					`SELECT u.id, u.role, u.email
+					 FROM users u
+					 JOIN sessions s ON s.user_id = u.id
+					 WHERE s.token = $1 AND s.expires_at > now()`,
+					sessionID,
+				).Scan(&userID, &role, &email)
+				if err == nil {
+					ctx = context.WithValue(ctx, CtxUserID, userID)
+					ctx = context.WithValue(ctx, CtxRole, role)
+					ctx = context.WithValue(ctx, CtxEmail, email)
+				}
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+
+			opts := []jwt.ParserOption{
+				jwt.WithValidMethods([]string{"RS256"}),
+			}
+			if expectedIssuer != "" {
+				opts = append(opts, jwt.WithIssuer(expectedIssuer))
+			}
+			if expectedAudience != "" {
+				opts = append(opts, jwt.WithAudience(expectedAudience))
+			}
+
+			parsed, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+				if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+					return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+				}
+				kid, ok := token.Header["kid"].(string)
+				if !ok {
+					return nil, fmt.Errorf("missing kid in JWT header")
+				}
+				return cfg.lookupWithRefresh(kid)
+			}, opts...)
+			if err != nil {
+				slog.Debug("optional auth: invalid token", "error", err)
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			claims, ok := parsed.Claims.(jwt.MapClaims)
+			if !ok {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			if sub, ok := claims["sub"].(string); ok {
+				ctx = context.WithValue(ctx, CtxUserID, sub)
+			}
+			if role, ok := claims["role"].(string); ok {
+				ctx = context.WithValue(ctx, CtxRole, role)
+			}
+			if email, ok := claims["email"].(string); ok {
+				ctx = context.WithValue(ctx, CtxEmail, email)
+			}
+
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
 func extractBearerToken(r *http.Request) string {
 	auth := r.Header.Get("Authorization")
 	if len(auth) < 7 || auth[:7] != "Bearer " {

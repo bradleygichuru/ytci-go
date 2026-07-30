@@ -18,6 +18,10 @@ _Avoid_: Expo API, app API
 An endpoint under `/v1/public/*` that requires no authentication. Returns only published/publishable data filtered by status (published, scheduled, active, open).
 _Avoid_: Guest route, anonymous route, open route
 
+**Optional Auth Route**:
+An endpoint under `/v1/mobile/*` that parses a JWT or session token when present but does not require one. Unauthenticated requests pass through; authenticated requests get personalized responses (e.g. isLiked, isSaved). Used for read-only browsing endpoints (destinations, events, stories, courses, challenges, conservation).
+_Avoid_: Semi-public route, soft-auth route
+
 **Authenticated Route**:
 An endpoint under `/v1/mobile/*` that requires a valid JWT or session token via the JWTAuth or AuthGate middleware. Used for user-specific actions (bucket list, itinerary management, story creation, challenge participation).
 _Avoid_: Logged-in route, user route

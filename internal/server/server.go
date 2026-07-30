@@ -60,8 +60,8 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 	authLimiter := middleware.AuthenticatedRateLimiter()
 
 	r.Route("/v1", func(sub chi.Router) {
-		sub.Use(middleware.JWTAuth(jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud))
-		mountAdminRoutes(sub, h, r2client)
+		sub.Use(middleware.OptionalAuth(jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud))
+		mountAdminRoutes(sub, h, r2client, jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud)
 		mountMobileRoutes(sub, h, r2client, authLimiter)
 	})
 
@@ -127,8 +127,9 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 	return h
 }
 
-func mountAdminRoutes(sub chi.Router, h *handlers, r2client r2.Store) {
+func mountAdminRoutes(sub chi.Router, h *handlers, r2client r2.Store, jwks *middleware.JWKSCache, expectedIssuer, expectedAudience string) {
 	sub.Group(func(aR chi.Router) {
+		aR.Use(middleware.JWTAuth(jwks, expectedIssuer, expectedAudience))
 		aR.Use(middleware.AdminGate)
 
 		aR.Get("/destinations", h.dest.List)
