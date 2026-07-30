@@ -298,9 +298,16 @@ func (h *MediaHandler) Delete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *MediaHandler) GetURL(w http.ResponseWriter, r *http.Request) {
-	objectKey := r.PathValue("objectKey")
+	objectKey := r.URL.Query().Get("key")
+	if objectKey == "" {
+		objectKey = r.PathValue("objectKey")
+	}
 	if objectKey == "" {
 		objectKey = r.PathValue("id")
+	}
+	if objectKey == "" {
+		handler.WriteError(w, http.StatusBadRequest, "MISSING_KEY", "object key is required")
+		return
 	}
 
 	url, err := h.r2.PresignedGetURL(r.Context(), objectKey, 15*time.Minute)

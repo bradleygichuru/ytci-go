@@ -182,6 +182,7 @@ func mountAdminRoutes(sub chi.Router, h *handlers, r2client r2.Store) {
 			aR.Post("/media/complete", h.media.Complete)
 			aR.Delete("/media/{id}", h.media.Delete)
 			aR.Get("/media/{id}/url", h.media.GetURL)
+			aR.Get("/media/url", h.media.GetURL)
 		}
 		if h.pushAdmin != nil {
 			aR.Post("/push/send", h.pushAdmin.Send)
