@@ -37,7 +37,7 @@ A single entry within an itinerary — a destination visit on a specific day at 
 _Avoid_: Waypoint, checkpoint, location
 
 **Story**:
-A user-submitted narrative or photo journal about a destination visit. Can be liked, saved, and reported. Goes through moderation workflow (pending → approved → rejected).
+A user-submitted narrative or photo journal about a travel experience. Optionally tied to a single Destination (many youth stories describe the broad journey rather than a specific site). Can be liked, saved, and reported. Goes through moderation workflow (pending → approved → rejected).
 _Avoid_: Post, review, trip report
 
 **Interaction**:

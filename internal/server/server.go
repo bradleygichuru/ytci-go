@@ -98,7 +98,7 @@ type handlers struct {
 func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Client) *handlers {
 	h := &handlers{
 		dest:      admin.NewDestinationsHandler(pool, r2client),
-		events:    admin.NewEventsHandler(pool),
+		events:    admin.NewEventsHandler(pool, r2client),
 		stories:   admin.NewStoriesHandler(pool, r2client),
 		course:    admin.NewCourseHandler(pool),
 		challenge: admin.NewChallengeAdminHandler(pool),
@@ -174,6 +174,7 @@ func mountAdminRoutes(sub chi.Router, h *handlers, r2client r2.Store) {
 		aR.Post("/analytics/reports/export", h.analytics.Export)
 
 		aR.Post("/destinations/{id}/media", h.dest.AddMedia)
+		aR.Post("/events/{id}/media", h.events.AddMedia)
 
 		aR.Patch("/media/{id}", h.media.UpdateMetadata)
 		aR.Get("/media", h.media.List)
