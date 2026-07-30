@@ -97,7 +97,7 @@ type handlers struct {
 
 func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Client) *handlers {
 	h := &handlers{
-		dest:      admin.NewDestinationsHandler(pool),
+		dest:      admin.NewDestinationsHandler(pool, r2client),
 		events:    admin.NewEventsHandler(pool),
 		stories:   admin.NewStoriesHandler(pool, r2client),
 		course:    admin.NewCourseHandler(pool),

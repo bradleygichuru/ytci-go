@@ -17,14 +17,16 @@ import (
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 	"github.com/bradleygichuru/ytci-go/internal/model"
 	"github.com/bradleygichuru/ytci-go/internal/pagination"
+	"github.com/bradleygichuru/ytci-go/internal/r2"
 )
 
 type DestinationsHandler struct {
 	pool *pgxpool.Pool
+	r2   r2.Store
 }
 
-func NewDestinationsHandler(pool *pgxpool.Pool) *DestinationsHandler {
-	return &DestinationsHandler{pool: pool}
+func NewDestinationsHandler(pool *pgxpool.Pool, r2client r2.Store) *DestinationsHandler {
+	return &DestinationsHandler{pool: pool, r2: r2client}
 }
 
 func (h *DestinationsHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -481,6 +483,36 @@ func (h *DestinationsHandler) AddMedia(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *DestinationsHandler) presignMedia(mediaJSON []byte, firstOnly bool) []byte {
+	if h.r2 == nil || len(mediaJSON) == 0 {
+		return mediaJSON
+	}
+	var items []map[string]any
+	if err := json.Unmarshal(mediaJSON, &items); err != nil {
+		return mediaJSON
+	}
+	limit := len(items)
+	if firstOnly && limit > 1 {
+		limit = 1
+	}
+	for _, item := range items[:limit] {
+		ok, _ := item["objectKey"].(string)
+		if ok != "" {
+			if u, err := h.r2.PresignedGetURL(context.Background(), ok, 15*time.Minute); err == nil {
+				item["url"] = u
+			}
+		}
+		tk, _ := item["thumbnailKey"].(string)
+		if tk != "" {
+			if u, err := h.r2.PresignedGetURL(context.Background(), tk, 15*time.Minute); err == nil {
+				item["thumbnailUrl"] = u
+			}
+		}
+	}
+	out, _ := json.Marshal(items)
+	return out
+}
+
 func (h *DestinationsHandler) ListMobile(w http.ResponseWriter, r *http.Request) {
 	county := r.URL.Query().Get("county")
 	category := r.URL.Query().Get("category")
@@ -530,6 +562,8 @@ func (h *DestinationsHandler) ListMobile(w http.ResponseWriter, r *http.Request)
 		ThumbnailKey string `json:"thumbnailKey,omitempty"`
 		Type         string `json:"type,omitempty"`
 		AltText      string `json:"altText,omitempty"`
+		URL          string `json:"url,omitempty"`
+		ThumbnailURL string `json:"thumbnailUrl,omitempty"`
 	}
 
 	type mobileDestination struct {
@@ -576,6 +610,7 @@ func (h *DestinationsHandler) ListMobile(w http.ResponseWriter, r *http.Request)
 			&i.AccessRoute, &i.DistanceReference,
 			&i.Lng, &i.Lat, &mediaJSON, &i.CreatedAt, &i.UpdatedAt)
 		if mediaJSON != nil {
+			mediaJSON = h.presignMedia(mediaJSON, true)
 			if err := json.Unmarshal(mediaJSON, &i.Media); err != nil {
 				slog.Warn("failed to unmarshal destination media", "dest_id", i.ID, "error", err)
 			}
@@ -624,6 +659,8 @@ func (h *DestinationsHandler) GetMobile(w http.ResponseWriter, r *http.Request) 
 		ThumbnailKey string `json:"thumbnailKey,omitempty"`
 		Type         string `json:"type,omitempty"`
 		AltText      string `json:"altText,omitempty"`
+		URL          string `json:"url,omitempty"`
+		ThumbnailURL string `json:"thumbnailUrl,omitempty"`
 	}
 
 	type mobileDestination struct {
@@ -673,6 +710,7 @@ func (h *DestinationsHandler) GetMobile(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if mediaJSON != nil {
+		mediaJSON = h.presignMedia(mediaJSON, false)
 		if err := json.Unmarshal(mediaJSON, &dest.Media); err != nil {
 			slog.Warn("failed to unmarshal destination detail media", "dest_id", dest.ID, "error", err)
 		}
@@ -683,7 +721,7 @@ func (h *DestinationsHandler) GetMobile(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(dest)
-}
+}	
 
 func (h *DestinationsHandler) NearbyMobile(w http.ResponseWriter, r *http.Request) {
 	latStr := r.URL.Query().Get("lat")
@@ -727,6 +765,8 @@ func (h *DestinationsHandler) NearbyMobile(w http.ResponseWriter, r *http.Reques
 		ThumbnailKey string `json:"thumbnailKey,omitempty"`
 		Type         string `json:"type,omitempty"`
 		AltText      string `json:"altText,omitempty"`
+		URL          string `json:"url,omitempty"`
+		ThumbnailURL string `json:"thumbnailUrl,omitempty"`
 	}
 
 	type nearbyMobileDestination struct {
@@ -783,6 +823,7 @@ func (h *DestinationsHandler) NearbyMobile(w http.ResponseWriter, r *http.Reques
 			&i.AccessRoute, &i.DistanceReference,
 			&i.Lng, &i.Lat, &mediaJSON, &i.DistanceMeters, &i.CreatedAt, &i.UpdatedAt)
 		if mediaJSON != nil {
+			mediaJSON = h.presignMedia(mediaJSON, true)
 			if err := json.Unmarshal(mediaJSON, &i.Media); err != nil {
 				slog.Warn("failed to unmarshal nearby media", "dest_id", i.ID, "error", err)
 			}
