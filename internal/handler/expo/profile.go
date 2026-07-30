@@ -127,13 +127,25 @@ func (h *ProfileHandler) Badges(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(model.Paginated[badge]{Items: items, HasMore: false})
 }
 
+type consentResponse struct {
+	Location      bool    `json:"location"`
+	Camera        bool    `json:"camera"`
+	Notifications bool    `json:"notifications"`
+	Ugc           bool    `json:"ugc"`
+	UpdatedAt     *string `json:"updatedAt,omitempty"`
+}
+
 func (h *ProfileHandler) ConsentGet(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r.Context())
 
-	var consentGrantedAt *string
+	var location, camera, notifications, ugc bool
+	var updatedAt *string
 	err := h.pool.QueryRow(r.Context(),
-		`SELECT consent_granted_at::text FROM user_profiles WHERE user_id = $1`, userID,
-	).Scan(&consentGrantedAt)
+		`SELECT COALESCE(consent_location, false), COALESCE(consent_camera, false),
+		        COALESCE(consent_notifications, false), COALESCE(consent_ugc, false),
+		        updated_at::text
+		 FROM user_profiles WHERE user_id = $1`, userID,
+	).Scan(&location, &camera, &notifications, &ugc, &updatedAt)
 	if err == pgx.ErrNoRows {
 		err = nil
 	}
@@ -142,32 +154,46 @@ func (h *ProfileHandler) ConsentGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := map[string]any{
-		"consentGrantedAt": consentGrantedAt,
-	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	json.NewEncoder(w).Encode(consentResponse{
+		Location:      location,
+		Camera:        camera,
+		Notifications: notifications,
+		Ugc:           ugc,
+		UpdatedAt:     updatedAt,
+	})
+}
+
+type consentUpdateRequest struct {
+	Location      *bool `json:"location,omitempty"`
+	Camera        *bool `json:"camera,omitempty"`
+	Notifications *bool `json:"notifications,omitempty"`
+	Ugc           *bool `json:"ugc,omitempty"`
 }
 
 func (h *ProfileHandler) ConsentUpdate(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r.Context())
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 
-	var req struct {
-		ConsentGrantedAt *string `json:"consentGrantedAt"`
-	}
+	var req consentUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
 		return
 	}
 
 	_, err := h.pool.Exec(r.Context(),
-		`INSERT INTO user_profiles (user_id, created_by, consent_granted_at)
-		 VALUES ($1, $1, COALESCE($2::timestamp, now()))
+		`INSERT INTO user_profiles (user_id, created_by,
+			consent_location, consent_camera, consent_notifications, consent_ugc)
+		 VALUES ($1, $1,
+			COALESCE($2, false), COALESCE($3, false),
+			COALESCE($4, false), COALESCE($5, false))
 		 ON CONFLICT (user_id) DO UPDATE SET
-		 consent_granted_at = COALESCE($2::timestamp, now()),
-		 updated_at = now()`,
-		userID, req.ConsentGrantedAt)
+			consent_location = COALESCE($2, user_profiles.consent_location),
+			consent_camera = COALESCE($3, user_profiles.consent_camera),
+			consent_notifications = COALESCE($4, user_profiles.consent_notifications),
+			consent_ugc = COALESCE($5, user_profiles.consent_ugc),
+			updated_at = now()`,
+		userID, req.Location, req.Camera, req.Notifications, req.Ugc)
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update consent")
 		return

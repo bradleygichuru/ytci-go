@@ -327,6 +327,10 @@ CREATE TABLE user_profiles (
     languages TEXT,
     preferences TEXT,
     consent_granted_at TIMESTAMP,
+    consent_location BOOLEAN DEFAULT false,
+    consent_camera BOOLEAN DEFAULT false,
+    consent_notifications BOOLEAN DEFAULT false,
+    consent_ugc BOOLEAN DEFAULT false,
     created_by TEXT NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT now(),
     updated_at TIMESTAMP NOT NULL DEFAULT now()

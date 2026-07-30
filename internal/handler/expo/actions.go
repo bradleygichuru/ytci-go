@@ -24,6 +24,7 @@ type createStoryRequest struct {
 	Caption       string   `json:"caption"`
 	Journal       string   `json:"journal"`
 	Tags          []string `json:"tags"`
+	MediaIDs      []string `json:"mediaIds"`
 }
 
 func (h *ActionsHandler) CreateStory(w http.ResponseWriter, r *http.Request) {
@@ -50,6 +51,16 @@ func (h *ActionsHandler) CreateStory(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create story")
 		return
+	}
+
+	for _, mediaID := range req.MediaIDs {
+		_, err := h.pool.Exec(r.Context(),
+			`UPDATE media_assets SET entity_type = 'story', entity_id = $1 WHERE id = $2 AND entity_type IS NULL`,
+			storyID, mediaID)
+		if err != nil {
+			// Log and continue — don't fail the whole request for orphaned media
+			continue
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -24,17 +24,60 @@ func NewEventsHandler(pool *pgxpool.Pool) *EventsHandler {
 }
 
 func (h *EventsHandler) ListMobile(w http.ResponseWriter, r *http.Request) {
-	queries := gen.New(h.pool)
-	events, err := queries.ListScheduledEvents(r.Context(), 50)
+	county := r.URL.Query().Get("county")
+	eventType := r.URL.Query().Get("type")
+
+	q := `SELECT id, title, organizer, county, venue, event_date, type,
+	       description, contact_email, contact_phone, image_url, created_at
+	       FROM events WHERE status = 'scheduled'`
+
+	if county != "" {
+		q += fmt.Sprintf(" AND county = '%s'", county)
+	}
+	if eventType != "" {
+		q += fmt.Sprintf(" AND type = '%s'", eventType)
+	}
+
+	q += " ORDER BY event_date ASC LIMIT $1"
+
+	rows, err := h.pool.Query(r.Context(), q, 50)
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list events")
 		return
 	}
-	if events == nil {
-		events = []gen.ListScheduledEventsRow{}
+	defer rows.Close()
+
+	type mobileEvent struct {
+		ID           string         `json:"id"`
+		Title        string         `json:"title"`
+		Organizer    *string        `json:"organizer,omitempty"`
+		County       string         `json:"county"`
+		Venue        *string        `json:"venue,omitempty"`
+		EventDate    pgtype.Date    `json:"eventDate"`
+		Type         string         `json:"type"`
+		Description  *string        `json:"description,omitempty"`
+		ContactEmail *string        `json:"contactEmail,omitempty"`
+		ContactPhone *string        `json:"contactPhone,omitempty"`
+		ImageURL     *string        `json:"imageUrl,omitempty"`
+		CreatedAt    pgtype.Timestamp `json:"createdAt"`
 	}
+
+	var items []mobileEvent
+	for rows.Next() {
+		var e mobileEvent
+		if err := rows.Scan(&e.ID, &e.Title, &e.Organizer, &e.County, &e.Venue, &e.EventDate, &e.Type,
+			&e.Description, &e.ContactEmail, &e.ContactPhone, &e.ImageURL, &e.CreatedAt); err != nil {
+			handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to scan event")
+			return
+		}
+		items = append(items, e)
+	}
+	if items == nil {
+		items = []mobileEvent{}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(events)
+	json.NewEncoder(w).Encode(items)
 }
 
 func (h *EventsHandler) List(w http.ResponseWriter, r *http.Request) {

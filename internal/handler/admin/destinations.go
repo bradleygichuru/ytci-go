@@ -324,7 +324,11 @@ func (h *DestinationsHandler) AddMedia(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *DestinationsHandler) ListMobile(w http.ResponseWriter, r *http.Request) {
-	q := `SELECT d.id, d.name, d.slug, d.county, d.locality, d.category,
+	county := r.URL.Query().Get("county")
+	category := r.URL.Query().Get("category")
+	search := r.URL.Query().Get("search")
+
+	baseQ := `SELECT d.id, d.name, d.slug, d.county, d.locality, d.category,
 		d.short_description, d.full_description, d.significance, d.history,
 		d.things_to_do, d.suitable_audiences, d.duration, d.difficulty,
 		d.seasonality, d.indicative_fees, d.opening_info, d.transport_notes,
@@ -342,7 +346,19 @@ func (h *DestinationsHandler) ListMobile(w http.ResponseWriter, r *http.Request)
 			'[]'
 		) AS media,
 		d.created_at, d.updated_at
-		FROM destinations d WHERE d.status = 'published' ORDER BY d.name LIMIT $1`
+		FROM destinations d WHERE d.status = 'published'`
+
+	if county != "" {
+		baseQ += fmt.Sprintf(" AND d.county = '%s'", county)
+	}
+	if category != "" {
+		baseQ += fmt.Sprintf(" AND d.category = '%s'", category)
+	}
+	if search != "" {
+		baseQ += fmt.Sprintf(" AND (d.name ILIKE '%%%s%%' OR d.short_description ILIKE '%%%s%%')", search, search)
+	}
+
+	q := baseQ + " ORDER BY d.name LIMIT $1"
 
 	rows, err := h.pool.Query(r.Context(), q, 50)
 	if err != nil {
