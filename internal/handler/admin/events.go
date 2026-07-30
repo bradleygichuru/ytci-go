@@ -75,12 +75,12 @@ func scanEvent(e *adminEvent) []any {
 	}
 }
 
-func (h *EventsHandler) writeEvent(w http.ResponseWriter, e adminEvent) {
+func (h *EventsHandler) writeEvent(w http.ResponseWriter, r *http.Request, e adminEvent) {
 	resp := make(map[string]any)
 	out, _ := json.Marshal(e)
 	json.Unmarshal(out, &resp)
 	if e.ImageUrl != nil && *e.ImageUrl != "" {
-		if p := h.presignImageURL(context.Background(), *e.ImageUrl); p != nil {
+		if p := h.presignImageURL(r.Context(), *e.ImageUrl); p != nil {
 			resp["imageUrl"] = *p
 		}
 	}
@@ -426,7 +426,7 @@ func (h *EventsHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	h.writeEvent(w, e)
+	h.writeEvent(w, r, e)
 }
 
 func (h *EventsHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -514,7 +514,7 @@ func (h *EventsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeEvent(w, e)
+	h.writeEvent(w, r, e)
 }
 
 func (h *EventsHandler) Delete(w http.ResponseWriter, r *http.Request) {
@@ -543,7 +543,7 @@ func (h *EventsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeEvent(w, e)
+	h.writeEvent(w, r, e)
 }
 
 func (h *EventsHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
