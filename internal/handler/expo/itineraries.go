@@ -93,9 +93,10 @@ func (h *ItinerariesHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	for _, s := range req.Stops {
 		_, err = tx.Exec(r.Context(),
-			`INSERT INTO itinerary_stops (itinerary_id, destination_id, day, display_order, title, description, estimated_cost)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-			itineraryID, s.DestinationID, s.Day, s.DisplayOrder, s.Title, s.Description, s.EstimatedCost)
+			`INSERT INTO itinerary_stops (itinerary_id, destination_id, day, display_order, title, description, start_time, category, image_url, estimated_cost)
+			 VALUES ($1, NULLIF($2, '')::uuid, $3, $4, $5, $6, NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, ''), $10)`,
+			itineraryID, s.DestinationID, s.Day, s.DisplayOrder, s.Title, s.Description,
+			s.StartTime, s.Category, s.ImageURL, s.EstimatedCost)
 		if err != nil {
 			handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create stops")
 			return
@@ -212,8 +213,8 @@ func (h *ItinerariesHandler) Duplicate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err = tx.Exec(r.Context(),
-		`INSERT INTO itinerary_stops (itinerary_id, destination_id, day, display_order, title, description, estimated_cost)
-		 SELECT $1, destination_id, day, display_order, title, description, estimated_cost
+		`INSERT INTO itinerary_stops (itinerary_id, destination_id, day, display_order, title, description, start_time, category, image_url, estimated_cost)
+		 SELECT $1, destination_id, day, display_order, title, description, start_time, category, image_url, estimated_cost
 		 FROM itinerary_stops WHERE itinerary_id = $2`,
 		newID, itineraryID)
 	if err != nil {

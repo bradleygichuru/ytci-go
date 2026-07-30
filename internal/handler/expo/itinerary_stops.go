@@ -72,7 +72,7 @@ func (h *ItineraryStopsHandler) UpsertStops(w http.ResponseWriter, r *http.Reque
 	for _, s := range req.Stops {
 		_, err = tx.Exec(r.Context(),
 			`INSERT INTO itinerary_stops (itinerary_id, destination_id, day, display_order, title, description, start_time, category, image_url, estimated_cost)
-			 VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, ''), $10)`,
+			 VALUES ($1, NULLIF($2, '')::uuid, $3, $4, $5, $6, NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, ''), $10)`,
 			itineraryID, s.DestinationID, s.Day, s.DisplayOrder, s.Title, s.Description,
 			s.StartTime, s.Category, s.ImageURL, s.EstimatedCost)
 		if err != nil {
