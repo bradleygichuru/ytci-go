@@ -42,14 +42,23 @@ func (h *ActionsHandler) CreateStory(w http.ResponseWriter, r *http.Request) {
 		tags += t
 	}
 
+	// destinationId is optional — a youth story may describe the journey rather
+	// than a specific site. Coerce an empty string to NULL so we don't feed
+	// Postgres an invalid UUID literal ("22P02: invalid input syntax for
+	// type uuid: \"\"").
+	var destinationID any
+	if req.DestinationID != "" {
+		destinationID = req.DestinationID
+	}
+
 	var storyID string
 	err := h.pool.QueryRow(r.Context(),
 		`INSERT INTO stories (creator_id, destination_id, caption, journal, tags, status)
 		 VALUES ($1, $2, $3, $4, $5, 'pending') RETURNING id`,
-		middleware.UserID(r.Context()), req.DestinationID, req.Caption, req.Journal, tags,
+		middleware.UserID(r.Context()), destinationID, req.Caption, req.Journal, tags,
 	).Scan(&storyID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create story")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create story", err)
 		return
 	}
 

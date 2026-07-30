@@ -56,7 +56,7 @@ func (h *ItineraryStopsHandler) UpsertStops(w http.ResponseWriter, r *http.Reque
 
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to begin transaction")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to begin transaction", err)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -65,7 +65,7 @@ func (h *ItineraryStopsHandler) UpsertStops(w http.ResponseWriter, r *http.Reque
 		`DELETE FROM itinerary_stops USING itineraries WHERE itinerary_stops.itinerary_id = $1 AND itineraries.id = $1 AND itineraries.user_id = $2`,
 		itineraryID, userID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to clear stops")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to clear stops", err)
 		return
 	}
 
@@ -76,13 +76,13 @@ func (h *ItineraryStopsHandler) UpsertStops(w http.ResponseWriter, r *http.Reque
 			itineraryID, s.DestinationID, s.Day, s.DisplayOrder, s.Title, s.Description,
 			s.StartTime, s.Category, s.ImageURL, s.EstimatedCost)
 		if err != nil {
-			handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to insert stop")
+			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to insert stop", err)
 			return
 		}
 	}
 
 	if err := tx.Commit(r.Context()); err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to commit")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to commit", err)
 		return
 	}
 
@@ -93,15 +93,15 @@ func (h *ItineraryStopsHandler) UpsertStops(w http.ResponseWriter, r *http.Reque
 func (h *ItineraryStopsHandler) GetStops(w http.ResponseWriter, r *http.Request) {
 	itineraryID := r.PathValue("id")
 	rows, err := h.pool.Query(r.Context(),
-		`SELECT is.day, is.display_order,
-			COALESCE(is.title, ''), COALESCE(is.description, ''), COALESCE(is.start_time, ''), COALESCE(is.category, ''), COALESCE(is.image_url, ''),
-			COALESCE(is.estimated_cost, ''),
-			COALESCE(is.destination_id::text, ''), d.name, d.slug
-		 FROM itinerary_stops is
-		 LEFT JOIN destinations d ON d.id = is.destination_id
-		 WHERE is.itinerary_id = $1 ORDER BY is.day, is.display_order`, itineraryID)
+		`SELECT s.day, s.display_order,
+			COALESCE(s.title, ''), COALESCE(s.description, ''), COALESCE(s.start_time, ''), COALESCE(s.category, ''), COALESCE(s.image_url, ''),
+			COALESCE(s.estimated_cost, ''),
+			COALESCE(s.destination_id::text, ''), d.name, d.slug
+		 FROM itinerary_stops s
+		 LEFT JOIN destinations d ON d.id = s.destination_id
+		 WHERE s.itinerary_id = $1 ORDER BY s.day, s.display_order`, itineraryID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get stops")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to get stops", err)
 		return
 	}
 	defer rows.Close()

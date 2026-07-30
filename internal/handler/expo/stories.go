@@ -28,15 +28,23 @@ type mediaItem struct {
 	AltText      string `json:"altText,omitempty"`
 }
 
+type previewComment struct {
+	ID         string `json:"id"`
+	AuthorName string `json:"authorName"`
+	Body       string `json:"body"`
+}
+
 type enrichedStory struct {
-	ID        string      `json:"id"`
-	Caption   *string     `json:"caption,omitempty"`
-	Media     []mediaItem `json:"media"`
-	LikeCount int         `json:"likeCount"`
-	SaveCount int         `json:"saveCount"`
-	CreatedAt string      `json:"createdAt"`
-	IsLiked   bool        `json:"isLiked"`
-	IsSaved   bool        `json:"isSaved"`
+	ID            string           `json:"id"`
+	Caption       *string          `json:"caption,omitempty"`
+	Media         []mediaItem      `json:"media"`
+	LikeCount     int              `json:"likeCount"`
+	SaveCount     int              `json:"saveCount"`
+	CommentCount  int              `json:"commentCount"`
+	PreviewComments []previewComment `json:"previewComments"`
+	CreatedAt     string           `json:"createdAt"`
+	IsLiked       bool             `json:"isLiked"`
+	IsSaved       bool             `json:"isSaved"`
 }
 
 func (h *StoriesHandler) ListEnriched(w http.ResponseWriter, r *http.Request) {
@@ -57,6 +65,22 @@ func (h *StoriesHandler) ListEnriched(w http.ResponseWriter, r *http.Request) {
 		WHERE ma.entity_type = 'story' AND ma.entity_id = s.id::text
 	) med ON true`
 
+	commentsJoin := `LEFT JOIN LATERAL (
+		SELECT
+			(SELECT COUNT(*) FROM story_comments sc WHERE sc.story_id = s.id AND sc.parent_id IS NULL AND sc.status != 'deleted') AS comment_count,
+			COALESCE(json_agg(json_build_object(
+				'id', sc.id,
+				'authorName', COALESCE(up.display_name, 'Anonymous'),
+				'body', sc.body
+			) ORDER BY sc.created_at DESC) FILTER (WHERE sc.id IS NOT NULL), '[]') AS preview_comments
+		FROM (
+			SELECT * FROM story_comments
+			WHERE story_id = s.id AND parent_id IS NULL AND status != 'deleted'
+			ORDER BY created_at DESC LIMIT 2
+		) sc
+		LEFT JOIN user_profiles up ON up.user_id = sc.author_id
+	) comments ON true`
+
 	if hasAuth {
 		enrichJoin = `LEFT JOIN LATERAL (
 			SELECT EXISTS(SELECT 1 FROM story_interactions si2
@@ -64,11 +88,11 @@ func (h *StoriesHandler) ListEnriched(w http.ResponseWriter, r *http.Request) {
 			EXISTS(SELECT 1 FROM story_interactions si3
 			 WHERE si3.story_id = s.id AND si3.user_id = $1 AND si3.interaction_type = 'save') AS saved
 		) en ON true`
-		query = `SELECT s.id, s.caption, med.media, s.like_count, s.save_count, s.created_at, en.liked, en.saved
-			 FROM stories s ` + mediaJoin + ` ` + enrichJoin + ` WHERE s.status = 'approved' ORDER BY s.created_at DESC LIMIT 50`
+		query = `SELECT s.id, s.caption, med.media, s.like_count, s.save_count, comments.comment_count, comments.preview_comments, s.created_at, en.liked, en.saved
+			 FROM stories s ` + mediaJoin + ` ` + commentsJoin + ` ` + enrichJoin + ` WHERE s.status = 'approved' ORDER BY s.created_at DESC LIMIT 50`
 	} else {
-		query = `SELECT s.id, s.caption, med.media, s.like_count, s.save_count, s.created_at, false, false
-			 FROM stories s ` + mediaJoin + ` WHERE s.status = 'approved' ORDER BY s.created_at DESC LIMIT 50`
+		query = `SELECT s.id, s.caption, med.media, s.like_count, s.save_count, comments.comment_count, comments.preview_comments, s.created_at, false, false
+			 FROM stories s ` + mediaJoin + ` ` + commentsJoin + ` WHERE s.status = 'approved' ORDER BY s.created_at DESC LIMIT 50`
 	}
 
 	var rows pgx.Rows
@@ -87,11 +111,11 @@ func (h *StoriesHandler) ListEnriched(w http.ResponseWriter, r *http.Request) {
 	var items []enrichedStory
 	for rows.Next() {
 		var i enrichedStory
-		var mediaJSON []byte
+		var mediaJSON, previewJSON []byte
 		if hasAuth {
-			rows.Scan(&i.ID, &i.Caption, &mediaJSON, &i.LikeCount, &i.SaveCount, &i.CreatedAt, &i.IsLiked, &i.IsSaved)
+			rows.Scan(&i.ID, &i.Caption, &mediaJSON, &i.LikeCount, &i.SaveCount, &i.CommentCount, &previewJSON, &i.CreatedAt, &i.IsLiked, &i.IsSaved)
 		} else {
-			rows.Scan(&i.ID, &i.Caption, &mediaJSON, &i.LikeCount, &i.SaveCount, &i.CreatedAt, &i.IsLiked, &i.IsSaved)
+			rows.Scan(&i.ID, &i.Caption, &mediaJSON, &i.LikeCount, &i.SaveCount, &i.CommentCount, &previewJSON, &i.CreatedAt, &i.IsLiked, &i.IsSaved)
 		}
 		if mediaJSON != nil {
 			if err := json.Unmarshal(mediaJSON, &i.Media); err != nil {
@@ -100,6 +124,14 @@ func (h *StoriesHandler) ListEnriched(w http.ResponseWriter, r *http.Request) {
 		}
 		if i.Media == nil {
 			i.Media = []mediaItem{}
+		}
+		if previewJSON != nil {
+			if err := json.Unmarshal(previewJSON, &i.PreviewComments); err != nil {
+				slog.Warn("failed to unmarshal preview comments", "story_id", i.ID, "error", err)
+			}
+		}
+		if i.PreviewComments == nil {
+			i.PreviewComments = []previewComment{}
 		}
 		items = append(items, i)
 	}
@@ -113,18 +145,19 @@ func (h *StoriesHandler) ListEnriched(w http.ResponseWriter, r *http.Request) {
 }
 
 type storyDetail struct {
-	ID        string      `json:"id"`
-	Caption   *string     `json:"caption,omitempty"`
-	Journal   *string     `json:"journal,omitempty"`
-	Tags      *string     `json:"tags,omitempty"`
-	Media     []mediaItem `json:"media"`
-	LikeCount int         `json:"likeCount"`
-	SaveCount int         `json:"saveCount"`
-	ViewCount int         `json:"viewCount"`
-	Status    string      `json:"status"`
-	CreatedAt string      `json:"createdAt"`
-	IsLiked   bool        `json:"isLiked"`
-	IsSaved   bool        `json:"isSaved"`
+	ID           string      `json:"id"`
+	Caption      *string     `json:"caption,omitempty"`
+	Journal      *string     `json:"journal,omitempty"`
+	Tags         *string     `json:"tags,omitempty"`
+	Media        []mediaItem `json:"media"`
+	LikeCount    int         `json:"likeCount"`
+	SaveCount    int         `json:"saveCount"`
+	CommentCount int         `json:"commentCount"`
+	ViewCount    int         `json:"viewCount"`
+	Status       string      `json:"status"`
+	CreatedAt    string      `json:"createdAt"`
+	IsLiked      bool        `json:"isLiked"`
+	IsSaved      bool        `json:"isSaved"`
 }
 
 func (h *StoriesHandler) StoryDetail(w http.ResponseWriter, r *http.Request) {
@@ -146,18 +179,20 @@ func (h *StoriesHandler) StoryDetail(w http.ResponseWriter, r *http.Request) {
 	var s storyDetail
 	var mediaJSON []byte
 	var err error
+	commentCountSub := `(SELECT COUNT(*) FROM story_comments sc WHERE sc.story_id = s.id AND sc.parent_id IS NULL AND sc.status != 'deleted')`
+
 	if hasAuth {
 		err = h.pool.QueryRow(r.Context(),
-			`SELECT s.id, s.caption, s.journal, s.tags, med.media, s.like_count, s.save_count, s.view_count, s.status, s.created_at,
+			`SELECT s.id, s.caption, s.journal, s.tags, med.media, s.like_count, s.save_count, `+commentCountSub+`, s.view_count, s.status, s.created_at,
 				EXISTS(SELECT 1 FROM story_interactions si WHERE si.story_id = s.id AND si.user_id = $1 AND si.interaction_type = 'like') AS is_liked,
 				EXISTS(SELECT 1 FROM story_interactions si WHERE si.story_id = s.id AND si.user_id = $1 AND si.interaction_type = 'save') AS is_saved
 			 FROM stories s `+mediaJoin+` WHERE s.id = $2`, userID, storyID,
-		).Scan(&s.ID, &s.Caption, &s.Journal, &s.Tags, &mediaJSON, &s.LikeCount, &s.SaveCount, &s.ViewCount, &s.Status, &s.CreatedAt, &s.IsLiked, &s.IsSaved)
+		).Scan(&s.ID, &s.Caption, &s.Journal, &s.Tags, &mediaJSON, &s.LikeCount, &s.SaveCount, &s.CommentCount, &s.ViewCount, &s.Status, &s.CreatedAt, &s.IsLiked, &s.IsSaved)
 	} else {
 		err = h.pool.QueryRow(r.Context(),
-			`SELECT s.id, s.caption, s.journal, s.tags, med.media, s.like_count, s.save_count, s.view_count, s.status, s.created_at, false, false
+			`SELECT s.id, s.caption, s.journal, s.tags, med.media, s.like_count, s.save_count, `+commentCountSub+`, s.view_count, s.status, s.created_at, false, false
 			 FROM stories s `+mediaJoin+` WHERE s.id = $1`, storyID,
-		).Scan(&s.ID, &s.Caption, &s.Journal, &s.Tags, &mediaJSON, &s.LikeCount, &s.SaveCount, &s.ViewCount, &s.Status, &s.CreatedAt, &s.IsLiked, &s.IsSaved)
+		).Scan(&s.ID, &s.Caption, &s.Journal, &s.Tags, &mediaJSON, &s.LikeCount, &s.SaveCount, &s.CommentCount, &s.ViewCount, &s.Status, &s.CreatedAt, &s.IsLiked, &s.IsSaved)
 	}
 	if err == pgx.ErrNoRows {
 		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "story not found")
