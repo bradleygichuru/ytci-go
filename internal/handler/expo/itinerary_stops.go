@@ -16,6 +16,9 @@ type StopInput struct {
 	DisplayOrder  int    `json:"displayOrder"`
 	Title         string `json:"title,omitempty"`
 	Description   string `json:"description,omitempty"`
+	StartTime     string `json:"startTime,omitempty"`
+	Category      string `json:"category,omitempty"`
+	ImageURL      string `json:"imageUrl,omitempty"`
 	EstimatedCost string `json:"estimatedCost,omitempty"`
 }
 
@@ -27,6 +30,9 @@ type StopResponse struct {
 	DisplayOrder     int     `json:"displayOrder"`
 	Title            string  `json:"title"`
 	Description      string  `json:"description,omitempty"`
+	StartTime        string  `json:"startTime,omitempty"`
+	Category         string  `json:"category,omitempty"`
+	ImageURL         string  `json:"imageUrl,omitempty"`
 	EstimatedCost    string  `json:"estimatedCost,omitempty"`
 }
 
@@ -65,9 +71,10 @@ func (h *ItineraryStopsHandler) UpsertStops(w http.ResponseWriter, r *http.Reque
 
 	for _, s := range req.Stops {
 		_, err = tx.Exec(r.Context(),
-			`INSERT INTO itinerary_stops (itinerary_id, destination_id, day, display_order, title, description, estimated_cost)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-			itineraryID, s.DestinationID, s.Day, s.DisplayOrder, s.Title, s.Description, s.EstimatedCost)
+			`INSERT INTO itinerary_stops (itinerary_id, destination_id, day, display_order, title, description, start_time, category, image_url, estimated_cost)
+			 VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, ''), $10)`,
+			itineraryID, s.DestinationID, s.Day, s.DisplayOrder, s.Title, s.Description,
+			s.StartTime, s.Category, s.ImageURL, s.EstimatedCost)
 		if err != nil {
 			handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to insert stop")
 			return
@@ -87,7 +94,8 @@ func (h *ItineraryStopsHandler) GetStops(w http.ResponseWriter, r *http.Request)
 	itineraryID := r.PathValue("id")
 	rows, err := h.pool.Query(r.Context(),
 		`SELECT is.day, is.display_order,
-			COALESCE(is.title, ''), COALESCE(is.description, ''), COALESCE(is.estimated_cost, ''),
+			COALESCE(is.title, ''), COALESCE(is.description, ''), COALESCE(is.start_time, ''), COALESCE(is.category, ''), COALESCE(is.image_url, ''),
+			COALESCE(is.estimated_cost, ''),
 			COALESCE(is.destination_id::text, ''), d.name, d.slug
 		 FROM itinerary_stops is
 		 LEFT JOIN destinations d ON d.id = is.destination_id
@@ -101,8 +109,8 @@ func (h *ItineraryStopsHandler) GetStops(w http.ResponseWriter, r *http.Request)
 	var stops []StopResponse
 	for rows.Next() {
 		var s StopResponse
-		rows.Scan(&s.Day, &s.DisplayOrder, &s.Title, &s.Description, &s.EstimatedCost,
-			&s.DestinationID, &s.DestinationName, &s.DestinationSlug)
+		rows.Scan(&s.Day, &s.DisplayOrder, &s.Title, &s.Description, &s.StartTime, &s.Category, &s.ImageURL,
+			&s.EstimatedCost, &s.DestinationID, &s.DestinationName, &s.DestinationSlug)
 		stops = append(stops, s)
 	}
 	if stops == nil {

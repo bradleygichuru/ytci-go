@@ -36,7 +36,7 @@ RETURNING id, story_id, author_id, body, status, like_count, created_at
 
 type CreateCommentParams struct {
 	StoryID  pgtype.UUID `json:"story_id"`
-	AuthorID string      `json:"author_id"`
+	AuthorID *string     `json:"author_id"`
 	Body     string      `json:"body"`
 	ParentID pgtype.UUID `json:"parent_id"`
 }
@@ -44,7 +44,7 @@ type CreateCommentParams struct {
 type CreateCommentRow struct {
 	ID        pgtype.UUID      `json:"id"`
 	StoryID   pgtype.UUID      `json:"story_id"`
-	AuthorID  string           `json:"author_id"`
+	AuthorID  *string          `json:"author_id"`
 	Body      string           `json:"body"`
 	Status    string           `json:"status"`
 	LikeCount *int32           `json:"like_count"`
@@ -83,7 +83,7 @@ WHERE sc.id = $1
 type GetCommentByIDRow struct {
 	ID         pgtype.UUID      `json:"id"`
 	StoryID    pgtype.UUID      `json:"story_id"`
-	AuthorID   string           `json:"author_id"`
+	AuthorID   *string          `json:"author_id"`
 	Body       string           `json:"body"`
 	Status     string           `json:"status"`
 	LikeCount  *int32           `json:"like_count"`
@@ -122,7 +122,7 @@ ORDER BY sc.created_at ASC
 type GetRepliesRow struct {
 	ID         pgtype.UUID      `json:"id"`
 	StoryID    pgtype.UUID      `json:"story_id"`
-	AuthorID   string           `json:"author_id"`
+	AuthorID   *string          `json:"author_id"`
 	Body       string           `json:"body"`
 	Status     string           `json:"status"`
 	LikeCount  *int32           `json:"like_count"`
@@ -174,7 +174,7 @@ ORDER BY sc.created_at ASC
 type GetRepliesForTopLevelRow struct {
 	ID         pgtype.UUID      `json:"id"`
 	StoryID    pgtype.UUID      `json:"story_id"`
-	AuthorID   string           `json:"author_id"`
+	AuthorID   *string          `json:"author_id"`
 	Body       string           `json:"body"`
 	Status     string           `json:"status"`
 	LikeCount  *int32           `json:"like_count"`
@@ -233,7 +233,7 @@ type ListTopLevelCommentsParams struct {
 type ListTopLevelCommentsRow struct {
 	ID         pgtype.UUID      `json:"id"`
 	StoryID    pgtype.UUID      `json:"story_id"`
-	AuthorID   string           `json:"author_id"`
+	AuthorID   *string          `json:"author_id"`
 	Body       string           `json:"body"`
 	Status     string           `json:"status"`
 	LikeCount  *int32           `json:"like_count"`
@@ -290,7 +290,7 @@ type ModerationListCommentsParams struct {
 type ModerationListCommentsRow struct {
 	ID           pgtype.UUID      `json:"id"`
 	StoryID      pgtype.UUID      `json:"story_id"`
-	AuthorID     string           `json:"author_id"`
+	AuthorID     *string          `json:"author_id"`
 	Body         string           `json:"body"`
 	Status       string           `json:"status"`
 	LikeCount    *int32           `json:"like_count"`
@@ -338,7 +338,7 @@ RETURNING id, story_id, author_id, body, status, like_count, created_at, parent_
 type SoftDeleteCommentRow struct {
 	ID        pgtype.UUID      `json:"id"`
 	StoryID   pgtype.UUID      `json:"story_id"`
-	AuthorID  string           `json:"author_id"`
+	AuthorID  *string          `json:"author_id"`
 	Body      string           `json:"body"`
 	Status    string           `json:"status"`
 	LikeCount *int32           `json:"like_count"`
@@ -401,7 +401,7 @@ type UpdateCommentBodyParams struct {
 type UpdateCommentBodyRow struct {
 	ID        pgtype.UUID      `json:"id"`
 	StoryID   pgtype.UUID      `json:"story_id"`
-	AuthorID  string           `json:"author_id"`
+	AuthorID  *string          `json:"author_id"`
 	Body      string           `json:"body"`
 	Status    string           `json:"status"`
 	LikeCount *int32           `json:"like_count"`

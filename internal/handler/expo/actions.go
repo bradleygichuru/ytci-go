@@ -343,3 +343,56 @@ func (h *ActionsHandler) SubmitChallengeEvidence(w http.ResponseWriter, r *http.
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"id": progressID, "status": "submitted"})
 }
+
+func (h *ActionsHandler) AttendEvent(w http.ResponseWriter, r *http.Request) {
+	eventID := r.PathValue("id")
+	if eventID == "" {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_ID", "event id is required")
+		return
+	}
+
+	var req struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
+		return
+	}
+
+	validStatuses := map[string]bool{"joined": true, "interested": true, "waitlist": true}
+	if !validStatuses[req.Status] {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_STATUS", "status must be joined, interested, or waitlist")
+		return
+	}
+
+	_, err := h.pool.Exec(r.Context(),
+		`INSERT INTO event_attendees (event_id, user_id, status)
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (user_id, event_id, status)
+		 DO UPDATE SET status = EXCLUDED.status`,
+		eventID, middleware.UserID(r.Context()), req.Status)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to attend event")
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"status": req.Status})
+}
+
+func (h *ActionsHandler) LeaveEvent(w http.ResponseWriter, r *http.Request) {
+	eventID := r.PathValue("id")
+	if eventID == "" {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_ID", "event id is required")
+		return
+	}
+
+	_, err := h.pool.Exec(r.Context(),
+		`DELETE FROM event_attendees WHERE event_id = $1 AND user_id = $2`,
+		eventID, middleware.UserID(r.Context()))
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to leave event")
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
+}

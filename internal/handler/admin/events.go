@@ -27,8 +27,9 @@ func (h *EventsHandler) ListMobile(w http.ResponseWriter, r *http.Request) {
 	county := r.URL.Query().Get("county")
 	eventType := r.URL.Query().Get("type")
 
-	q := `SELECT id, title, organizer, county, venue, event_date, type,
-	       description, contact_email, contact_phone, image_url, created_at
+	q := `SELECT id, title, organizer, county, venue, event_date::text, end_date::text, type,
+	       description, contact_email, contact_phone, image_url, created_at::text,
+	       start_time, end_time, entry_fee, location_lat, location_lng, organizer_avatar_url
 	       FROM events WHERE status = 'scheduled'`
 
 	if county != "" {
@@ -48,25 +49,33 @@ func (h *EventsHandler) ListMobile(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type mobileEvent struct {
-		ID           string         `json:"id"`
-		Title        string         `json:"title"`
-		Organizer    *string        `json:"organizer,omitempty"`
-		County       string         `json:"county"`
-		Venue        *string        `json:"venue,omitempty"`
-		EventDate    pgtype.Date    `json:"eventDate"`
-		Type         string         `json:"type"`
-		Description  *string        `json:"description,omitempty"`
-		ContactEmail *string        `json:"contactEmail,omitempty"`
-		ContactPhone *string        `json:"contactPhone,omitempty"`
-		ImageURL     *string        `json:"imageUrl,omitempty"`
-		CreatedAt    pgtype.Timestamp `json:"createdAt"`
+		ID               string   `json:"id"`
+		Title            string   `json:"title"`
+		Organizer        string   `json:"organizer"`
+		County           string   `json:"county"`
+		Venue            *string  `json:"venue,omitempty"`
+		EventDate        string   `json:"eventDate"`
+		EndDate          *string  `json:"endDate,omitempty"`
+		Type             string   `json:"type"`
+		Description      *string  `json:"description,omitempty"`
+		ContactEmail     *string  `json:"contactEmail,omitempty"`
+		ContactPhone     *string  `json:"contactPhone,omitempty"`
+		ImageURL         *string  `json:"imageUrl,omitempty"`
+		CreatedAt        string   `json:"createdAt"`
+		StartTime        *string  `json:"startTime,omitempty"`
+		EndTime          *string  `json:"endTime,omitempty"`
+		EntryFee         *string  `json:"entryFee,omitempty"`
+		LocationLat      *float64 `json:"locationLat,omitempty"`
+		LocationLng      *float64 `json:"locationLng,omitempty"`
+		OrganizerAvatarl *string  `json:"organizerAvatarUrl,omitempty"`
 	}
 
 	var items []mobileEvent
 	for rows.Next() {
 		var e mobileEvent
-		if err := rows.Scan(&e.ID, &e.Title, &e.Organizer, &e.County, &e.Venue, &e.EventDate, &e.Type,
-			&e.Description, &e.ContactEmail, &e.ContactPhone, &e.ImageURL, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.Title, &e.Organizer, &e.County, &e.Venue, &e.EventDate, &e.EndDate, &e.Type,
+			&e.Description, &e.ContactEmail, &e.ContactPhone, &e.ImageURL, &e.CreatedAt,
+			&e.StartTime, &e.EndTime, &e.EntryFee, &e.LocationLat, &e.LocationLng, &e.OrganizerAvatarl); err != nil {
 			handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to scan event")
 			return
 		}
@@ -78,6 +87,97 @@ func (h *EventsHandler) ListMobile(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(items)
+}
+
+func (h *EventsHandler) GetMobile(w http.ResponseWriter, r *http.Request) {
+	eventID := r.PathValue("id")
+	userID := middleware.UserID(r.Context())
+
+	var (
+		id, title, organizer, county, eventDate, etype, createdAt string
+		endDate, description, contactEmail, contactPhone, imageURL *string
+		venue, endTimeRaw, startTime, entryFee, organizerAvatarURL *string
+		locationLat, locationLng                                   *float64
+	)
+	err := h.pool.QueryRow(r.Context(),
+		`SELECT id::text, title, organizer, county, venue, event_date::text, end_date::text,
+		        type, description, contact_email, contact_phone, image_url, created_at::text,
+		        start_time, end_time, entry_fee, location_lat::text, location_lng::text, organizer_avatar_url
+		 FROM events WHERE id = $1`, eventID).Scan(
+		&id, &title, &organizer, &county, &venue, &eventDate, &endDate,
+		&etype, &description, &contactEmail, &contactPhone, &imageURL, &createdAt,
+		&startTime, &endTimeRaw, &entryFee, &locationLat, &locationLng, &organizerAvatarURL,
+	)
+	if err != nil {
+		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "event not found")
+		return
+	}
+
+	// Fetch highlights
+	hlRows, err := h.pool.Query(r.Context(),
+		`SELECT label, icon FROM event_highlights WHERE event_id = $1 ORDER BY display_order`, eventID)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to fetch highlights")
+		return
+	}
+	defer hlRows.Close()
+
+	type highlight struct {
+		Label string  `json:"label"`
+		Icon  *string `json:"icon,omitempty"`
+	}
+	var highlights []highlight
+	for hlRows.Next() {
+		var h highlight
+		hlRows.Scan(&h.Label, &h.Icon)
+		highlights = append(highlights, h)
+	}
+
+	// Attendee counts
+	var joinedCount, interestedCount int32
+	h.pool.QueryRow(r.Context(),
+		`SELECT count(*) FILTER (WHERE status = 'joined'),
+		        count(*) FILTER (WHERE status = 'interested')
+		 FROM event_attendees WHERE event_id = $1`, eventID).Scan(&joinedCount, &interestedCount)
+
+	// Current user's attendance status
+	var attendeeStatus *string
+	h.pool.QueryRow(r.Context(),
+		`SELECT status FROM event_attendees WHERE event_id = $1 AND user_id = $2`, eventID, userID).Scan(&attendeeStatus)
+
+	// Is saved
+	var isSaved bool
+	h.pool.QueryRow(r.Context(),
+		`SELECT EXISTS(SELECT 1 FROM event_saves WHERE event_id = $1 AND user_id = $2)`, eventID, userID).Scan(&isSaved)
+
+	resp := map[string]any{
+		"id":                id,
+		"title":             title,
+		"organizer":         organizer,
+		"county":            county,
+		"venue":             venue,
+		"eventDate":         eventDate,
+		"endDate":           endDate,
+		"type":              etype,
+		"description":       description,
+		"contactEmail":      contactEmail,
+		"contactPhone":      contactPhone,
+		"imageUrl":          imageURL,
+		"createdAt":         createdAt,
+		"startTime":         startTime,
+		"endTime":           endTimeRaw,
+		"entryFee":          entryFee,
+		"locationLat":       locationLat,
+		"locationLng":       locationLng,
+		"organizerAvatarUrl": organizerAvatarURL,
+		"highlights":        highlights,
+		"attendeeCount":     joinedCount + interestedCount,
+		"isAttending":       attendeeStatus,
+		"isSaved":           isSaved,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 func (h *EventsHandler) List(w http.ResponseWriter, r *http.Request) {

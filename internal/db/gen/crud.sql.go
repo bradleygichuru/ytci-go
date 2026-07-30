@@ -201,7 +201,7 @@ func (q *Queries) CreateCourseWithFields(ctx context.Context, arg *CreateCourseW
 const createEvent = `-- name: CreateEvent :one
 INSERT INTO events (title, organizer, county, venue, event_date, end_date, type, description, contact_email, contact_phone, created_by)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-RETURNING id, title, organizer, county, venue, event_date, end_date, type, status, description, contact_email, contact_phone, image_url, reminder_enabled, reminder_minutes, created_by, created_at, updated_at
+RETURNING id, title, organizer, county, venue, event_date, end_date, type, status, description, contact_email, contact_phone, image_url, reminder_enabled, reminder_minutes, created_by, created_at, updated_at, start_time, end_time, entry_fee, location_lat, location_lng, organizer_avatar_url
 `
 
 type CreateEventParams struct {
@@ -252,6 +252,12 @@ func (q *Queries) CreateEvent(ctx context.Context, arg *CreateEventParams) (Even
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.StartTime,
+		&i.EndTime,
+		&i.EntryFee,
+		&i.LocationLat,
+		&i.LocationLng,
+		&i.OrganizerAvatarUrl,
 	)
 	return i, err
 }
@@ -287,7 +293,7 @@ func (q *Queries) CreateItineraryWithStops(ctx context.Context, arg *CreateItine
 }
 
 const deleteEvent = `-- name: DeleteEvent :one
-UPDATE events SET status = 'cancelled', updated_at = now() WHERE id = $1 RETURNING id, title, organizer, county, venue, event_date, end_date, type, status, description, contact_email, contact_phone, image_url, reminder_enabled, reminder_minutes, created_by, created_at, updated_at
+UPDATE events SET status = 'cancelled', updated_at = now() WHERE id = $1 RETURNING id, title, organizer, county, venue, event_date, end_date, type, status, description, contact_email, contact_phone, image_url, reminder_enabled, reminder_minutes, created_by, created_at, updated_at, start_time, end_time, entry_fee, location_lat, location_lng, organizer_avatar_url
 `
 
 func (q *Queries) DeleteEvent(ctx context.Context, id pgtype.UUID) (Event, error) {
@@ -312,6 +318,12 @@ func (q *Queries) DeleteEvent(ctx context.Context, id pgtype.UUID) (Event, error
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.StartTime,
+		&i.EndTime,
+		&i.EntryFee,
+		&i.LocationLat,
+		&i.LocationLng,
+		&i.OrganizerAvatarUrl,
 	)
 	return i, err
 }
@@ -465,7 +477,7 @@ UPDATE events SET
     description = COALESCE($4, description),
     status = COALESCE(NULLIF($5, ''), status),
     updated_at = now()
-WHERE id = $1 RETURNING id, title, organizer, county, venue, event_date, end_date, type, status, description, contact_email, contact_phone, image_url, reminder_enabled, reminder_minutes, created_by, created_at, updated_at
+WHERE id = $1 RETURNING id, title, organizer, county, venue, event_date, end_date, type, status, description, contact_email, contact_phone, image_url, reminder_enabled, reminder_minutes, created_by, created_at, updated_at, start_time, end_time, entry_fee, location_lat, location_lng, organizer_avatar_url
 `
 
 type UpdateEventParams struct {
@@ -504,6 +516,12 @@ func (q *Queries) UpdateEvent(ctx context.Context, arg *UpdateEventParams) (Even
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.StartTime,
+		&i.EndTime,
+		&i.EntryFee,
+		&i.LocationLat,
+		&i.LocationLng,
+		&i.OrganizerAvatarUrl,
 	)
 	return i, err
 }

@@ -12,7 +12,7 @@ import (
 )
 
 const getEventByID = `-- name: GetEventByID :one
-SELECT id, title, organizer, county, venue, event_date, end_date, type, status, description, contact_email, contact_phone, image_url, reminder_enabled, reminder_minutes, created_by, created_at, updated_at FROM events WHERE id = $1
+SELECT id, title, organizer, county, venue, event_date, end_date, type, status, description, contact_email, contact_phone, image_url, reminder_enabled, reminder_minutes, created_by, created_at, updated_at, start_time, end_time, entry_fee, location_lat, location_lng, organizer_avatar_url FROM events WHERE id = $1
 `
 
 func (q *Queries) GetEventByID(ctx context.Context, id pgtype.UUID) (Event, error) {
@@ -37,12 +37,18 @@ func (q *Queries) GetEventByID(ctx context.Context, id pgtype.UUID) (Event, erro
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.StartTime,
+		&i.EndTime,
+		&i.EntryFee,
+		&i.LocationLat,
+		&i.LocationLng,
+		&i.OrganizerAvatarUrl,
 	)
 	return i, err
 }
 
 const listEvents = `-- name: ListEvents :many
-SELECT id, title, organizer, county, venue, event_date, end_date, type, status, description, contact_email, contact_phone, image_url, reminder_enabled, reminder_minutes, created_by, created_at, updated_at FROM events
+SELECT id, title, organizer, county, venue, event_date, end_date, type, status, description, contact_email, contact_phone, image_url, reminder_enabled, reminder_minutes, created_by, created_at, updated_at, start_time, end_time, entry_fee, location_lat, location_lng, organizer_avatar_url FROM events
 ORDER BY event_date ASC
 LIMIT $1
 `
@@ -75,6 +81,12 @@ func (q *Queries) ListEvents(ctx context.Context, limit int32) ([]Event, error) 
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.StartTime,
+			&i.EndTime,
+			&i.EntryFee,
+			&i.LocationLat,
+			&i.LocationLng,
+			&i.OrganizerAvatarUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -87,7 +99,7 @@ func (q *Queries) ListEvents(ctx context.Context, limit int32) ([]Event, error) 
 }
 
 const listEventsAfter = `-- name: ListEventsAfter :many
-SELECT id, title, organizer, county, venue, event_date, end_date, type, status, description, contact_email, contact_phone, image_url, reminder_enabled, reminder_minutes, created_by, created_at, updated_at FROM events
+SELECT id, title, organizer, county, venue, event_date, end_date, type, status, description, contact_email, contact_phone, image_url, reminder_enabled, reminder_minutes, created_by, created_at, updated_at, start_time, end_time, entry_fee, location_lat, location_lng, organizer_avatar_url FROM events
 WHERE event_date > $1 OR (event_date = $1 AND id > $2)
 ORDER BY event_date ASC, id ASC
 LIMIT $3
@@ -127,6 +139,12 @@ func (q *Queries) ListEventsAfter(ctx context.Context, arg *ListEventsAfterParam
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.StartTime,
+			&i.EndTime,
+			&i.EntryFee,
+			&i.LocationLat,
+			&i.LocationLng,
+			&i.OrganizerAvatarUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -139,7 +157,7 @@ func (q *Queries) ListEventsAfter(ctx context.Context, arg *ListEventsAfterParam
 }
 
 const listEventsByCounty = `-- name: ListEventsByCounty :many
-SELECT id, title, organizer, county, venue, event_date, end_date, type, status, description, contact_email, contact_phone, image_url, reminder_enabled, reminder_minutes, created_by, created_at, updated_at FROM events
+SELECT id, title, organizer, county, venue, event_date, end_date, type, status, description, contact_email, contact_phone, image_url, reminder_enabled, reminder_minutes, created_by, created_at, updated_at, start_time, end_time, entry_fee, location_lat, location_lng, organizer_avatar_url FROM events
 WHERE county = $1
 ORDER BY event_date ASC
 LIMIT $2
@@ -178,6 +196,12 @@ func (q *Queries) ListEventsByCounty(ctx context.Context, arg *ListEventsByCount
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.StartTime,
+			&i.EndTime,
+			&i.EntryFee,
+			&i.LocationLat,
+			&i.LocationLng,
+			&i.OrganizerAvatarUrl,
 		); err != nil {
 			return nil, err
 		}

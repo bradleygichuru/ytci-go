@@ -174,24 +174,46 @@ type Destination struct {
 }
 
 type Event struct {
-	ID              pgtype.UUID      `json:"id"`
-	Title           string           `json:"title"`
-	Organizer       string           `json:"organizer"`
-	County          string           `json:"county"`
-	Venue           *string          `json:"venue"`
-	EventDate       pgtype.Date      `json:"event_date"`
-	EndDate         pgtype.Date      `json:"end_date"`
-	Type            string           `json:"type"`
-	Status          string           `json:"status"`
-	Description     *string          `json:"description"`
-	ContactEmail    *string          `json:"contact_email"`
-	ContactPhone    *string          `json:"contact_phone"`
-	ImageUrl        *string          `json:"image_url"`
-	ReminderEnabled *bool            `json:"reminder_enabled"`
-	ReminderMinutes *int32           `json:"reminder_minutes"`
-	CreatedBy       pgtype.UUID      `json:"created_by"`
-	CreatedAt       pgtype.Timestamp `json:"created_at"`
-	UpdatedAt       pgtype.Timestamp `json:"updated_at"`
+	ID                 pgtype.UUID      `json:"id"`
+	Title              string           `json:"title"`
+	Organizer          string           `json:"organizer"`
+	County             string           `json:"county"`
+	Venue              *string          `json:"venue"`
+	EventDate          pgtype.Date      `json:"event_date"`
+	EndDate            pgtype.Date      `json:"end_date"`
+	Type               string           `json:"type"`
+	Status             string           `json:"status"`
+	Description        *string          `json:"description"`
+	ContactEmail       *string          `json:"contact_email"`
+	ContactPhone       *string          `json:"contact_phone"`
+	ImageUrl           *string          `json:"image_url"`
+	ReminderEnabled    *bool            `json:"reminder_enabled"`
+	ReminderMinutes    *int32           `json:"reminder_minutes"`
+	CreatedBy          pgtype.UUID      `json:"created_by"`
+	CreatedAt          pgtype.Timestamp `json:"created_at"`
+	UpdatedAt          pgtype.Timestamp `json:"updated_at"`
+	StartTime          *string          `json:"start_time"`
+	EndTime            *string          `json:"end_time"`
+	EntryFee           *string          `json:"entry_fee"`
+	LocationLat        pgtype.Numeric   `json:"location_lat"`
+	LocationLng        pgtype.Numeric   `json:"location_lng"`
+	OrganizerAvatarUrl *string          `json:"organizer_avatar_url"`
+}
+
+type EventAttendee struct {
+	ID        pgtype.UUID      `json:"id"`
+	EventID   pgtype.UUID      `json:"event_id"`
+	UserID    string           `json:"user_id"`
+	Status    string           `json:"status"`
+	CreatedAt pgtype.Timestamp `json:"created_at"`
+}
+
+type EventHighlight struct {
+	ID           pgtype.UUID `json:"id"`
+	EventID      pgtype.UUID `json:"event_id"`
+	Label        string      `json:"label"`
+	Icon         *string     `json:"icon"`
+	DisplayOrder *int32      `json:"display_order"`
 }
 
 type EventSafe struct {
@@ -225,6 +247,9 @@ type ItineraryStop struct {
 	EstimatedCost     *string     `json:"estimated_cost"`
 	TravelFrom        *string     `json:"travel_from"`
 	Notes             *string     `json:"notes"`
+	StartTime         *string     `json:"start_time"`
+	Category          *string     `json:"category"`
+	ImageUrl          *string     `json:"image_url"`
 }
 
 type KenyaCounty struct {
@@ -353,7 +378,7 @@ type Story struct {
 type StoryComment struct {
 	ID             pgtype.UUID      `json:"id"`
 	StoryID        pgtype.UUID      `json:"story_id"`
-	AuthorID       string           `json:"author_id"`
+	AuthorID       *string          `json:"author_id"`
 	ParentID       pgtype.UUID      `json:"parent_id"`
 	Body           string           `json:"body"`
 	Status         string           `json:"status"`
@@ -382,14 +407,18 @@ type StoryReport struct {
 }
 
 type UserProfile struct {
-	UserID           string           `json:"user_id"`
-	AgeRange         *string          `json:"age_range"`
-	County           *string          `json:"county"`
-	Languages        *string          `json:"languages"`
-	Preferences      *string          `json:"preferences"`
-	ConsentGrantedAt pgtype.Timestamp `json:"consent_granted_at"`
-	CreatedBy        string           `json:"created_by"`
-	CreatedAt        pgtype.Timestamp `json:"created_at"`
-	UpdatedAt        pgtype.Timestamp `json:"updated_at"`
-	DisplayName      *string          `json:"display_name"`
+	UserID               string           `json:"user_id"`
+	AgeRange             *string          `json:"age_range"`
+	County               *string          `json:"county"`
+	Languages            *string          `json:"languages"`
+	Preferences          *string          `json:"preferences"`
+	ConsentGrantedAt     pgtype.Timestamp `json:"consent_granted_at"`
+	ConsentLocation      *bool            `json:"consent_location"`
+	ConsentCamera        *bool            `json:"consent_camera"`
+	ConsentNotifications *bool            `json:"consent_notifications"`
+	ConsentUgc           *bool            `json:"consent_ugc"`
+	CreatedBy            string           `json:"created_by"`
+	CreatedAt            pgtype.Timestamp `json:"created_at"`
+	UpdatedAt            pgtype.Timestamp `json:"updated_at"`
+	DisplayName          *string          `json:"display_name"`
 }

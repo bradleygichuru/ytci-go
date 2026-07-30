@@ -133,7 +133,7 @@ func (h *CommentHandler) ListComments(w http.ResponseWriter, r *http.Request) {
 		c := commentResponse{
 			ID:         uuidString(tc.ID),
 			StoryID:    uuidString(tc.StoryID),
-			AuthorID:   tc.AuthorID,
+			AuthorID:   ptrVal(tc.AuthorID),
 			AuthorName: authorName,
 			Body:       tc.Body,
 			Status:     tc.Status,
@@ -150,7 +150,7 @@ func (h *CommentHandler) ListComments(w http.ResponseWriter, r *http.Request) {
 			}
 			r := replyResponse{
 				ID:         uuidString(rep.ID),
-				AuthorID:   rep.AuthorID,
+				AuthorID:   ptrVal(rep.AuthorID),
 				AuthorName: repAuthorName,
 				Body:       rep.Body,
 				Status:     rep.Status,
@@ -213,9 +213,10 @@ func (h *CommentHandler) CreateComment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	queries := gen.New(h.pool)
+	userID := middleware.UserID(r.Context())
 	comment, err := queries.CreateComment(r.Context(), &gen.CreateCommentParams{
 		StoryID:  toUUID(storyID),
-		AuthorID: middleware.UserID(r.Context()),
+		AuthorID: &userID,
 		Body:     req.Body,
 		ParentID: pgtype.UUID{},
 	})
@@ -265,9 +266,10 @@ func (h *CommentHandler) CreateReply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userID := middleware.UserID(r.Context())
 	comment, err := queries.CreateComment(r.Context(), &gen.CreateCommentParams{
 		StoryID:  toUUID(storyID),
-		AuthorID: middleware.UserID(r.Context()),
+		AuthorID: &userID,
 		Body:     req.Body,
 		ParentID: toUUID(parentID),
 	})
@@ -312,7 +314,7 @@ func (h *CommentHandler) UpdateComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if existing.AuthorID != userID {
+	if ptrVal(existing.AuthorID) != userID {
 		handler.WriteError(w, http.StatusForbidden, "FORBIDDEN", "you can only edit your own comments")
 		return
 	}
@@ -351,7 +353,7 @@ func (h *CommentHandler) DeleteComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isAuthor := existing.AuthorID == userID
+	isAuthor := ptrVal(existing.AuthorID) == userID
 	if isAuthor {
 		_, err = queries.SoftDeleteComment(r.Context(), toUUID(commentID))
 		if err != nil {
@@ -472,4 +474,15 @@ func ptrToInt32(p *int32) int32 {
 		return 0
 	}
 	return *p
+}
+
+func ptrVal(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func strPtr(s string) *string {
+	return &s
 }

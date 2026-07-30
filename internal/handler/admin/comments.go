@@ -71,10 +71,14 @@ func (h *AdminCommentHandler) ModerationList(w http.ResponseWriter, r *http.Requ
 		if c.LikeCount != nil {
 			lc = int(*c.LikeCount)
 		}
+		authorID := ""
+		if c.AuthorID != nil {
+			authorID = *c.AuthorID
+		}
 		items[i] = item{
 			ID:           uuidToStr(c.ID),
 			StoryID:      uuidToStr(c.StoryID),
-			AuthorID:     c.AuthorID,
+			AuthorID:     authorID,
 			AuthorName:   c.AuthorName,
 			Body:         c.Body,
 			Status:       c.Status,
