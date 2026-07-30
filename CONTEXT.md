@@ -47,8 +47,12 @@ _Avoid_: Reaction, engagement, bookmark
 ### Activities & Learning
 
 **Challenge**:
-A time-bounded gamified activity with a badge reward. Users join, submit evidence, and progress through statuses (joined → in_progress → submitted → approved → rejected).
+A gamified activity with a badge reward. May be time-bounded (with start_date/end_date) or perpetual (no dates). Users join, submit evidence, and progress through participation statuses (joined → in_progress → submitted → approved → rejected). Rejected evidence returns the participant to in_progress so they can resubmit. Challenge-level statuses are draft, active, and ended — all reversible. Challenges always start as draft and must be explicitly promoted to active. Only active Challenges accept participation. Deleting a Challenge transitions it to ended.
 _Avoid_: Quest, mission, competition
+
+**Challenge Evidence**:
+A participant's submission for a Challenge, stored in challenge_progress. Contains status, evidence data, and moderation metadata. Visible to admins for review. When approved, a badge is awarded automatically.
+_Avoid_: Submission, proof, verification
 
 **Course**:
 A structured learning module with lessons and quizzes. Users enroll and track completion through lesson progress and quiz attempts.

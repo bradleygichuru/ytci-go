@@ -9,6 +9,15 @@ type ErrorDetail struct {
 	Message string `json:"message"`
 }
 
+type ValidationError struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
+}
+
+type ValidationErrorResponse struct {
+	Errors []ValidationError `json:"errors"`
+}
+
 type Paginated[T any] struct {
 	Items      []T     `json:"items"`
 	NextCursor *string `json:"nextCursor"`
