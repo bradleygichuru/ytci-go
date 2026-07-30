@@ -265,6 +265,7 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 			aR.Get("/profile/consent", h.profile.ConsentGet)
 			aR.Patch("/profile/consent", h.profile.ConsentUpdate)
 			aR.Get("/stories/mine", h.mStories.MyStories)
+			aR.Get("/stories/saved", h.mStories.SavedStories)
 			aR.Get("/events/saved", h.actions.ListSavedEvents)
 
 			aR.Post("/stories/{id}/comments", h.comments.CreateComment)

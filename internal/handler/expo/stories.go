@@ -190,6 +190,57 @@ type myStory struct {
 	CreatedAt string      `json:"createdAt"`
 }
 
+func (h *StoriesHandler) SavedStories(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.UserID(r.Context())
+	rows, err := h.pool.Query(r.Context(),
+		`SELECT s.id, s.caption, med.media, s.status, s.like_count, s.created_at
+		 FROM story_interactions si
+		 JOIN stories s ON s.id = si.story_id
+		 LEFT JOIN LATERAL (
+			SELECT COALESCE(json_agg(json_build_object(
+				'objectKey', ma.object_key,
+				'thumbnailKey', ma.thumbnail_key,
+				'type', ma.type,
+				'altText', ma.alt_text
+			) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
+			FROM media_assets ma
+			WHERE ma.entity_type = 'story' AND ma.entity_id = s.id::text
+		 ) med ON true
+		 WHERE si.user_id = $1 AND si.interaction_type = 'save'
+		 ORDER BY si.created_at DESC LIMIT 50`, userID)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list saved stories")
+		return
+	}
+	defer rows.Close()
+
+	var items []myStory
+	for rows.Next() {
+		var i myStory
+		var mediaJSON []byte
+		rows.Scan(&i.ID, &i.Caption, &mediaJSON, &i.Status, &i.LikeCount, &i.CreatedAt)
+		if mediaJSON != nil {
+			if err := json.Unmarshal(mediaJSON, &i.Media); err != nil {
+				slog.Warn("failed to unmarshal saved story media", "story_id", i.ID, "error", err)
+			}
+		}
+		if i.Media == nil {
+			i.Media = []mediaItem{}
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to iterate stories")
+		return
+	}
+	if items == nil {
+		items = []myStory{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(model.Paginated[myStory]{Items: items, HasMore: false})
+}
+
 func (h *StoriesHandler) MyStories(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r.Context())
 	rows, err := h.pool.Query(r.Context(),

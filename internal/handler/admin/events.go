@@ -140,6 +140,31 @@ func (h *EventsHandler) GetMobile(w http.ResponseWriter, r *http.Request) {
 		        count(*) FILTER (WHERE status = 'interested')
 		 FROM event_attendees WHERE event_id = $1`, eventID).Scan(&joinedCount, &interestedCount)
 
+	// Attendee list
+	attRows, err := h.pool.Query(r.Context(),
+		`SELECT ea.user_id, COALESCE(up.display_name, 'Anonymous') AS name
+		 FROM event_attendees ea
+		 LEFT JOIN user_profiles up ON up.user_id = ea.user_id
+		 WHERE ea.event_id = $1 AND ea.status = 'joined'
+		 ORDER BY ea.created_at ASC
+		 LIMIT 20`, eventID)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to fetch attendees")
+		return
+	}
+	defer attRows.Close()
+
+	type attendeeInfo struct {
+		UserID string `json:"userId"`
+		Name   string `json:"name"`
+	}
+	var attendees []attendeeInfo
+	for attRows.Next() {
+		var a attendeeInfo
+		attRows.Scan(&a.UserID, &a.Name)
+		attendees = append(attendees, a)
+	}
+
 	// Current user's attendance status
 	var attendeeStatus *string
 	h.pool.QueryRow(r.Context(),
@@ -172,6 +197,7 @@ func (h *EventsHandler) GetMobile(w http.ResponseWriter, r *http.Request) {
 		"organizerAvatarUrl": organizerAvatarURL,
 		"highlights":        highlights,
 		"attendeeCount":     joinedCount + interestedCount,
+		"attendees":         attendees,
 		"isAttending":       attendeeStatus,
 		"isSaved":           isSaved,
 	}
