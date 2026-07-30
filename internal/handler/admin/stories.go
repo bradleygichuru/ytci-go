@@ -6,10 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/bradleygichuru/ytci-go/internal/db/gen"
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 	"github.com/bradleygichuru/ytci-go/internal/middleware"
 	"github.com/bradleygichuru/ytci-go/internal/model"
@@ -26,28 +24,96 @@ func NewStoriesHandler(pool *pgxpool.Pool, r2client r2.Store) *StoriesHandler {
 	return &StoriesHandler{pool: pool, r2: r2client}
 }
 
+type listStory struct {
+	ID            string  `json:"id"`
+	CreatorID     *string `json:"creatorId"`
+	DestinationID *string `json:"destinationId"`
+	Caption       *string `json:"caption"`
+	Journal       *string `json:"journal"`
+	Tags          *string `json:"tags"`
+	Status        string  `json:"status"`
+	LikeCount     *int32  `json:"likeCount"`
+	SaveCount     *int32  `json:"saveCount"`
+	ViewCount     *int32  `json:"viewCount"`
+	CreatedAt     string  `json:"createdAt"`
+	UpdatedAt     string  `json:"updatedAt"`
+}
+
+const listStoriesQuery = `SELECT id, creator_id, destination_id, caption, journal, tags, status,
+	like_count, save_count, view_count, created_at, updated_at
+	FROM stories
+	WHERE status = 'approved'
+	ORDER BY created_at DESC, id DESC
+	LIMIT $1`
+
+const listStoriesAfterQuery = `SELECT id, creator_id, destination_id, caption, journal, tags, status,
+	like_count, save_count, view_count, created_at, updated_at
+	FROM stories
+	WHERE status = 'approved'
+	  AND (created_at < $1 OR (created_at = $1 AND id < $2))
+	ORDER BY created_at DESC, id DESC
+	LIMIT $3`
+
+func scanListStory(row interface{ Scan(dest ...any) error }) (listStory, error) {
+	var s listStory
+	var createdAt, updatedAt time.Time
+	err := row.Scan(&s.ID, &s.CreatorID, &s.DestinationID, &s.Caption, &s.Journal,
+		&s.Tags, &s.Status, &s.LikeCount, &s.SaveCount, &s.ViewCount,
+		&createdAt, &updatedAt)
+	if err != nil {
+		return s, err
+	}
+	s.CreatedAt = createdAt.UTC().Format(time.RFC3339)
+	s.UpdatedAt = updatedAt.UTC().Format(time.RFC3339)
+	return s, nil
+}
+
 func (h *StoriesHandler) List(w http.ResponseWriter, r *http.Request) {
-	queries := gen.New(h.pool)
-	pg := &pagination.CursorPaginator[gen.Story]{}
+	pg := pagination.NewCursorPaginator[listStory]()
 
 	pg.WritePage(w, r,
-		func(limit int32) ([]gen.Story, error) {
-			return queries.ListStories(r.Context(), limit)
+		func(limit int32) ([]listStory, error) {
+			rows, err := h.pool.Query(r.Context(), listStoriesQuery, limit)
+			if err != nil {
+				return nil, err
+			}
+			defer rows.Close()
+			var items []listStory
+			for rows.Next() {
+				s, err := scanListStory(rows)
+				if err != nil {
+					slog.Warn("scan story list", "error", err)
+					continue
+				}
+				items = append(items, s)
+			}
+			if items == nil {
+				items = []listStory{}
+			}
+			return items, rows.Err()
 		},
-		func(limit int32, sortValue, id string) ([]gen.Story, error) {
-			var ts pgtype.Timestamp
-			var uid pgtype.UUID
-			ts.Scan(sortValue)
-			uid.Scan(id)
-			return queries.ListStoriesAfter(r.Context(), &gen.ListStoriesAfterParams{
-				CreatedAt: ts,
-				ID:        uid,
-				Limit:     limit,
-			})
+		func(limit int32, sortValue, id string) ([]listStory, error) {
+			rows, err := h.pool.Query(r.Context(), listStoriesAfterQuery, sortValue, id, limit)
+			if err != nil {
+				return nil, err
+			}
+			defer rows.Close()
+			var items []listStory
+			for rows.Next() {
+				s, err := scanListStory(rows)
+				if err != nil {
+					slog.Warn("scan story list", "error", err)
+					continue
+				}
+				items = append(items, s)
+			}
+			if items == nil {
+				items = []listStory{}
+			}
+			return items, rows.Err()
 		},
-		func(s gen.Story) (string, bool) {
-			ts := s.CreatedAt.Time.UTC().Format(time.RFC3339Nano)
-			return pagination.EncodeCursor(ts, pagination.UUIDString(s.ID.Bytes)), true
+		func(s listStory) (string, bool) {
+			return pagination.EncodeCursor(s.CreatedAt, s.ID), true
 		},
 	)
 }
@@ -95,20 +161,20 @@ func (h *StoriesHandler) Moderate(w http.ResponseWriter, r *http.Request) {
 func (h *StoriesHandler) ModerationList(w http.ResponseWriter, r *http.Request) {
 	statusFilter := r.URL.Query().Get("status")
 
-	query := `SELECT s.id, s.creator_id, u.name AS creator_handle, s.caption, COALESCE(s.journal, '') AS journal,
+	query := `SELECT s.id, s.creator_id, u.name AS creator_handle, COALESCE(s.caption, '') AS caption, COALESCE(s.journal, '') AS journal,
 		COALESCE(ma.media_type, '') AS media_type,
 		COALESCE(ma.thumbnail_key, '') AS thumbnail_key,
 		COALESCE(ma.object_key, '') AS object_key,
 		COALESCE(d.name, '') AS location,
 		COALESCE(s.tags, '[]') AS tags,
-		s.status, s.like_count, s.save_count, s.created_at
+		s.status, COALESCE(s.like_count, 0), COALESCE(s.save_count, 0), s.created_at
 		FROM stories s
 		JOIN users u ON u.id = s.creator_id
 		LEFT JOIN destinations d ON d.id = s.destination_id
 		LEFT JOIN LATERAL (
 			SELECT ma.type AS media_type, ma.thumbnail_key, ma.object_key
 			FROM media_assets ma
-			WHERE ma.entity_type = 'story' AND ma.entity_id = s.id
+			WHERE ma.entity_type = 'story' AND ma.entity_id = s.id::text
 			ORDER BY ma.display_order ASC, ma.created_at ASC
 			LIMIT 1
 		) ma ON true`
@@ -122,6 +188,7 @@ func (h *StoriesHandler) ModerationList(w http.ResponseWriter, r *http.Request) 
 
 	rows, err := h.pool.Query(r.Context(), query, args...)
 	if err != nil {
+		slog.Error("list moderation stories", "error", err)
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list stories")
 		return
 	}

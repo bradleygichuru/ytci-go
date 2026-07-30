@@ -45,7 +45,7 @@ func (h *FeedHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 							'altText', ma.alt_text
 						) ORDER BY ma.display_order) FILTER (WHERE ma.id IS NOT NULL), '[]')
 						FROM media_assets ma
-						WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id
+						WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text
 					) AS media
 				FROM destinations d
 				WHERE d.status = 'published'
@@ -99,7 +99,7 @@ func (h *FeedHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 						'objectKey', ma.object_key
 					) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
 					FROM media_assets ma
-					WHERE ma.entity_type = 'story' AND ma.entity_id = s.id
+					WHERE ma.entity_type = 'story' AND ma.entity_id = s.id::text
 				) med ON true
 				WHERE s.status = 'approved'
 				ORDER BY s.created_at DESC LIMIT 5

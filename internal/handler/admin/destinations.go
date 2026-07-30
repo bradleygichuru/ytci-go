@@ -83,7 +83,7 @@ func (h *DestinationsHandler) List(w http.ResponseWriter, r *http.Request) {
 				'caption', ma.caption,
 				'credit', ma.credit
 			) ORDER BY ma.display_order)
-			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id),
+			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
 			'[]'::json
 		) AS media
 		FROM destinations d`
@@ -206,7 +206,7 @@ func (h *DestinationsHandler) Get(w http.ResponseWriter, r *http.Request) {
 				'caption', ma.caption,
 				'credit', ma.credit
 			) ORDER BY ma.display_order)
-			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id),
+			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
 			'[]'::json
 		) AS media
 		FROM destinations d WHERE d.slug = $1`
@@ -532,26 +532,37 @@ func (h *DestinationsHandler) ListMobile(w http.ResponseWriter, r *http.Request)
 				'type', ma.type,
 				'altText', ma.alt_text
 			) ORDER BY ma.display_order)
-			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id),
+			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
 			'[]'
 		) AS media,
 		d.created_at, d.updated_at
 		FROM destinations d WHERE d.status = 'published'`
 
+	args := []any{}
+	argIdx := 1
+
 	if county != "" {
-		baseQ += fmt.Sprintf(" AND d.county = '%s'", county)
+		baseQ += fmt.Sprintf(" AND d.county = $%d", argIdx)
+		args = append(args, county)
+		argIdx++
 	}
 	if category != "" {
-		baseQ += fmt.Sprintf(" AND d.category = '%s'", category)
+		baseQ += fmt.Sprintf(" AND d.category = $%d", argIdx)
+		args = append(args, category)
+		argIdx++
 	}
 	if search != "" {
-		baseQ += fmt.Sprintf(" AND (d.name ILIKE '%%%s%%' OR d.short_description ILIKE '%%%s%%')", search, search)
+		baseQ += fmt.Sprintf(" AND (d.name ILIKE '%%' || $%d || '%%' OR d.short_description ILIKE '%%' || $%d || '%%')", argIdx, argIdx)
+		args = append(args, search)
+		argIdx++
 	}
 
-	q := baseQ + " ORDER BY d.name LIMIT $1"
+	q := baseQ + fmt.Sprintf(" ORDER BY d.name LIMIT $%d", argIdx)
+	args = append(args, 50)
 
-	rows, err := h.pool.Query(r.Context(), q, 50)
+	rows, err := h.pool.Query(r.Context(), q, args...)
 	if err != nil {
+		slog.Error("list destinations", "error", err)
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list destinations")
 		return
 	}
@@ -648,7 +659,7 @@ func (h *DestinationsHandler) GetMobile(w http.ResponseWriter, r *http.Request) 
 				'type', ma.type,
 				'altText', ma.alt_text
 			) ORDER BY ma.display_order)
-			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id),
+			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
 			'[]'
 		) AS media,
 		d.created_at, d.updated_at
@@ -749,7 +760,7 @@ func (h *DestinationsHandler) NearbyMobile(w http.ResponseWriter, r *http.Reques
 				'type', ma.type,
 				'altText', ma.alt_text
 			) ORDER BY ma.display_order)
-			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id),
+			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
 			'[]'
 		) AS media,
 		ST_Distance(d.location, ST_MakePoint($1, $2)::geography) AS distance_meters,
