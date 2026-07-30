@@ -54,7 +54,7 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 
 	r.Route("/v1/public", func(pub chi.Router) {
 		pub.Use(publicLimiter.Middleware)
-		mountPublicRoutes(pub, h)
+		mountPublicRoutes(pub, h, r2client)
 	})
 
 	authLimiter := middleware.AuthenticatedRateLimiter()
@@ -278,7 +278,7 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 	})
 }
 
-func mountPublicRoutes(pub chi.Router, h *handlers) {
+func mountPublicRoutes(pub chi.Router, h *handlers, r2client r2.Store) {
 	pub.Get("/feed", h.feed.GetFeed)
 	pub.Get("/destinations", h.dest.ListMobile)
 	pub.Get("/destinations/{slug}", h.dest.GetMobile)
@@ -290,6 +290,10 @@ func mountPublicRoutes(pub chi.Router, h *handlers) {
 	pub.Get("/conservation", h.conserv.ListMobile)
 
 	pub.Get("/stories/{id}/comments", h.comments.ListComments)
+
+	if r2client != nil {
+		pub.Get("/media/url", h.media.GetURL)
+	}
 }
 
 func splitOrigins(s string) []string {
