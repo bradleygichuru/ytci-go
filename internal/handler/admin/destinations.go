@@ -192,7 +192,7 @@ func (h *DestinationsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		 county = CASE WHEN $4::text != '' THEN $4 ELSE county END,
 		 locality = COALESCE($5::text, locality),
 		 category = CASE WHEN $6::text != '' THEN $6 ELSE category END,
-		 location = CASE WHEN $7 IS NOT NULL AND $8 IS NOT NULL THEN ST_SetSRID(ST_MakePoint($7, $8), 4326) ELSE location END,
+		 location = CASE WHEN $7::float8 IS NOT NULL AND $8::float8 IS NOT NULL THEN ST_SetSRID(ST_MakePoint($7::float8, $8::float8), 4326) ELSE location END,
 		 map_label = COALESCE($9::text, map_label),
 		 access_route = COALESCE($10::text, access_route),
 		 distance_reference = COALESCE($11::text, distance_reference),
