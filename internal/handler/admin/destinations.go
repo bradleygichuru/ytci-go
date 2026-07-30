@@ -323,17 +323,96 @@ func (h *DestinationsHandler) AddMedia(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *DestinationsHandler) ListMobile(w http.ResponseWriter, r *http.Request) {
-	queries := gen.New(h.pool)
-	dests, err := queries.ListMobileDestinations(r.Context(), 50)
+	q := `SELECT d.id, d.name, d.slug, d.county, d.locality, d.category,
+		d.short_description, d.full_description, d.significance, d.history,
+		d.things_to_do, d.suitable_audiences, d.duration, d.difficulty,
+		d.seasonality, d.indicative_fees, d.opening_info, d.transport_notes,
+		d.accessibility, d.facilities, d.safety_notes, d.map_label,
+		d.access_route, d.distance_reference,
+		ST_X(d.location::geometry) AS lng, ST_Y(d.location::geometry) AS lat,
+		COALESCE(
+			(SELECT json_agg(json_build_object(
+				'objectKey', ma.object_key,
+				'thumbnailKey', ma.thumbnail_key,
+				'type', ma.type,
+				'altText', ma.alt_text
+			) ORDER BY ma.display_order)
+			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
+			'[]'
+		) AS media,
+		d.created_at, d.updated_at
+		FROM destinations d WHERE d.status = 'published' ORDER BY d.name LIMIT $1`
+
+	rows, err := h.pool.Query(r.Context(), q, 50)
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list destinations")
 		return
 	}
-	if dests == nil {
-		dests = []gen.ListMobileDestinationsRow{}
+	defer rows.Close()
+
+	type mobileMedia struct {
+		ObjectKey    string `json:"objectKey"`
+		ThumbnailKey string `json:"thumbnailKey,omitempty"`
+		Type         string `json:"type,omitempty"`
+		AltText      string `json:"altText,omitempty"`
+	}
+
+	type mobileDestination struct {
+		ID                string         `json:"id"`
+		Name              string         `json:"name"`
+		Slug              string         `json:"slug"`
+		County            string         `json:"county"`
+		Locality          *string        `json:"locality,omitempty"`
+		Category          string         `json:"category"`
+		ShortDescription  *string        `json:"shortDescription,omitempty"`
+		FullDescription   *string        `json:"fullDescription,omitempty"`
+		Significance      *string        `json:"significance,omitempty"`
+		History           *string        `json:"history,omitempty"`
+		ThingsToDo        *string        `json:"thingsToDo,omitempty"`
+		SuitableAudiences *string        `json:"suitableAudiences,omitempty"`
+		Duration          *string        `json:"duration,omitempty"`
+		Difficulty        *string        `json:"difficulty,omitempty"`
+		Seasonality       *string        `json:"seasonality,omitempty"`
+		IndicativeFees    *string        `json:"indicativeFees,omitempty"`
+		OpeningInfo       *string        `json:"openingInfo,omitempty"`
+		TransportNotes    *string        `json:"transportNotes,omitempty"`
+		Accessibility     *string        `json:"accessibility,omitempty"`
+		Facilities        *string        `json:"facilities,omitempty"`
+		SafetyNotes       *string        `json:"safetyNotes,omitempty"`
+		MapLabel          *string        `json:"mapLabel,omitempty"`
+		AccessRoute       *string        `json:"accessRoute,omitempty"`
+		DistanceReference *string        `json:"distanceReference,omitempty"`
+		Media             []mobileMedia  `json:"media"`
+		Lng               interface{}    `json:"lng"`
+		Lat               interface{}    `json:"lat"`
+		CreatedAt         pgtype.Timestamp `json:"createdAt"`
+		UpdatedAt         pgtype.Timestamp `json:"updatedAt"`
+	}
+
+	var items []mobileDestination
+	for rows.Next() {
+		var i mobileDestination
+		var mediaJSON []byte
+		rows.Scan(&i.ID, &i.Name, &i.Slug, &i.County, &i.Locality, &i.Category,
+			&i.ShortDescription, &i.FullDescription, &i.Significance, &i.History,
+			&i.ThingsToDo, &i.SuitableAudiences, &i.Duration, &i.Difficulty,
+			&i.Seasonality, &i.IndicativeFees, &i.OpeningInfo, &i.TransportNotes,
+			&i.Accessibility, &i.Facilities, &i.SafetyNotes, &i.MapLabel,
+			&i.AccessRoute, &i.DistanceReference,
+			&i.Lng, &i.Lat, &mediaJSON, &i.CreatedAt, &i.UpdatedAt)
+		if mediaJSON != nil {
+			json.Unmarshal(mediaJSON, &i.Media)
+		}
+		if i.Media == nil {
+			i.Media = []mobileMedia{}
+		}
+		items = append(items, i)
+	}
+	if items == nil {
+		items = []mobileDestination{}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(dests)
+	json.NewEncoder(w).Encode(items)
 }
 
 func (h *DestinationsHandler) GetMobile(w http.ResponseWriter, r *http.Request) {
@@ -342,12 +421,87 @@ func (h *DestinationsHandler) GetMobile(w http.ResponseWriter, r *http.Request) 
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_SLUG", "destination slug is required")
 		return
 	}
-	queries := gen.New(h.pool)
-	dest, err := queries.GetMobileDestinationBySlug(r.Context(), slug)
+
+	q := `SELECT d.id, d.name, d.slug, d.county, d.locality, d.category,
+		d.short_description, d.full_description, d.significance, d.history,
+		d.things_to_do, d.suitable_audiences, d.duration, d.difficulty,
+		d.seasonality, d.indicative_fees, d.opening_info, d.transport_notes,
+		d.accessibility, d.facilities, d.safety_notes, d.map_label,
+		d.access_route, d.distance_reference,
+		ST_X(d.location::geometry) AS lng, ST_Y(d.location::geometry) AS lat,
+		COALESCE(
+			(SELECT json_agg(json_build_object(
+				'objectKey', ma.object_key,
+				'thumbnailKey', ma.thumbnail_key,
+				'type', ma.type,
+				'altText', ma.alt_text
+			) ORDER BY ma.display_order)
+			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
+			'[]'
+		) AS media,
+		d.created_at, d.updated_at
+		FROM destinations d WHERE d.slug = $1`
+
+	type mobileMedia struct {
+		ObjectKey    string `json:"objectKey"`
+		ThumbnailKey string `json:"thumbnailKey,omitempty"`
+		Type         string `json:"type,omitempty"`
+		AltText      string `json:"altText,omitempty"`
+	}
+
+	type mobileDestination struct {
+		ID                string         `json:"id"`
+		Name              string         `json:"name"`
+		Slug              string         `json:"slug"`
+		County            string         `json:"county"`
+		Locality          *string        `json:"locality,omitempty"`
+		Category          string         `json:"category"`
+		ShortDescription  *string        `json:"shortDescription,omitempty"`
+		FullDescription   *string        `json:"fullDescription,omitempty"`
+		Significance      *string        `json:"significance,omitempty"`
+		History           *string        `json:"history,omitempty"`
+		ThingsToDo        *string        `json:"thingsToDo,omitempty"`
+		SuitableAudiences *string        `json:"suitableAudiences,omitempty"`
+		Duration          *string        `json:"duration,omitempty"`
+		Difficulty        *string        `json:"difficulty,omitempty"`
+		Seasonality       *string        `json:"seasonality,omitempty"`
+		IndicativeFees    *string        `json:"indicativeFees,omitempty"`
+		OpeningInfo       *string        `json:"openingInfo,omitempty"`
+		TransportNotes    *string        `json:"transportNotes,omitempty"`
+		Accessibility     *string        `json:"accessibility,omitempty"`
+		Facilities        *string        `json:"facilities,omitempty"`
+		SafetyNotes       *string        `json:"safetyNotes,omitempty"`
+		MapLabel          *string        `json:"mapLabel,omitempty"`
+		AccessRoute       *string        `json:"accessRoute,omitempty"`
+		DistanceReference *string        `json:"distanceReference,omitempty"`
+		Media             []mobileMedia  `json:"media"`
+		Lng               interface{}    `json:"lng"`
+		Lat               interface{}    `json:"lat"`
+		CreatedAt         pgtype.Timestamp `json:"createdAt"`
+		UpdatedAt         pgtype.Timestamp `json:"updatedAt"`
+	}
+
+	var dest mobileDestination
+	var mediaJSON []byte
+	err := h.pool.QueryRow(r.Context(), q, slug).Scan(&dest.ID, &dest.Name, &dest.Slug, &dest.County, &dest.Locality, &dest.Category,
+		&dest.ShortDescription, &dest.FullDescription, &dest.Significance, &dest.History,
+		&dest.ThingsToDo, &dest.SuitableAudiences, &dest.Duration, &dest.Difficulty,
+		&dest.Seasonality, &dest.IndicativeFees, &dest.OpeningInfo, &dest.TransportNotes,
+		&dest.Accessibility, &dest.Facilities, &dest.SafetyNotes, &dest.MapLabel,
+		&dest.AccessRoute, &dest.DistanceReference,
+		&dest.Lng, &dest.Lat, &mediaJSON, &dest.CreatedAt, &dest.UpdatedAt)
 	if err != nil {
 		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "destination not found")
 		return
 	}
+
+	if mediaJSON != nil {
+		json.Unmarshal(mediaJSON, &dest.Media)
+	}
+	if dest.Media == nil {
+		dest.Media = []mobileMedia{}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(dest)
 }
@@ -364,22 +518,104 @@ func (h *DestinationsHandler) NearbyMobile(w http.ResponseWriter, r *http.Reques
 		radiusMeters = r * 1000
 	}
 
-	queries := gen.New(h.pool)
-	results, err := queries.FindNearbyMobileDestinations(r.Context(), &gen.FindNearbyMobileDestinationsParams{
-		StMakepoint:   lng,
-		StMakepoint_2: lat,
-		StDwithin:     radiusMeters,
-		Limit:         20,
-	})
+	q := `SELECT d.id, d.name, d.slug, d.county, d.locality, d.category,
+		d.short_description, d.full_description, d.significance, d.history,
+		d.things_to_do, d.suitable_audiences, d.duration, d.difficulty,
+		d.seasonality, d.indicative_fees, d.opening_info, d.transport_notes,
+		d.accessibility, d.facilities, d.safety_notes, d.map_label,
+		d.access_route, d.distance_reference,
+		ST_X(d.location::geometry) AS lng, ST_Y(d.location::geometry) AS lat,
+		COALESCE(
+			(SELECT json_agg(json_build_object(
+				'objectKey', ma.object_key,
+				'thumbnailKey', ma.thumbnail_key,
+				'type', ma.type,
+				'altText', ma.alt_text
+			) ORDER BY ma.display_order)
+			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
+			'[]'
+		) AS media,
+		ST_Distance(d.location, ST_MakePoint($1, $2)::geography) AS distance_meters,
+		d.created_at, d.updated_at
+		FROM destinations d
+		WHERE d.status = 'published'
+		AND ST_DWithin(d.location, ST_MakePoint($1, $2)::geography, $3)
+		ORDER BY distance_meters ASC
+		LIMIT $4`
+
+	type nearbyMobileMedia struct {
+		ObjectKey    string `json:"objectKey"`
+		ThumbnailKey string `json:"thumbnailKey,omitempty"`
+		Type         string `json:"type,omitempty"`
+		AltText      string `json:"altText,omitempty"`
+	}
+
+	type nearbyMobileDestination struct {
+		ID                string            `json:"id"`
+		Name              string            `json:"name"`
+		Slug              string            `json:"slug"`
+		County            string            `json:"county"`
+		Locality          *string           `json:"locality,omitempty"`
+		Category          string            `json:"category"`
+		ShortDescription  *string           `json:"shortDescription,omitempty"`
+		FullDescription   *string           `json:"fullDescription,omitempty"`
+		Significance      *string           `json:"significance,omitempty"`
+		History           *string           `json:"history,omitempty"`
+		ThingsToDo        *string           `json:"thingsToDo,omitempty"`
+		SuitableAudiences *string           `json:"suitableAudiences,omitempty"`
+		Duration          *string           `json:"duration,omitempty"`
+		Difficulty        *string           `json:"difficulty,omitempty"`
+		Seasonality       *string           `json:"seasonality,omitempty"`
+		IndicativeFees    *string           `json:"indicativeFees,omitempty"`
+		OpeningInfo       *string           `json:"openingInfo,omitempty"`
+		TransportNotes    *string           `json:"transportNotes,omitempty"`
+		Accessibility     *string           `json:"accessibility,omitempty"`
+		Facilities        *string           `json:"facilities,omitempty"`
+		SafetyNotes       *string           `json:"safetyNotes,omitempty"`
+		MapLabel          *string           `json:"mapLabel,omitempty"`
+		AccessRoute       *string           `json:"accessRoute,omitempty"`
+		DistanceReference *string           `json:"distanceReference,omitempty"`
+		Media             []nearbyMobileMedia `json:"media"`
+		DistanceMeters    float64           `json:"distanceMeters"`
+		Lng               interface{}       `json:"lng"`
+		Lat               interface{}       `json:"lat"`
+		CreatedAt         pgtype.Timestamp  `json:"createdAt"`
+		UpdatedAt         pgtype.Timestamp  `json:"updatedAt"`
+	}
+
+	rows, err := h.pool.Query(r.Context(), q, lng, lat, radiusMeters, 20)
 	if err != nil {
 		slog.Warn("nearby query failed", "error", err)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]json.RawMessage{})
 		return
 	}
+	defer rows.Close()
 
+	var items []nearbyMobileDestination
+	for rows.Next() {
+		var i nearbyMobileDestination
+		var mediaJSON []byte
+		rows.Scan(&i.ID, &i.Name, &i.Slug, &i.County, &i.Locality, &i.Category,
+			&i.ShortDescription, &i.FullDescription, &i.Significance, &i.History,
+			&i.ThingsToDo, &i.SuitableAudiences, &i.Duration, &i.Difficulty,
+			&i.Seasonality, &i.IndicativeFees, &i.OpeningInfo, &i.TransportNotes,
+			&i.Accessibility, &i.Facilities, &i.SafetyNotes, &i.MapLabel,
+			&i.AccessRoute, &i.DistanceReference,
+			&i.Lng, &i.Lat, &mediaJSON, &i.DistanceMeters, &i.CreatedAt, &i.UpdatedAt)
+		if mediaJSON != nil {
+			json.Unmarshal(mediaJSON, &i.Media)
+		}
+		if i.Media == nil {
+			i.Media = []nearbyMobileMedia{}
+		}
+		items = append(items, i)
+	}
+	if items == nil {
+		items = []nearbyMobileDestination{}
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(results)
+	json.NewEncoder(w).Encode(items)
 }
 
 func (h *DestinationsHandler) Nearby(w http.ResponseWriter, r *http.Request) {

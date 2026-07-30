@@ -315,10 +315,15 @@ func (h *ActionsHandler) SubmitChallengeEvidence(w http.ResponseWriter, r *http.
 	err := h.pool.QueryRow(r.Context(),
 		`UPDATE challenge_progress SET
 		 status = 'submitted',
-		 evidence = CASE WHEN $3::text != '' THEN jsonb_build_object('description', $3::text) ELSE evidence END,
+		 evidence = CASE
+			WHEN $3::text != '' AND $4::text != '' THEN jsonb_build_object('description', $3::text, 'mediaIds', $4::text)
+			WHEN $3::text != '' THEN jsonb_build_object('description', $3::text)
+			WHEN $4::text != '' THEN jsonb_build_object('mediaIds', $4::text)
+			ELSE evidence
+		 END,
 		 updated_at = now()
 		 WHERE user_id = $1 AND challenge_id = $2 RETURNING id`,
-		middleware.UserID(r.Context()), challengeID, req.Description).Scan(&progressID)
+		middleware.UserID(r.Context()), challengeID, req.Description, req.MediaIDs).Scan(&progressID)
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to submit evidence")
 		return
