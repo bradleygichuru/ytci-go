@@ -229,7 +229,7 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 			} else {
 				slog.Warn("presign object url failed", "object_key", i.ObjectKey, "error", err)
 			}
-			if i.ThumbnailKey != nil {
+			if i.ThumbnailKey != nil && *i.ThumbnailKey != "" {
 				tURL, err := h.r2.PresignedGetURL(r.Context(), *i.ThumbnailKey, 15*time.Minute)
 				if err == nil {
 					out.ThumbnailUrl = tURL
