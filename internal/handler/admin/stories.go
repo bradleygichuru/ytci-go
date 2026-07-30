@@ -73,21 +73,18 @@ func (h *StoriesHandler) Moderate(w http.ResponseWriter, r *http.Request) {
 		status = "approved"
 	}
 
-	var storyUUID pgtype.UUID
-	storyUUID.Scan(storyID)
+	moderatorID := middleware.UserID(r.Context())
 
-	moderatorUUID := pgtype.UUID{}
-	moderatorUUID.Scan(middleware.UserID(r.Context()))
-
-	queries := gen.New(h.pool)
-	_, err := queries.UpdateStoryStatus(r.Context(), &gen.UpdateStoryStatusParams{
-		ID:             storyUUID,
-		Status:         status,
-		ModeratedBy:    moderatorUUID,
-		ModerationNote: &req.Reason,
-	})
+	result, err := h.pool.Exec(r.Context(),
+		`UPDATE stories SET status = $2, moderated_by = $3, moderation_note = $4, moderated_at = now(), updated_at = now() WHERE id = $1`,
+		storyID, status, moderatorID, req.Reason)
 	if err != nil {
+		slog.Error("moderate story", "error", err, "story_id", storyID)
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to moderate story")
+		return
+	}
+	if result.RowsAffected() == 0 {
+		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "story not found")
 		return
 	}
 
