@@ -62,7 +62,7 @@ func (h *StoriesHandler) ListEnriched(w http.ResponseWriter, r *http.Request) {
 			'altText', ma.alt_text
 		) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
 		FROM media_assets ma
-		WHERE ma.entity_type = 'story' AND ma.entity_id = s.id::text
+		WHERE ma.entity_type = 'story' AND ma.entity_id = s.id
 	) med ON true`
 
 	commentsJoin := `LEFT JOIN LATERAL (
@@ -173,7 +173,7 @@ func (h *StoriesHandler) StoryDetail(w http.ResponseWriter, r *http.Request) {
 			'altText', ma.alt_text
 		) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
 		FROM media_assets ma
-		WHERE ma.entity_type = 'story' AND ma.entity_id = s.id::text
+		WHERE ma.entity_type = 'story' AND ma.entity_id = s.id
 	) med ON true`
 
 	var s storyDetail
@@ -239,7 +239,7 @@ func (h *StoriesHandler) SavedStories(w http.ResponseWriter, r *http.Request) {
 				'altText', ma.alt_text
 			) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
 			FROM media_assets ma
-			WHERE ma.entity_type = 'story' AND ma.entity_id = s.id::text
+			WHERE ma.entity_type = 'story' AND ma.entity_id = s.id
 		 ) med ON true
 		 WHERE si.user_id = $1 AND si.interaction_type = 'save'
 		 ORDER BY si.created_at DESC LIMIT 50`, userID)
@@ -289,7 +289,7 @@ func (h *StoriesHandler) MyStories(w http.ResponseWriter, r *http.Request) {
 				'altText', ma.alt_text
 			) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
 			FROM media_assets ma
-			WHERE ma.entity_type = 'story' AND ma.entity_id = s.id::text
+			WHERE ma.entity_type = 'story' AND ma.entity_id = s.id
 		 ) med ON true
 		 WHERE s.creator_id = $1 ORDER BY s.created_at DESC LIMIT 50`, userID)
 	if err != nil {

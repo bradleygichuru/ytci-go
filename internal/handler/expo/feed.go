@@ -36,9 +36,20 @@ func (h *FeedHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 		defer wg.Done()
 		rows, err := h.pool.Query(ctx,
 			`SELECT COALESCE(json_agg(sub), '[]'::json) FROM (
-				SELECT id, name, slug, short_description, county, updated_at
-				FROM destinations WHERE status = 'published'
-				ORDER BY updated_at DESC LIMIT 5
+				SELECT d.id, d.name, d.slug, d.short_description, d.county, d.updated_at,
+					COALESCE(
+						(SELECT json_agg(json_build_object(
+							'objectKey', ma.object_key,
+							'thumbnailKey', ma.thumbnail_key,
+							'type', ma.type,
+							'altText', ma.alt_text
+						) ORDER BY ma.display_order) FILTER (WHERE ma.id IS NOT NULL), '[]')
+						FROM media_assets ma
+						WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id
+					) AS media
+				FROM destinations d
+				WHERE d.status = 'published'
+				ORDER BY d.updated_at DESC LIMIT 5
 			) sub`)
 		if err == nil {
 			if rows.Next() {
@@ -88,7 +99,7 @@ func (h *FeedHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 						'objectKey', ma.object_key
 					) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
 					FROM media_assets ma
-					WHERE ma.entity_type = 'story' AND ma.entity_id = s.id::text
+					WHERE ma.entity_type = 'story' AND ma.entity_id = s.id
 				) med ON true
 				WHERE s.status = 'approved'
 				ORDER BY s.created_at DESC LIMIT 5
@@ -133,7 +144,7 @@ func (h *FeedHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 		defer wg.Done()
 		rows, err := h.pool.Query(ctx,
 			`SELECT COALESCE(json_agg(sub), '[]'::json) FROM (
-				SELECT id, title, difficulty
+				SELECT id, title, description, difficulty, image_url, created_at
 				FROM courses WHERE status = 'published'
 				ORDER BY updated_at DESC LIMIT 5
 			) sub`)
@@ -155,7 +166,8 @@ func (h *FeedHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 		defer wg.Done()
 		rows, err := h.pool.Query(ctx,
 			`SELECT COALESCE(json_agg(sub), '[]'::json) FROM (
-				SELECT id, title, badge_name, end_date
+				SELECT id, title, description, badge_name, badge_icon_url,
+					status, start_date, end_date, created_at
 				FROM challenges WHERE status = 'active'
 				ORDER BY end_date ASC LIMIT 3
 			) sub`)

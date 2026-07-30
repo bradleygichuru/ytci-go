@@ -83,7 +83,7 @@ func (h *DestinationsHandler) List(w http.ResponseWriter, r *http.Request) {
 				'caption', ma.caption,
 				'credit', ma.credit
 			) ORDER BY ma.display_order)
-			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
+			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id),
 			'[]'::json
 		) AS media
 		FROM destinations d`
@@ -206,7 +206,7 @@ func (h *DestinationsHandler) Get(w http.ResponseWriter, r *http.Request) {
 				'caption', ma.caption,
 				'credit', ma.credit
 			) ORDER BY ma.display_order)
-			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
+			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id),
 			'[]'::json
 		) AS media
 		FROM destinations d WHERE d.slug = $1`
@@ -532,7 +532,7 @@ func (h *DestinationsHandler) ListMobile(w http.ResponseWriter, r *http.Request)
 				'type', ma.type,
 				'altText', ma.alt_text
 			) ORDER BY ma.display_order)
-			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
+			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id),
 			'[]'
 		) AS media,
 		d.created_at, d.updated_at
@@ -648,7 +648,7 @@ func (h *DestinationsHandler) GetMobile(w http.ResponseWriter, r *http.Request) 
 				'type', ma.type,
 				'altText', ma.alt_text
 			) ORDER BY ma.display_order)
-			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
+			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id),
 			'[]'
 		) AS media,
 		d.created_at, d.updated_at
@@ -749,7 +749,7 @@ func (h *DestinationsHandler) NearbyMobile(w http.ResponseWriter, r *http.Reques
 				'type', ma.type,
 				'altText', ma.alt_text
 			) ORDER BY ma.display_order)
-			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
+			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id),
 			'[]'
 		) AS media,
 		ST_Distance(d.location, ST_MakePoint($1, $2)::geography) AS distance_meters,

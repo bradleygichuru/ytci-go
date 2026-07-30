@@ -108,7 +108,7 @@ func (h *StoriesHandler) ModerationList(w http.ResponseWriter, r *http.Request) 
 		LEFT JOIN LATERAL (
 			SELECT ma.type AS media_type, ma.thumbnail_key, ma.object_key
 			FROM media_assets ma
-			WHERE ma.entity_type = 'story' AND ma.entity_id = s.id::text
+			WHERE ma.entity_type = 'story' AND ma.entity_id = s.id
 			ORDER BY ma.display_order ASC, ma.created_at ASC
 			LIMIT 1
 		) ma ON true`
