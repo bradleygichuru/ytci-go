@@ -76,8 +76,8 @@ func (h *DestinationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		County             string   `json:"county"`
 		Locality           string   `json:"locality,omitempty"`
 		Category           string   `json:"category"`
-		Lat                *float64 `json:"lat,omitempty"`
-		Lng                *float64 `json:"lng,omitempty"`
+		Lat                *float64 `json:"latitude,omitempty"`
+		Lng                *float64 `json:"longitude,omitempty"`
 		MapLabel           string   `json:"mapLabel,omitempty"`
 		AccessRoute        string   `json:"accessRoute,omitempty"`
 		DistanceReference  string   `json:"distanceReference,omitempty"`
@@ -155,8 +155,8 @@ func (h *DestinationsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		County             *string  `json:"county,omitempty"`
 		Locality           *string  `json:"locality,omitempty"`
 		Category           *string  `json:"category,omitempty"`
-		Lat                *float64 `json:"lat,omitempty"`
-		Lng                *float64 `json:"lng,omitempty"`
+		Lat                *float64 `json:"latitude,omitempty"`
+		Lng                *float64 `json:"longitude,omitempty"`
 		MapLabel           *string  `json:"mapLabel,omitempty"`
 		AccessRoute        *string  `json:"accessRoute,omitempty"`
 		DistanceReference  *string  `json:"distanceReference,omitempty"`
