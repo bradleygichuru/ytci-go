@@ -229,6 +229,7 @@ func (h *DestinationsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		req.Source, req.ContentOwner, req.VerificationStatus,
 		valOrEmpty(req.Status))
 	if err != nil {
+		slog.Error("update destination", "error", err, "id", destID)
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update destination")
 		return
 	}
