@@ -226,13 +226,19 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 			url, err := h.r2.PresignedGetURL(r.Context(), i.ObjectKey, 15*time.Minute)
 			if err == nil {
 				out.Url = url
+			} else {
+				slog.Warn("presign object url failed", "object_key", i.ObjectKey, "error", err)
 			}
 			if i.ThumbnailKey != nil {
 				tURL, err := h.r2.PresignedGetURL(r.Context(), *i.ThumbnailKey, 15*time.Minute)
 				if err == nil {
 					out.ThumbnailUrl = tURL
+				} else {
+					slog.Warn("presign thumbnail url failed", "thumbnail_key", *i.ThumbnailKey, "error", err)
 				}
 			}
+		} else {
+			slog.Warn("r2 client not available, media urls will be empty")
 		}
 
 		items = append(items, out)
