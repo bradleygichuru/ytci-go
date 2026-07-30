@@ -149,7 +149,21 @@ func (h *MediaHandler) Complete(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"id": id, "status": status})
+
+	resp := map[string]any{"id": id, "status": status}
+	if h.r2 != nil {
+		u, err := h.r2.PresignedGetURL(r.Context(), req.ObjectKey, 15*time.Minute)
+		if err == nil {
+			resp["url"] = u
+		}
+		if req.ThumbnailKey != "" {
+			tu, err := h.r2.PresignedGetURL(r.Context(), req.ThumbnailKey, 15*time.Minute)
+			if err == nil {
+				resp["thumbnailUrl"] = tu
+			}
+		}
+	}
+	json.NewEncoder(w).Encode(resp)
 }
 
 func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
