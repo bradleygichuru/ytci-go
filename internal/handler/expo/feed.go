@@ -80,9 +80,18 @@ func (h *FeedHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 		defer wg.Done()
 		rows, err := h.pool.Query(ctx,
 			`SELECT COALESCE(json_agg(sub), '[]'::json) FROM (
-				SELECT id, caption, like_count, created_at
-				FROM stories WHERE status = 'approved'
-				ORDER BY created_at DESC LIMIT 5
+				SELECT s.id, s.caption, s.like_count, s.created_at,
+					COALESCE(med.media, '[]'::json) AS media
+				FROM stories s
+				LEFT JOIN LATERAL (
+					SELECT COALESCE(json_agg(json_build_object(
+						'objectKey', ma.object_key
+					) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
+					FROM media_assets ma
+					WHERE ma.entity_type = 'story' AND ma.entity_id = s.id::text
+				) med ON true
+				WHERE s.status = 'approved'
+				ORDER BY s.created_at DESC LIMIT 5
 			) sub`)
 		if err == nil {
 			if rows.Next() {

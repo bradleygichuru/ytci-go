@@ -64,7 +64,7 @@ func (h *ActionsHandler) CreateStory(w http.ResponseWriter, r *http.Request) {
 
 	for _, mediaID := range req.MediaIDs {
 		_, err := h.pool.Exec(r.Context(),
-			`UPDATE media_assets SET entity_type = 'story', entity_id = $1 WHERE id = $2 AND entity_type IS NULL`,
+			`UPDATE media_assets SET entity_type = 'story', entity_id = $1 WHERE id = $2 AND entity_type = 'unlinked'`,
 			storyID, mediaID)
 		if err != nil {
 			// Log and continue — don't fail the whole request for orphaned media

@@ -37,7 +37,7 @@ A single entry within an itinerary — a destination visit on a specific day at 
 _Avoid_: Waypoint, checkpoint, location
 
 **Story**:
-A user-submitted narrative or photo journal about a travel experience. Optionally tied to a single Destination (many youth stories describe the broad journey rather than a specific site). Can be liked, saved, and reported. Goes through moderation workflow (pending → approved → rejected).
+A user-submitted narrative or photo journal about a travel experience. Optionally tied to a single Destination (many youth stories describe the broad journey rather than a specific site). Can be liked, saved, and reported. Goes through moderation workflow (pending → approved → rejected). Has two text fields: `caption` (an optional short headline) and `journal` (the narrative body). The Youth feed shows only `approved` stories; the author's My Stories view shows all statuses with a status tag.
 _Avoid_: Post, review, trip report
 
 **Interaction**:
@@ -65,7 +65,7 @@ _Avoid_: Cleanup, volunteer event, eco-activity
 ### Media Pipeline
 
 **Media Asset**:
-A record in the media_assets table representing an uploaded file stored in Cloudflare R2. Has entity type/ID to link to destinations, stories, events, etc. Goes through status workflow (uploading → processing → ready → pending_review).
+A record in the media_assets table representing an uploaded file stored in Cloudflare R2. Has entity type/ID to link to destinations, stories, events, etc. Goes through status workflow (uploading → processing → ready → pending_review). After Complete is called, the entity_type is set to `'unlinked'` until CreateStory (or another entity handler) updates it to the owning entity type.
 _Avoid_: File, attachment, image, upload
 
 **Object Key**:

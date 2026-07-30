@@ -95,7 +95,7 @@ func (h *StoriesHandler) Moderate(w http.ResponseWriter, r *http.Request) {
 func (h *StoriesHandler) ModerationList(w http.ResponseWriter, r *http.Request) {
 	statusFilter := r.URL.Query().Get("status")
 
-	query := `SELECT s.id, s.creator_id, u.name AS creator_handle, s.caption,
+	query := `SELECT s.id, s.creator_id, u.name AS creator_handle, s.caption, COALESCE(s.journal, '') AS journal,
 		COALESCE(ma.media_type, '') AS media_type,
 		COALESCE(ma.thumbnail_key, '') AS thumbnail_key,
 		COALESCE(ma.object_key, '') AS object_key,
@@ -132,6 +132,7 @@ func (h *StoriesHandler) ModerationList(w http.ResponseWriter, r *http.Request) 
 		CreatorID     string   `json:"creatorId"`
 		CreatorHandle string   `json:"creatorHandle"`
 		Caption       string   `json:"caption"`
+		Journal       string   `json:"journal"`
 		MediaType     string   `json:"mediaType"`
 		ThumbUrl      string   `json:"thumbUrl"`
 		Location      string   `json:"location"`
@@ -148,6 +149,7 @@ func (h *StoriesHandler) ModerationList(w http.ResponseWriter, r *http.Request) 
 			CreatorID     string
 			CreatorHandle string
 			Caption       string
+			Journal       string
 			MediaType     string
 			ThumbnailKey  string
 			ObjectKey     string
@@ -158,7 +160,7 @@ func (h *StoriesHandler) ModerationList(w http.ResponseWriter, r *http.Request) 
 			SaveCount     int
 			CreatedAt     time.Time
 		}
-		err := rows.Scan(&i.ID, &i.CreatorID, &i.CreatorHandle, &i.Caption,
+		err := rows.Scan(&i.ID, &i.CreatorID, &i.CreatorHandle, &i.Caption, &i.Journal,
 			&i.MediaType, &i.ThumbnailKey, &i.ObjectKey, &i.Location,
 			&i.TagsJSON, &i.Status, &i.LikeCount, &i.SaveCount, &i.CreatedAt)
 		if err != nil {
@@ -171,6 +173,7 @@ func (h *StoriesHandler) ModerationList(w http.ResponseWriter, r *http.Request) 
 			CreatorID:     i.CreatorID,
 			CreatorHandle: i.CreatorHandle,
 			Caption:       i.Caption,
+			Journal:       i.Journal,
 			MediaType:     i.MediaType,
 			Location:      i.Location,
 			Status:        i.Status,
