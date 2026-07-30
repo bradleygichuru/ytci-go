@@ -60,7 +60,7 @@ func (h *StoriesHandler) ListEnriched(w http.ResponseWriter, r *http.Request) {
 			'thumbnailKey', ma.thumbnail_key,
 			'type', ma.type,
 			'altText', ma.alt_text
-		) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
+		)) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
 		FROM media_assets ma
 		WHERE ma.entity_type = 'story' AND ma.entity_id = s.id::text
 	) med ON true`
@@ -88,10 +88,10 @@ func (h *StoriesHandler) ListEnriched(w http.ResponseWriter, r *http.Request) {
 			EXISTS(SELECT 1 FROM story_interactions si3
 			 WHERE si3.story_id = s.id AND si3.user_id = $1 AND si3.interaction_type = 'save') AS saved
 		) en ON true`
-		query = `SELECT s.id, s.caption, med.media, s.like_count, s.save_count, comments.comment_count, comments.preview_comments, s.created_at, en.liked, en.saved
+		query = `SELECT s.id, s.caption, med.media, COALESCE(s.like_count, 0), COALESCE(s.save_count, 0), comments.comment_count, comments.preview_comments, s.created_at, en.liked, en.saved
 			 FROM stories s ` + mediaJoin + ` ` + commentsJoin + ` ` + enrichJoin + ` WHERE s.status = 'approved' ORDER BY s.created_at DESC LIMIT 50`
 	} else {
-		query = `SELECT s.id, s.caption, med.media, s.like_count, s.save_count, comments.comment_count, comments.preview_comments, s.created_at, false, false
+		query = `SELECT s.id, s.caption, med.media, COALESCE(s.like_count, 0), COALESCE(s.save_count, 0), comments.comment_count, comments.preview_comments, s.created_at, false, false
 			 FROM stories s ` + mediaJoin + ` ` + commentsJoin + ` WHERE s.status = 'approved' ORDER BY s.created_at DESC LIMIT 50`
 	}
 
@@ -103,6 +103,7 @@ func (h *StoriesHandler) ListEnriched(w http.ResponseWriter, r *http.Request) {
 		rows, err = h.pool.Query(r.Context(), query)
 	}
 	if err != nil {
+		slog.Error("list enriched stories", "error", err)
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list stories")
 		return
 	}
@@ -171,7 +172,7 @@ func (h *StoriesHandler) StoryDetail(w http.ResponseWriter, r *http.Request) {
 			'thumbnailKey', ma.thumbnail_key,
 			'type', ma.type,
 			'altText', ma.alt_text
-		) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
+		)) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
 		FROM media_assets ma
 		WHERE ma.entity_type = 'story' AND ma.entity_id = s.id::text
 	) med ON true`
@@ -183,14 +184,14 @@ func (h *StoriesHandler) StoryDetail(w http.ResponseWriter, r *http.Request) {
 
 	if hasAuth {
 		err = h.pool.QueryRow(r.Context(),
-			`SELECT s.id, s.caption, s.journal, s.tags, med.media, s.like_count, s.save_count, `+commentCountSub+`, s.view_count, s.status, s.created_at,
+			`SELECT s.id, s.caption, s.journal, s.tags, med.media, COALESCE(s.like_count, 0), COALESCE(s.save_count, 0), `+commentCountSub+`, COALESCE(s.view_count, 0), s.status, s.created_at,
 				EXISTS(SELECT 1 FROM story_interactions si WHERE si.story_id = s.id AND si.user_id = $1 AND si.interaction_type = 'like') AS is_liked,
 				EXISTS(SELECT 1 FROM story_interactions si WHERE si.story_id = s.id AND si.user_id = $1 AND si.interaction_type = 'save') AS is_saved
 			 FROM stories s `+mediaJoin+` WHERE s.id = $2`, userID, storyID,
 		).Scan(&s.ID, &s.Caption, &s.Journal, &s.Tags, &mediaJSON, &s.LikeCount, &s.SaveCount, &s.CommentCount, &s.ViewCount, &s.Status, &s.CreatedAt, &s.IsLiked, &s.IsSaved)
 	} else {
 		err = h.pool.QueryRow(r.Context(),
-			`SELECT s.id, s.caption, s.journal, s.tags, med.media, s.like_count, s.save_count, `+commentCountSub+`, s.view_count, s.status, s.created_at, false, false
+			`SELECT s.id, s.caption, s.journal, s.tags, med.media, COALESCE(s.like_count, 0), COALESCE(s.save_count, 0), `+commentCountSub+`, COALESCE(s.view_count, 0), s.status, s.created_at, false, false
 			 FROM stories s `+mediaJoin+` WHERE s.id = $1`, storyID,
 		).Scan(&s.ID, &s.Caption, &s.Journal, &s.Tags, &mediaJSON, &s.LikeCount, &s.SaveCount, &s.CommentCount, &s.ViewCount, &s.Status, &s.CreatedAt, &s.IsLiked, &s.IsSaved)
 	}
@@ -199,6 +200,7 @@ func (h *StoriesHandler) StoryDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		slog.Error("get story detail", "error", err)
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get story")
 		return
 	}
@@ -228,7 +230,7 @@ type myStory struct {
 func (h *StoriesHandler) SavedStories(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r.Context())
 	rows, err := h.pool.Query(r.Context(),
-		`SELECT s.id, s.caption, med.media, s.status, s.like_count, s.created_at
+		`SELECT s.id, s.caption, med.media, s.status, COALESCE(s.like_count, 0), s.created_at
 		 FROM story_interactions si
 		 JOIN stories s ON s.id = si.story_id
 		 LEFT JOIN LATERAL (
@@ -237,13 +239,14 @@ func (h *StoriesHandler) SavedStories(w http.ResponseWriter, r *http.Request) {
 				'thumbnailKey', ma.thumbnail_key,
 				'type', ma.type,
 				'altText', ma.alt_text
-			) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
+			)) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
 			FROM media_assets ma
 			WHERE ma.entity_type = 'story' AND ma.entity_id = s.id::text
 		 ) med ON true
 		 WHERE si.user_id = $1 AND si.interaction_type = 'save'
 		 ORDER BY si.created_at DESC LIMIT 50`, userID)
 	if err != nil {
+		slog.Error("list saved stories", "error", err)
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list saved stories")
 		return
 	}
@@ -279,7 +282,7 @@ func (h *StoriesHandler) SavedStories(w http.ResponseWriter, r *http.Request) {
 func (h *StoriesHandler) MyStories(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r.Context())
 	rows, err := h.pool.Query(r.Context(),
-		`SELECT s.id, s.caption, med.media, s.status, s.like_count, s.created_at
+		`SELECT s.id, s.caption, med.media, s.status, COALESCE(s.like_count, 0), s.created_at
 		 FROM stories s
 		 LEFT JOIN LATERAL (
 			SELECT COALESCE(json_agg(json_build_object(
@@ -287,12 +290,13 @@ func (h *StoriesHandler) MyStories(w http.ResponseWriter, r *http.Request) {
 				'thumbnailKey', ma.thumbnail_key,
 				'type', ma.type,
 				'altText', ma.alt_text
-			) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
+			)) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
 			FROM media_assets ma
 			WHERE ma.entity_type = 'story' AND ma.entity_id = s.id::text
 		 ) med ON true
 		 WHERE s.creator_id = $1 ORDER BY s.created_at DESC LIMIT 50`, userID)
 	if err != nil {
+		slog.Error("list my stories", "error", err)
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list stories")
 		return
 	}

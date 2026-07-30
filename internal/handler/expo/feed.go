@@ -97,7 +97,7 @@ func (h *FeedHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 				LEFT JOIN LATERAL (
 					SELECT COALESCE(json_agg(json_build_object(
 						'objectKey', ma.object_key
-					) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
+					)) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
 					FROM media_assets ma
 					WHERE ma.entity_type = 'story' AND ma.entity_id = s.id::text
 				) med ON true
