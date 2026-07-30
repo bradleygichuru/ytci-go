@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bradleygichuru/ytci-go/internal/handler"
@@ -103,8 +105,7 @@ func (h *StoriesHandler) ListEnriched(w http.ResponseWriter, r *http.Request) {
 		rows, err = h.pool.Query(r.Context(), query)
 	}
 	if err != nil {
-		slog.Error("list enriched stories", "error", err)
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list stories")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list stories", err)
 		return
 	}
 	defer rows.Close()
@@ -113,11 +114,13 @@ func (h *StoriesHandler) ListEnriched(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var i enrichedStory
 		var mediaJSON, previewJSON []byte
+		var createdAt pgtype.Timestamp
 		if hasAuth {
-			rows.Scan(&i.ID, &i.Caption, &mediaJSON, &i.LikeCount, &i.SaveCount, &i.CommentCount, &previewJSON, &i.CreatedAt, &i.IsLiked, &i.IsSaved)
+			rows.Scan(&i.ID, &i.Caption, &mediaJSON, &i.LikeCount, &i.SaveCount, &i.CommentCount, &previewJSON, &createdAt, &i.IsLiked, &i.IsSaved)
 		} else {
-			rows.Scan(&i.ID, &i.Caption, &mediaJSON, &i.LikeCount, &i.SaveCount, &i.CommentCount, &previewJSON, &i.CreatedAt, &i.IsLiked, &i.IsSaved)
+			rows.Scan(&i.ID, &i.Caption, &mediaJSON, &i.LikeCount, &i.SaveCount, &i.CommentCount, &previewJSON, &createdAt, &i.IsLiked, &i.IsSaved)
 		}
+		i.CreatedAt = createdAt.Time.Format(time.RFC3339)
 		if mediaJSON != nil {
 			if err := json.Unmarshal(mediaJSON, &i.Media); err != nil {
 				slog.Warn("failed to unmarshal story media", "story_id", i.ID, "error", err)
@@ -135,6 +138,10 @@ func (h *StoriesHandler) ListEnriched(w http.ResponseWriter, r *http.Request) {
 			i.PreviewComments = []previewComment{}
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list stories", err)
+		return
 	}
 	if items == nil {
 		items = []enrichedStory{}
@@ -179,6 +186,7 @@ func (h *StoriesHandler) StoryDetail(w http.ResponseWriter, r *http.Request) {
 
 	var s storyDetail
 	var mediaJSON []byte
+	var createdAt pgtype.Timestamp
 	var err error
 	commentCountSub := `(SELECT COUNT(*) FROM story_comments sc WHERE sc.story_id = s.id AND sc.parent_id IS NULL AND sc.status != 'deleted')`
 
@@ -188,22 +196,22 @@ func (h *StoriesHandler) StoryDetail(w http.ResponseWriter, r *http.Request) {
 				EXISTS(SELECT 1 FROM story_interactions si WHERE si.story_id = s.id AND si.user_id = $1 AND si.interaction_type = 'like') AS is_liked,
 				EXISTS(SELECT 1 FROM story_interactions si WHERE si.story_id = s.id AND si.user_id = $1 AND si.interaction_type = 'save') AS is_saved
 			 FROM stories s `+mediaJoin+` WHERE s.id = $2`, userID, storyID,
-		).Scan(&s.ID, &s.Caption, &s.Journal, &s.Tags, &mediaJSON, &s.LikeCount, &s.SaveCount, &s.CommentCount, &s.ViewCount, &s.Status, &s.CreatedAt, &s.IsLiked, &s.IsSaved)
+		).Scan(&s.ID, &s.Caption, &s.Journal, &s.Tags, &mediaJSON, &s.LikeCount, &s.SaveCount, &s.CommentCount, &s.ViewCount, &s.Status, &createdAt, &s.IsLiked, &s.IsSaved)
 	} else {
 		err = h.pool.QueryRow(r.Context(),
 			`SELECT s.id, s.caption, s.journal, s.tags, med.media, COALESCE(s.like_count, 0), COALESCE(s.save_count, 0), `+commentCountSub+`, COALESCE(s.view_count, 0), s.status, s.created_at, false, false
 			 FROM stories s `+mediaJoin+` WHERE s.id = $1`, storyID,
-		).Scan(&s.ID, &s.Caption, &s.Journal, &s.Tags, &mediaJSON, &s.LikeCount, &s.SaveCount, &s.CommentCount, &s.ViewCount, &s.Status, &s.CreatedAt, &s.IsLiked, &s.IsSaved)
+		).Scan(&s.ID, &s.Caption, &s.Journal, &s.Tags, &mediaJSON, &s.LikeCount, &s.SaveCount, &s.CommentCount, &s.ViewCount, &s.Status, &createdAt, &s.IsLiked, &s.IsSaved)
 	}
 	if err == pgx.ErrNoRows {
 		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "story not found")
 		return
 	}
 	if err != nil {
-		slog.Error("get story detail", "error", err)
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get story")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to get story", err)
 		return
 	}
+	s.CreatedAt = createdAt.Time.Format(time.RFC3339)
 
 	if mediaJSON != nil {
 		if err := json.Unmarshal(mediaJSON, &s.Media); err != nil {
@@ -246,8 +254,7 @@ func (h *StoriesHandler) SavedStories(w http.ResponseWriter, r *http.Request) {
 		 WHERE si.user_id = $1 AND si.interaction_type = 'save'
 		 ORDER BY si.created_at DESC LIMIT 50`, userID)
 	if err != nil {
-		slog.Error("list saved stories", "error", err)
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list saved stories")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list saved stories", err)
 		return
 	}
 	defer rows.Close()
@@ -256,7 +263,9 @@ func (h *StoriesHandler) SavedStories(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var i myStory
 		var mediaJSON []byte
-		rows.Scan(&i.ID, &i.Caption, &mediaJSON, &i.Status, &i.LikeCount, &i.CreatedAt)
+		var createdAt pgtype.Timestamp
+		rows.Scan(&i.ID, &i.Caption, &mediaJSON, &i.Status, &i.LikeCount, &createdAt)
+		i.CreatedAt = createdAt.Time.Format(time.RFC3339)
 		if mediaJSON != nil {
 			if err := json.Unmarshal(mediaJSON, &i.Media); err != nil {
 				slog.Warn("failed to unmarshal saved story media", "story_id", i.ID, "error", err)
@@ -268,7 +277,7 @@ func (h *StoriesHandler) SavedStories(w http.ResponseWriter, r *http.Request) {
 		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to iterate stories")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to iterate stories", err)
 		return
 	}
 	if items == nil {
@@ -296,8 +305,7 @@ func (h *StoriesHandler) MyStories(w http.ResponseWriter, r *http.Request) {
 		 ) med ON true
 		 WHERE s.creator_id = $1 ORDER BY s.created_at DESC LIMIT 50`, userID)
 	if err != nil {
-		slog.Error("list my stories", "error", err)
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list stories")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list stories", err)
 		return
 	}
 	defer rows.Close()
@@ -306,7 +314,9 @@ func (h *StoriesHandler) MyStories(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var i myStory
 		var mediaJSON []byte
-		rows.Scan(&i.ID, &i.Caption, &mediaJSON, &i.Status, &i.LikeCount, &i.CreatedAt)
+		var createdAt pgtype.Timestamp
+		rows.Scan(&i.ID, &i.Caption, &mediaJSON, &i.Status, &i.LikeCount, &createdAt)
+		i.CreatedAt = createdAt.Time.Format(time.RFC3339)
 		if mediaJSON != nil {
 			if err := json.Unmarshal(mediaJSON, &i.Media); err != nil {
 				slog.Warn("failed to unmarshal my story media", "story_id", i.ID, "error", err)
@@ -318,7 +328,7 @@ func (h *StoriesHandler) MyStories(w http.ResponseWriter, r *http.Request) {
 		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to iterate stories")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to iterate stories", err)
 		return
 	}
 	if items == nil {

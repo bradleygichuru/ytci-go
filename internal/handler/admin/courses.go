@@ -3,7 +3,9 @@ package admin
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bradleygichuru/ytci-go/internal/db/gen"
@@ -24,7 +26,7 @@ func (h *CourseHandler) List(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.pool.Query(r.Context(),
 		`SELECT id, title, difficulty, status, created_at FROM courses ORDER BY created_at DESC LIMIT 50`)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list courses")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list courses", err)
 		return
 	}
 	defer rows.Close()
@@ -39,8 +41,14 @@ func (h *CourseHandler) List(w http.ResponseWriter, r *http.Request) {
 	var items []item
 	for rows.Next() {
 		var i item
-		rows.Scan(&i.ID, &i.Title, &i.Difficulty, &i.Status, &i.CreatedAt)
+		var createdAt pgtype.Timestamp
+		rows.Scan(&i.ID, &i.Title, &i.Difficulty, &i.Status, &createdAt)
+		i.CreatedAt = createdAt.Time.Format(time.RFC3339)
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to iterate courses", err)
+		return
 	}
 	if items == nil {
 		items = []item{}

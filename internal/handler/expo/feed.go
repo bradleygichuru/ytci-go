@@ -37,17 +37,18 @@ func (h *FeedHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 		rows, err := h.pool.Query(ctx,
 			`SELECT COALESCE(json_agg(sub), '[]'::json) FROM (
 				SELECT d.id, d.name, d.slug, d.short_description, d.county, d.updated_at,
-					COALESCE(
-						(SELECT json_agg(json_build_object(
-							'objectKey', ma.object_key,
-							'thumbnailKey', ma.thumbnail_key,
-							'type', ma.type,
-							'altText', ma.alt_text
-						) ORDER BY ma.display_order) FILTER (WHERE ma.id IS NOT NULL), '[]')
-						FROM media_assets ma
-						WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text
-					) AS media
+					COALESCE(med.media, '[]'::json) AS media
 				FROM destinations d
+				LEFT JOIN LATERAL (
+					SELECT COALESCE(json_agg(json_build_object(
+						'objectKey', ma.object_key,
+						'thumbnailKey', ma.thumbnail_key,
+						'type', ma.type,
+						'altText', ma.alt_text
+					) ORDER BY ma.display_order) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
+					FROM media_assets ma
+					WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text
+				) med ON true
 				WHERE d.status = 'published'
 				ORDER BY d.updated_at DESC LIMIT 5
 			) sub`)

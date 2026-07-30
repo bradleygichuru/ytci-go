@@ -3,7 +3,9 @@ package expo
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bradleygichuru/ytci-go/internal/handler"
@@ -24,7 +26,7 @@ func (h *ItinerariesHandler) List(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.pool.Query(r.Context(),
 		`SELECT id, title, status, created_at FROM itineraries WHERE user_id = $1 ORDER BY created_at DESC`, userID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list itineraries")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list itineraries", err)
 		return
 	}
 	defer rows.Close()
@@ -38,8 +40,14 @@ func (h *ItinerariesHandler) List(w http.ResponseWriter, r *http.Request) {
 	var items []item
 	for rows.Next() {
 		var i item
-		rows.Scan(&i.ID, &i.Title, &i.Status, &i.CreatedAt)
+		var createdAt pgtype.Timestamp
+		rows.Scan(&i.ID, &i.Title, &i.Status, &createdAt)
+		i.CreatedAt = createdAt.Time.Format(time.RFC3339)
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to iterate itineraries", err)
+		return
 	}
 	if items == nil {
 		items = []item{}
