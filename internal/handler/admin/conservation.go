@@ -202,15 +202,8 @@ func (h *ConservationAdminHandler) ReviewEvidence(w http.ResponseWriter, r *http
 			 JOIN conservation_activities ca ON ca.id = ce.activity_id
 			 WHERE ce.id = $1`, evidenceID,
 		).Scan(&userID, &activityID, &activityTitle, &badgeName, &badgeIconURL)
-		if err == nil && badgeName != nil && *badgeName != "" {
-			bIcon := ""
-			if badgeIconURL != nil {
-				bIcon = *badgeIconURL
-			}
-			_, _ = h.pool.Exec(r.Context(),
-				`INSERT INTO badges (user_id, badge_name, badge_icon_url, source_type, source_id, source_title)
-				 VALUES ($1, $2, $3, 'conservation', $4, $5)`,
-				userID, *badgeName, bIcon, activityID, activityTitle)
+		if err == nil {
+			handler.AwardBadge(r.Context(), h.pool, userID, badgeName, badgeIconURL, "conservation", activityID, activityTitle)
 		}
 	}
 

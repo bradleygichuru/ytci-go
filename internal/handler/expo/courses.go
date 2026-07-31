@@ -322,12 +322,13 @@ func (h *CourseHandler) SubmitQuiz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *CourseHandler) tryCompleteCourse(ctx context.Context, userID, courseID string) {
-	var hasPassingAttempt bool
+		var hasPassingAttempt bool
 	_ = h.pool.QueryRow(ctx,
 		`SELECT EXISTS(
-			SELECT 1 FROM course_enrollments
-			WHERE user_id = $1 AND course_id = $2
-			AND quiz_attempts IS NOT NULL AND quiz_attempts != '{}'::jsonb
+			SELECT 1 FROM course_enrollments e,
+			LATERAL jsonb_each(e.quiz_attempts) AS a(k, v)
+			WHERE e.user_id = $1 AND e.course_id = $2
+			AND (a.v->>'passed')::boolean = true
 		)`, userID, courseID,
 	).Scan(&hasPassingAttempt)
 
@@ -377,16 +378,7 @@ func (h *CourseHandler) tryCompleteCourse(ctx context.Context, userID, courseID 
 		return
 	}
 
-	if badgeName != nil && *badgeName != "" {
-		bIcon := ""
-		if badgeIconURL != nil {
-			bIcon = *badgeIconURL
-		}
-		_, _ = h.pool.Exec(ctx,
-			`INSERT INTO badges (user_id, badge_name, badge_icon_url, source_type, source_id, source_title)
-			 VALUES ($1, $2, $3, 'course', $4, $5)`,
-			userID, *badgeName, bIcon, courseID, courseTitle)
-	}
+	handler.AwardBadge(ctx, h.pool, userID, badgeName, badgeIconURL, "course", courseID, courseTitle)
 }
 
 func (h *CourseHandler) generateCertificate(ctx context.Context, enrollmentID, userName, courseTitle string) *string {

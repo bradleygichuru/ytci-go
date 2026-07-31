@@ -393,16 +393,8 @@ func (h *ChallengeAdminHandler) ReviewEvidence(w http.ResponseWriter, r *http.Re
 			 JOIN challenges c ON c.id = cp.challenge_id
 			 WHERE cp.id = $1`, evidenceID,
 		).Scan(&userID, &challengeID, &challengeTitle, &badgeName, &badgeIconURL)
-		if qErr == nil && badgeName != nil && *badgeName != "" {
-			bIcon := ""
-			if badgeIconURL != nil {
-				bIcon = *badgeIconURL
-			}
-			_, _ = h.pool.Exec(r.Context(),
-				`INSERT INTO badges (user_id, badge_name, badge_icon_url, source_type, source_id, source_title)
-				 VALUES ($1, $2, $3, 'challenge', $4, $5)
-				 ON CONFLICT DO NOTHING`,
-				userID, *badgeName, bIcon, challengeID, challengeTitle)
+		if qErr == nil {
+			handler.AwardBadge(r.Context(), h.pool, userID, badgeName, badgeIconURL, "challenge", challengeID, challengeTitle)
 		}
 	}
 

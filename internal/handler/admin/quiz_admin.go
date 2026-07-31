@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bradleygichuru/ytci-go/internal/handler"
@@ -74,10 +73,6 @@ func (h *QuizAdminHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	courseID := r.PathValue("id")
 
 	_, err := h.pool.Exec(r.Context(), `DELETE FROM quizzes WHERE course_id = $1`, courseID)
-	if err == pgx.ErrNoRows {
-		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "quiz not found")
-		return
-	}
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to delete quiz")
 		return
