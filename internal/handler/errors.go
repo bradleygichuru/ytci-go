@@ -1,13 +1,11 @@
 package handler
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	"github.com/bradleygichuru/ytci-go/internal/model"
@@ -51,19 +49,4 @@ func NullDate(val string) sql.NullString {
 		return sql.NullString{Valid: false}
 	}
 	return sql.NullString{String: val, Valid: true}
-}
-
-func AwardBadge(ctx context.Context, pool *pgxpool.Pool, userID string, badgeName *string, badgeIconURL *string, sourceType, sourceID, sourceTitle string) {
-	if badgeName == nil || *badgeName == "" {
-		return
-	}
-	bIcon := ""
-	if badgeIconURL != nil {
-		bIcon = *badgeIconURL
-	}
-	_, _ = pool.Exec(ctx,
-		`INSERT INTO badges (user_id, badge_name, badge_icon_url, source_type, source_id, source_title)
-		 VALUES ($1, $2, $3, $4, $5, $6)
-		 ON CONFLICT DO NOTHING`,
-		userID, *badgeName, bIcon, sourceType, sourceID, sourceTitle)
 }
