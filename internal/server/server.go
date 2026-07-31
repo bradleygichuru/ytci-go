@@ -77,7 +77,6 @@ type handlers struct {
 	conserv   *admin.ConservationAdminHandler
 	campaign  *admin.CampaignAdminHandler
 	analytics *admin.AnalyticsHandler
-	quiz      *admin.QuizHandler
 	lessonAdmin *admin.LessonHandler
 	quizAdmin   *admin.QuizAdminHandler
 	bulkImport *admin.BulkImport
@@ -107,7 +106,6 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 		conserv:   admin.NewConservationAdminHandler(pool),
 		campaign:  admin.NewCampaignAdminHandler(pool),
 		analytics: admin.NewAnalyticsHandler(pool),
-		quiz:      admin.NewQuizHandler(pool),
 		lessonAdmin: admin.NewLessonHandler(pool),
 		quizAdmin:   admin.NewQuizAdminHandler(pool),
 		bulkImport: admin.NewBulkImport(pool),
@@ -160,7 +158,6 @@ func mountAdminRoutes(sub chi.Router, h *handlers, r2client r2.Store, jwks *midd
 		aR.Delete("/courses/{id}/lessons/{lessonId}", h.lessonAdmin.Delete)
 		aR.Post("/courses/{id}/quiz", h.quizAdmin.Upsert)
 		aR.Delete("/courses/{id}/quiz", h.quizAdmin.Delete)
-		aR.Post("/quizzes/evaluate", h.quiz.Evaluate)
 		aR.Get("/challenges", h.challenge.List)
 		aR.Post("/challenges", h.challenge.Create)
 		aR.Patch("/challenges/{id}", h.challenge.Update)

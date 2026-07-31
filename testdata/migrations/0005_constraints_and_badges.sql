@@ -10,6 +10,7 @@ CREATE TABLE badges (
     awarded_at TIMESTAMP NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_badges_user_id ON badges(user_id);
+CREATE UNIQUE INDEX idx_badges_user_source ON badges(user_id, source_type, source_id);
 
 -- Conservation participant records (one per user per activity)
 CREATE TABLE conservation_participants (
