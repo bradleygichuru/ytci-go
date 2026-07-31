@@ -24,7 +24,24 @@ func NewCourseHandler(pool *pgxpool.Pool) *CourseHandler {
 
 func (h *CourseHandler) List(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.pool.Query(r.Context(),
-		`SELECT id, title, difficulty, status, created_at FROM courses ORDER BY created_at DESC LIMIT 50`)
+		`SELECT c.id, c.title, c.description, c.difficulty, c.status,
+		 c.image_url, c.pass_threshold, c.badge_name, c.badge_icon_url,
+		 c.created_at, c.updated_at,
+		 COALESCE(
+			(SELECT json_agg(json_build_object(
+				'id', l.id, 'title', l.title, 'type', l.content_type,
+				'duration', l.duration, 'url', l.content_url
+			) ORDER BY l.display_order)
+			FROM lessons l WHERE l.course_id = c.id),
+			'[]'::json
+		 ) AS lessons,
+		 COALESCE(
+			(SELECT qz.questions FROM quizzes qz WHERE qz.course_id = c.id),
+			'[]'::json
+		 ) AS quiz_questions,
+		 COALESCE((SELECT COUNT(*) FROM course_enrollments WHERE course_id = c.id), 0) AS enrollment_count,
+		 COALESCE((SELECT COUNT(*) FROM course_enrollments WHERE course_id = c.id AND completed_at IS NOT NULL), 0) AS completion_count
+		 FROM courses c ORDER BY c.created_at DESC LIMIT 50`)
 	if err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list courses", err)
 		return
@@ -32,18 +49,43 @@ func (h *CourseHandler) List(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type item struct {
-		ID         string `json:"id"`
-		Title      string `json:"title"`
-		Difficulty string `json:"difficulty"`
-		Status     string `json:"status"`
-		CreatedAt  string `json:"createdAt"`
+		ID              string           `json:"id"`
+		Title           string           `json:"title"`
+		Description     *string          `json:"description"`
+		Difficulty      string           `json:"difficulty"`
+		Status          string           `json:"status"`
+		ImageURL        *string          `json:"imageUrl"`
+		PassThreshold   *int             `json:"passThreshold"`
+		BadgeName       *string          `json:"badgeName"`
+		BadgeIconURL    *string          `json:"badgeIconUrl"`
+		CreatedAt       string           `json:"createdAt"`
+		UpdatedAt       string           `json:"updatedAt"`
+		Lessons         json.RawMessage  `json:"lessons"`
+		LessonCount     int              `json:"lessonCount"`
+		QuizQuestions   json.RawMessage  `json:"quizQuestions"`
+		EnrollmentCount int              `json:"enrollmentCount"`
+		CompletionCount int              `json:"completionCount"`
 	}
 	var items []item
 	for rows.Next() {
 		var i item
-		var createdAt pgtype.Timestamp
-		rows.Scan(&i.ID, &i.Title, &i.Difficulty, &i.Status, &createdAt)
+		var createdAt, updatedAt pgtype.Timestamp
+		var lessonsJSON, quizJSON json.RawMessage
+		rows.Scan(&i.ID, &i.Title, &i.Description, &i.Difficulty, &i.Status,
+			&i.ImageURL, &i.PassThreshold, &i.BadgeName, &i.BadgeIconURL,
+			&createdAt, &updatedAt,
+			&lessonsJSON, &quizJSON, &i.EnrollmentCount, &i.CompletionCount)
 		i.CreatedAt = createdAt.Time.Format(time.RFC3339)
+		i.UpdatedAt = updatedAt.Time.Format(time.RFC3339)
+		i.Lessons = lessonsJSON
+		i.QuizQuestions = quizJSON
+		// Count lessons from JSON array length
+		if len(lessonsJSON) > 2 {
+			var arr []any
+			if json.Unmarshal(lessonsJSON, &arr) == nil {
+				i.LessonCount = len(arr)
+			}
+		}
 		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
