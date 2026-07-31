@@ -59,8 +59,8 @@ func (h *CourseHandler) List(w http.ResponseWriter, r *http.Request) {
 		PassThreshold   *int             `json:"passThreshold"`
 		BadgeName       *string          `json:"badgeName"`
 		BadgeIconURL        *string          `json:"badgeIconUrl"`
-		CertificateEnabled  *bool            `json:"certificateEnabled"`
-		CertificateTemplate *string          `json:"certificateTemplate"`
+		CertificateEnabled  *bool            `json:"certificateEnabled,omitempty"`
+		CertificateTemplate *string          `json:"certificateTemplate,omitempty"`
 		CreatedAt           string           `json:"createdAt"`
 		UpdatedAt       string           `json:"updatedAt"`
 		Lessons         json.RawMessage  `json:"lessons"`
