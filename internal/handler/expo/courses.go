@@ -223,6 +223,16 @@ func (h *CourseHandler) SubmitQuiz(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r.Context())
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 
+	var enrollExists bool
+	_ = h.pool.QueryRow(r.Context(),
+		`SELECT EXISTS(SELECT 1 FROM course_enrollments WHERE user_id = $1 AND course_id = $2)`,
+		userID, courseID,
+	).Scan(&enrollExists)
+	if !enrollExists {
+		handler.WriteError(w, http.StatusForbidden, "NOT_ENROLLED", "must be enrolled to take quiz")
+		return
+	}
+
 	var req quizSubmitRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
@@ -249,20 +259,23 @@ func (h *CourseHandler) SubmitQuiz(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	answersByIndex := make(map[int]string)
+	for _, a := range req.Answers {
+		answersByIndex[a.QuestionIndex] = a.Answer
+	}
+
 	correctAnswers := 0
 	totalQuestions := len(questions)
 	var breakdown []map[string]any
 
 	for i, q := range questions {
 		isCorrect := false
-		submitted := ""
-		if i < len(req.Answers) {
-			submitted = req.Answers[i].Answer
-			if idx, ok := getFloat(q, "correctIndex"); ok {
-				if opts, ok := q["options"].([]any); ok && int(idx) < len(opts) {
-					if correctOpt, ok := opts[int(idx)].(string); ok {
-						isCorrect = submitted == correctOpt
-					}
+		submitted := answersByIndex[i]
+
+		if idx, ok := getFloat(q, "correctIndex"); ok {
+			if opts, ok := q["options"].([]any); ok && int(idx) < len(opts) {
+				if correctOpt, ok := opts[int(idx)].(string); ok {
+					isCorrect = submitted == correctOpt
 				}
 			}
 		}
@@ -480,6 +493,154 @@ func (h *CourseHandler) GetCertificate(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+func (h *CourseHandler) GetCourseProgress(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.UserID(r.Context())
+	courseID := r.PathValue("id")
+
+	var completedLessonIDs []byte
+	var quizAttempts []byte
+	var completedAt *string
+	var certURL *string
+	var totalLessons int
+	err := h.pool.QueryRow(r.Context(),
+		`SELECT e.completed_lesson_ids, e.quiz_attempts, e.completed_at::text, e.certificate_url,
+			(SELECT count(*) FROM lessons WHERE course_id = $2)
+		 FROM course_enrollments e
+		 WHERE e.user_id = $1 AND e.course_id = $2`,
+		userID, courseID,
+	).Scan(&completedLessonIDs, &quizAttempts, &completedAt, &certURL, &totalLessons)
+	if err == pgx.ErrNoRows {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"enrolled": false})
+		return
+	}
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get progress")
+		return
+	}
+
+	var completedIDs []string
+	if err := json.Unmarshal(completedLessonIDs, &completedIDs); err != nil {
+		completedIDs = []string{}
+	}
+
+	quizPassed := false
+	quizScore := 0
+	if len(quizAttempts) > 2 {
+		var attempts map[string]any
+		if err := json.Unmarshal(quizAttempts, &attempts); err == nil {
+			var latestTime string
+			for k, v := range attempts {
+				if m, ok := v.(map[string]any); ok {
+					if passed, ok := m["passed"].(bool); ok && passed {
+						if k > latestTime {
+							latestTime = k
+							quizPassed = true
+							if s, ok := m["score"].(float64); ok {
+								quizScore = int(s)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	var certSignedURL *string
+	if h.r2 != nil && certURL != nil {
+		if signed, err := h.r2.PresignedGetURL(r.Context(), *certURL, 15*time.Minute); err == nil {
+			certSignedURL = &signed
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"enrolled":           true,
+		"completedLessonIds": completedIDs,
+		"totalLessons":       totalLessons,
+		"quizPassed":         quizPassed,
+		"quizScore":          quizScore,
+		"completedAt":        completedAt,
+		"certificateUrl":     certSignedURL,
+	})
+}
+
+func (h *CourseHandler) GetEnrolledCourses(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.UserID(r.Context())
+
+	rows, err := h.pool.Query(r.Context(),
+		`SELECT c.id, c.title, c.difficulty, c.image_url,
+			e.completed_lesson_ids, e.quiz_attempts, e.completed_at::text, e.created_at::text,
+			(SELECT count(*) FROM lessons WHERE course_id = c.id)
+		 FROM courses c
+		 JOIN course_enrollments e ON e.course_id = c.id
+		 WHERE e.user_id = $1 AND c.status = 'published'
+		 ORDER BY e.created_at DESC
+		 LIMIT 50`,
+		userID,
+	)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list enrolled courses")
+		return
+	}
+	defer rows.Close()
+
+	type item struct {
+		ID               string   `json:"id"`
+		Title            string   `json:"title"`
+		Difficulty       string   `json:"difficulty"`
+		ImageURL         *string  `json:"imageUrl"`
+		CompletedLessons int      `json:"completedLessons"`
+		TotalLessons     int      `json:"totalLessons"`
+		QuizPassed       bool     `json:"quizPassed"`
+		Completed        bool     `json:"completed"`
+		EnrolledAt       string   `json:"enrolledAt"`
+	}
+
+	var items []item
+	for rows.Next() {
+		var i item
+		var imageURL *string
+		var completedLessonIDs []byte
+		var quizAttempts []byte
+		var completedAt *string
+		var enrolledAt string
+		var totalLessons int
+		rows.Scan(&i.ID, &i.Title, &i.Difficulty, &imageURL,
+			&completedLessonIDs, &quizAttempts, &completedAt, &enrolledAt, &totalLessons)
+		i.ImageURL = imageURL
+		i.TotalLessons = totalLessons
+		i.EnrolledAt = enrolledAt
+		i.Completed = completedAt != nil
+
+		var completedIDs []string
+		if err := json.Unmarshal(completedLessonIDs, &completedIDs); err == nil {
+			i.CompletedLessons = len(completedIDs)
+		}
+
+		if len(quizAttempts) > 2 {
+			var attempts map[string]any
+			if err := json.Unmarshal(quizAttempts, &attempts); err == nil {
+				for _, v := range attempts {
+					if m, ok := v.(map[string]any); ok {
+						if passed, ok := m["passed"].(bool); ok && passed {
+							i.QuizPassed = true
+							break
+						}
+					}
+				}
+			}
+		}
+		items = append(items, i)
+	}
+	if items == nil {
+		items = []item{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"items": items})
 }
 
 func getFloat(m map[string]any, key string) (float64, bool) {
