@@ -64,6 +64,8 @@ func (h *DestinationsHandler) List(w http.ResponseWriter, r *http.Request) {
 		VerificationStatus  *string          `json:"verification_status"`
 		CreatedAt           pgtype.Timestamp `json:"created_at"`
 		UpdatedAt           pgtype.Timestamp `json:"updated_at"`
+		Lat                 *float64         `json:"lat"`
+		Lng                 *float64         `json:"lng"`
 		Media               json.RawMessage  `json:"media"`
 	}
 
@@ -74,6 +76,7 @@ func (h *DestinationsHandler) List(w http.ResponseWriter, r *http.Request) {
 		d.seasonality, d.indicative_fees, d.opening_info, d.transport_notes,
 		d.accessibility, d.facilities, d.safety_notes, d.source,
 		d.content_owner, d.verification_status, d.created_at, d.updated_at,
+		ST_X(d.location::geometry) AS lng, ST_Y(d.location::geometry) AS lat,
 		COALESCE(
 			(SELECT json_agg(json_build_object(
 				'objectKey', ma.object_key,
@@ -124,7 +127,8 @@ func (h *DestinationsHandler) List(w http.ResponseWriter, r *http.Request) {
 			&i.ThingsToDo, &i.SuitableAudiences, &i.Duration, &i.Difficulty,
 			&i.Seasonality, &i.IndicativeFees, &i.OpeningInfo, &i.TransportNotes,
 			&i.Accessibility, &i.Facilities, &i.SafetyNotes, &i.Source,
-			&i.ContentOwner, &i.VerificationStatus, &i.CreatedAt, &i.UpdatedAt, &i.Media)
+			&i.ContentOwner, &i.VerificationStatus, &i.CreatedAt, &i.UpdatedAt,
+			&i.Lng, &i.Lat, &i.Media)
 		items = append(items, i)
 	}
 
@@ -187,6 +191,8 @@ func (h *DestinationsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		VerificationStatus  *string          `json:"verification_status"`
 		CreatedAt           pgtype.Timestamp `json:"created_at"`
 		UpdatedAt           pgtype.Timestamp `json:"updated_at"`
+		Lat                 *float64         `json:"lat"`
+		Lng                 *float64         `json:"lng"`
 		Media               json.RawMessage  `json:"media"`
 	}
 
@@ -197,6 +203,7 @@ func (h *DestinationsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		d.seasonality, d.indicative_fees, d.opening_info, d.transport_notes,
 		d.accessibility, d.facilities, d.safety_notes, d.source,
 		d.content_owner, d.verification_status, d.created_at, d.updated_at,
+		ST_X(d.location::geometry) AS lng, ST_Y(d.location::geometry) AS lat,
 		COALESCE(
 			(SELECT json_agg(json_build_object(
 				'objectKey', ma.object_key,
@@ -219,7 +226,8 @@ func (h *DestinationsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		&dest.ThingsToDo, &dest.SuitableAudiences, &dest.Duration, &dest.Difficulty,
 		&dest.Seasonality, &dest.IndicativeFees, &dest.OpeningInfo, &dest.TransportNotes,
 		&dest.Accessibility, &dest.Facilities, &dest.SafetyNotes, &dest.Source,
-		&dest.ContentOwner, &dest.VerificationStatus, &dest.CreatedAt, &dest.UpdatedAt, &dest.Media)
+		&dest.ContentOwner, &dest.VerificationStatus, &dest.CreatedAt, &dest.UpdatedAt,
+		&dest.Lng, &dest.Lat, &dest.Media)
 	if err != nil {
 		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "destination not found")
 		return
