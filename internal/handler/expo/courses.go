@@ -3,10 +3,8 @@ package expo
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
-	"math/big"
 	"net/http"
 	"time"
 
@@ -355,17 +353,19 @@ func (h *CourseHandler) tryCompleteCourse(ctx context.Context, userID, courseID 
 	var badgeName *string
 	var badgeIconURL *string
 	var displayName string
+	var enrollmentID string
 	_ = h.pool.QueryRow(ctx,
-		`SELECT c.title, c.badge_name, c.badge_icon_url, COALESCE(up.display_name, 'Explorer')
+		`SELECT c.title, c.badge_name, c.badge_icon_url, COALESCE(up.display_name, 'Explorer'), e.id
 		 FROM courses c
+		 JOIN course_enrollments e ON e.course_id = c.id AND e.user_id = $1
 		 LEFT JOIN user_profiles up ON up.user_id = $1
 		 WHERE c.id = $2`,
 		userID, courseID,
-	).Scan(&courseTitle, &badgeName, &badgeIconURL, &displayName)
+	).Scan(&courseTitle, &badgeName, &badgeIconURL, &displayName, &enrollmentID)
 
 	var certURL *string
-	if h.r2 != nil {
-		certURL = h.generateCertificate(ctx, userID, courseID, displayName, courseTitle)
+	if h.r2 != nil && enrollmentID != "" {
+		certURL = h.generateCertificate(ctx, enrollmentID, displayName, courseTitle)
 	}
 
 	_, err := h.pool.Exec(ctx,
@@ -389,7 +389,7 @@ func (h *CourseHandler) tryCompleteCourse(ctx context.Context, userID, courseID 
 	}
 }
 
-func (h *CourseHandler) generateCertificate(ctx context.Context, userID, courseID, userName, courseTitle string) *string {
+func (h *CourseHandler) generateCertificate(ctx context.Context, enrollmentID, userName, courseTitle string) *string {
 	if h.r2 == nil {
 		return nil
 	}
@@ -430,18 +430,12 @@ func (h *CourseHandler) generateCertificate(ctx context.Context, userID, courseI
 	completedDate := time.Now().Format("January 2, 2006")
 	pdf.CellFormat(0, 10, "Completed on: "+completedDate, "", 1, "C", false, 0, "")
 
-	n, _ := rand.Int(rand.Reader, big.NewInt(900000))
-	verifyCode := fmt.Sprintf("YTC-%06d", n.Int64()+100000)
-	pdf.SetFont("Helvetica", "", 10)
-	pdf.SetTextColor(114, 121, 110)
-	pdf.CellFormat(0, 10, "Verification: "+verifyCode, "", 1, "C", false, 0, "")
-
 	var buf bytes.Buffer
 	if err := pdf.Output(&buf); err != nil {
 		return nil
 	}
 
-	objectKey := fmt.Sprintf("certificates/%s.pdf", courseID+"-"+userID)
+	objectKey := fmt.Sprintf("certificates/%s.pdf", enrollmentID)
 	contentType := "application/pdf"
 	if err := h.r2.PutObject(ctx, objectKey, &buf, contentType); err != nil {
 		return nil
