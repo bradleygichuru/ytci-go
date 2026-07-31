@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bradleygichuru/ytci-go/internal/handler"
@@ -93,13 +92,13 @@ func (h *LessonHandler) Update(w http.ResponseWriter, r *http.Request) {
 func (h *LessonHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	lessonID := r.PathValue("lessonId")
 
-	_, err := h.pool.Exec(r.Context(), `DELETE FROM lessons WHERE id = $1`, lessonID)
-	if err == pgx.ErrNoRows {
-		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "lesson not found")
-		return
-	}
+	tag, err := h.pool.Exec(r.Context(), `DELETE FROM lessons WHERE id = $1`, lessonID)
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to delete lesson")
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "lesson not found")
 		return
 	}
 
