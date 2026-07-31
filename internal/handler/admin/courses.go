@@ -37,7 +37,7 @@ func (h *CourseHandler) List(w http.ResponseWriter, r *http.Request) {
 		 ) AS lessons,
 		 COALESCE(
 			(SELECT qz.questions FROM quizzes qz WHERE qz.course_id = c.id),
-			'[]'::json
+			'[]'::jsonb
 		 ) AS quiz_questions,
 		 COALESCE((SELECT COUNT(*) FROM course_enrollments WHERE course_id = c.id), 0) AS enrollment_count,
 		 COALESCE((SELECT COUNT(*) FROM course_enrollments WHERE course_id = c.id AND completed_at IS NOT NULL), 0) AS completion_count
