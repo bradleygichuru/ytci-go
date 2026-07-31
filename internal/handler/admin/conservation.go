@@ -203,7 +203,7 @@ func (h *ConservationAdminHandler) ListEvidence(w http.ResponseWriter, r *http.R
 		ActivityID    string  `json:"activityId"`
 		ActivityTitle *string `json:"activityTitle,omitempty"`
 		Description   *string `json:"description,omitempty"`
-		ImageUrl      *string `json:"imageUrl,omitempty"`
+		MediaIds      *string `json:"mediaIds,omitempty"`
 		Status        string  `json:"status"`
 		ModeratedBy   *string `json:"moderatedBy,omitempty"`
 		ReviewerNote  *string `json:"reviewerNote,omitempty"`
@@ -213,7 +213,7 @@ func (h *ConservationAdminHandler) ListEvidence(w http.ResponseWriter, r *http.R
 	var items []item
 	for rows.Next() {
 		var i item
-		rows.Scan(&i.ID, &i.UserID, &i.ActivityID, &i.Description, &i.ImageUrl, &i.Status,
+		rows.Scan(&i.ID, &i.UserID, &i.ActivityID, &i.Description, &i.MediaIds, &i.Status,
 			&i.ModeratedBy, &i.ReviewerNote, &i.ReviewedAt, &i.CreatedAt, &i.ActivityTitle, &i.UserName)
 		items = append(items, i)
 	}
@@ -287,7 +287,7 @@ func (h *ConservationAdminHandler) ConservationDetail(w http.ResponseWriter, r *
 			participant_limit, current_participants,
 			status, created_at::text, badge_name, badge_icon_url
 		 FROM conservation_activities
-		 WHERE id = $1`, activityID,
+		 WHERE id = $1 AND privacy_level = 'public'`, activityID,
 	).Scan(&id, &title, &organizer, &description, &lng, &lat, &locationLabel, &privacyLevel,
 		&eventDate, &impactMetric, &impactTarget, &impactActual, &measurementUnit,
 		&participantLimit, &currentParticipants,
