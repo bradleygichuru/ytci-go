@@ -368,17 +368,18 @@ func (h *CourseHandler) tryCompleteCourse(ctx context.Context, userID, courseID 
 	var badgeIconURL *string
 	var displayName string
 	var enrollmentID string
+	var certificateEnabled bool
 	_ = h.pool.QueryRow(ctx,
-		`SELECT c.title, c.badge_name, c.badge_icon_url, COALESCE(up.display_name, 'Explorer'), e.id
+		`SELECT c.title, c.badge_name, c.badge_icon_url, c.certificate_enabled, COALESCE(up.display_name, 'Explorer'), e.id
 		 FROM courses c
 		 JOIN course_enrollments e ON e.course_id = c.id AND e.user_id = $1
 		 LEFT JOIN user_profiles up ON up.user_id = $1
 		 WHERE c.id = $2`,
 		userID, courseID,
-	).Scan(&courseTitle, &badgeName, &badgeIconURL, &displayName, &enrollmentID)
+	).Scan(&courseTitle, &badgeName, &badgeIconURL, &certificateEnabled, &displayName, &enrollmentID)
 
 	var certURL *string
-	if h.r2 != nil && enrollmentID != "" {
+	if certificateEnabled && h.r2 != nil && enrollmentID != "" {
 		certURL = h.generateCertificate(ctx, enrollmentID, displayName, courseTitle)
 	}
 

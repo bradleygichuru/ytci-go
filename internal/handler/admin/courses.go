@@ -26,6 +26,7 @@ func (h *CourseHandler) List(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.pool.Query(r.Context(),
 		`SELECT c.id, c.title, c.description, c.difficulty, c.status,
 		 c.image_url, c.pass_threshold, c.badge_name, c.badge_icon_url,
+		 c.certificate_enabled, c.certificate_template,
 		 c.created_at, c.updated_at,
 		 COALESCE(
 			(SELECT json_agg(json_build_object(
@@ -57,8 +58,10 @@ func (h *CourseHandler) List(w http.ResponseWriter, r *http.Request) {
 		ImageURL        *string          `json:"imageUrl"`
 		PassThreshold   *int             `json:"passThreshold"`
 		BadgeName       *string          `json:"badgeName"`
-		BadgeIconURL    *string          `json:"badgeIconUrl"`
-		CreatedAt       string           `json:"createdAt"`
+		BadgeIconURL        *string          `json:"badgeIconUrl"`
+		CertificateEnabled  *bool            `json:"certificateEnabled"`
+		CertificateTemplate *string          `json:"certificateTemplate"`
+		CreatedAt           string           `json:"createdAt"`
 		UpdatedAt       string           `json:"updatedAt"`
 		Lessons         json.RawMessage  `json:"lessons"`
 		LessonCount     int              `json:"lessonCount"`
@@ -73,6 +76,7 @@ func (h *CourseHandler) List(w http.ResponseWriter, r *http.Request) {
 		var lessonsJSON, quizJSON json.RawMessage
 		rows.Scan(&i.ID, &i.Title, &i.Description, &i.Difficulty, &i.Status,
 			&i.ImageURL, &i.PassThreshold, &i.BadgeName, &i.BadgeIconURL,
+			&i.CertificateEnabled, &i.CertificateTemplate,
 			&createdAt, &updatedAt,
 			&lessonsJSON, &quizJSON, &i.EnrollmentCount, &i.CompletionCount)
 		i.CreatedAt = createdAt.Time.Format(time.RFC3339)
@@ -152,14 +156,16 @@ func (h *CourseHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 func (h *CourseHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Title         string  `json:"title"`
-		Description   string  `json:"description,omitempty"`
-		Difficulty    string  `json:"difficulty"`
-		ImageURL      *string `json:"imageUrl,omitempty"`
-		PassThreshold *int    `json:"passThreshold,omitempty"`
-		Status        *string `json:"status,omitempty"`
-		BadgeName     *string `json:"badgeName,omitempty"`
-		BadgeIconURL  *string `json:"badgeIconUrl,omitempty"`
+		Title              string  `json:"title"`
+		Description        string  `json:"description,omitempty"`
+		Difficulty         string  `json:"difficulty"`
+		ImageURL           *string `json:"imageUrl,omitempty"`
+		PassThreshold      *int    `json:"passThreshold,omitempty"`
+		Status             *string `json:"status,omitempty"`
+		BadgeName          *string `json:"badgeName,omitempty"`
+		BadgeIconURL       *string `json:"badgeIconUrl,omitempty"`
+		CertificateEnabled *bool   `json:"certificateEnabled,omitempty"`
+		CertificateTemplate *string `json:"certificateTemplate,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
@@ -174,13 +180,21 @@ func (h *CourseHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if req.PassThreshold != nil {
 		threshold = *req.PassThreshold
 	}
+	certEnabled := false
+	if req.CertificateEnabled != nil {
+		certEnabled = *req.CertificateEnabled
+	}
+	certTemplate := "standard"
+	if req.CertificateTemplate != nil && *req.CertificateTemplate != "" {
+		certTemplate = *req.CertificateTemplate
+	}
 
 	var id string
 	if err := h.pool.QueryRow(r.Context(),
-		`INSERT INTO courses (title, description, difficulty, image_url, pass_threshold, status, badge_name, badge_icon_url, created_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+		`INSERT INTO courses (title, description, difficulty, image_url, pass_threshold, status, badge_name, badge_icon_url, certificate_enabled, certificate_template, created_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
 		req.Title, req.Description, req.Difficulty, req.ImageURL, threshold, status,
-		req.BadgeName, req.BadgeIconURL, middleware.UserID(r.Context()),
+		req.BadgeName, req.BadgeIconURL, certEnabled, certTemplate, middleware.UserID(r.Context()),
 	).Scan(&id); err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create course")
 		return
@@ -194,14 +208,16 @@ func (h *CourseHandler) Create(w http.ResponseWriter, r *http.Request) {
 func (h *CourseHandler) Update(w http.ResponseWriter, r *http.Request) {
 	courseID := r.PathValue("id")
 	var req struct {
-		Title         *string `json:"title,omitempty"`
-		Description   *string `json:"description,omitempty"`
-		Difficulty    *string `json:"difficulty,omitempty"`
-		Status        *string `json:"status,omitempty"`
-		ImageURL      *string `json:"imageUrl,omitempty"`
-		PassThreshold *int    `json:"passThreshold,omitempty"`
-		BadgeName     *string `json:"badgeName,omitempty"`
-		BadgeIconURL  *string `json:"badgeIconUrl,omitempty"`
+		Title               *string `json:"title,omitempty"`
+		Description         *string `json:"description,omitempty"`
+		Difficulty          *string `json:"difficulty,omitempty"`
+		Status              *string `json:"status,omitempty"`
+		ImageURL            *string `json:"imageUrl,omitempty"`
+		PassThreshold       *int    `json:"passThreshold,omitempty"`
+		BadgeName           *string `json:"badgeName,omitempty"`
+		BadgeIconURL        *string `json:"badgeIconUrl,omitempty"`
+		CertificateEnabled  *bool   `json:"certificateEnabled,omitempty"`
+		CertificateTemplate *string `json:"certificateTemplate,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
@@ -218,6 +234,8 @@ func (h *CourseHandler) Update(w http.ResponseWriter, r *http.Request) {
 		 pass_threshold = COALESCE($7::int, pass_threshold),
 		 badge_name = COALESCE($8::text, badge_name),
 		 badge_icon_url = COALESCE($9::text, badge_icon_url),
+		 certificate_enabled = COALESCE($10::boolean, certificate_enabled),
+		 certificate_template = COALESCE($11::text, certificate_template),
 		 updated_at = now()
 		 WHERE id = $1`,
 		courseID,
@@ -229,6 +247,8 @@ func (h *CourseHandler) Update(w http.ResponseWriter, r *http.Request) {
 		req.PassThreshold,
 		req.BadgeName,
 		req.BadgeIconURL,
+		req.CertificateEnabled,
+		req.CertificateTemplate,
 	)
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update course")
