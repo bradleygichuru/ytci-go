@@ -729,6 +729,7 @@ func (h *DestinationsHandler) GetMobile(w http.ResponseWriter, r *http.Request) 
 	if dest.Media == nil {
 		dest.Media = []mobileMedia{}
 	}
+	slog.Debug("GetMobile media", "slug", slug, "media_json", string(mediaJSON), "parsed_count", len(dest.Media))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(dest)

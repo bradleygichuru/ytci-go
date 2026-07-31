@@ -68,13 +68,15 @@ func (h *ConservationAdminHandler) List(w http.ResponseWriter, r *http.Request) 
 
 func (h *ConservationAdminHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Title       string   `json:"title"`
-		Organizer   string   `json:"organizer"`
-		Description string   `json:"description,omitempty"`
-		Lat         *float64 `json:"lat,omitempty"`
-		Lng         *float64 `json:"lng,omitempty"`
-		EventDate   string   `json:"eventDate,omitempty"`
-		ImpactMetric string  `json:"impactMetric,omitempty"`
+		Title        string   `json:"title"`
+		Organizer    string   `json:"organizer"`
+		Description  string   `json:"description,omitempty"`
+		Lat          *float64 `json:"lat,omitempty"`
+		Lng          *float64 `json:"lng,omitempty"`
+		EventDate    string   `json:"eventDate,omitempty"`
+		ImpactMetric string   `json:"impactMetric,omitempty"`
+		BadgeName    *string  `json:"badgeName,omitempty"`
+		BadgeIconURL *string  `json:"badgeIconUrl,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
@@ -83,10 +85,10 @@ func (h *ConservationAdminHandler) Create(w http.ResponseWriter, r *http.Request
 
 	var id string
 	err := h.pool.QueryRow(r.Context(),
-		`INSERT INTO conservation_activities (title, organizer, description, location, event_date, impact_metric, created_by)
-		 VALUES ($1, $2, $3, ST_SetSRID(ST_MakePoint($4, $5), 4326), $6, $7, $8) RETURNING id`,
+		`INSERT INTO conservation_activities (title, organizer, description, location, event_date, impact_metric, badge_name, badge_icon_url, created_by)
+		 VALUES ($1, $2, $3, ST_SetSRID(ST_MakePoint($4, $5), 4326), $6, $7, $8, $9, $10) RETURNING id`,
 		req.Title, req.Organizer, req.Description, valOrNilFloat(req.Lng), valOrNilFloat(req.Lat),
-		req.EventDate, req.ImpactMetric, middleware.UserID(r.Context()),
+		req.EventDate, req.ImpactMetric, req.BadgeName, req.BadgeIconURL, middleware.UserID(r.Context()),
 	).Scan(&id)
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create activity")
@@ -101,9 +103,11 @@ func (h *ConservationAdminHandler) Create(w http.ResponseWriter, r *http.Request
 func (h *ConservationAdminHandler) Update(w http.ResponseWriter, r *http.Request) {
 	activityID := r.PathValue("id")
 	var req struct {
-		Title       *string `json:"title,omitempty"`
-		Description *string `json:"description,omitempty"`
-		Status      *string `json:"status,omitempty"`
+		Title        *string `json:"title,omitempty"`
+		Description  *string `json:"description,omitempty"`
+		Status       *string `json:"status,omitempty"`
+		BadgeName    *string `json:"badgeName,omitempty"`
+		BadgeIconURL *string `json:"badgeIconUrl,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
@@ -115,9 +119,11 @@ func (h *ConservationAdminHandler) Update(w http.ResponseWriter, r *http.Request
 		 title = CASE WHEN $2::text != '' THEN $2 ELSE title END,
 		 description = COALESCE($3::text, description),
 		 status = CASE WHEN $4::text != '' THEN $4 ELSE status END,
+		 badge_name = COALESCE($5::text, badge_name),
+		 badge_icon_url = COALESCE($6::text, badge_icon_url),
 		 updated_at = now()
 		 WHERE id = $1`,
-		activityID, valOrEmpty(req.Title), req.Description, valOrEmpty(req.Status))
+		activityID, valOrEmpty(req.Title), req.Description, valOrEmpty(req.Status), req.BadgeName, req.BadgeIconURL)
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update activity")
 		return
@@ -173,17 +179,39 @@ func (h *ConservationAdminHandler) ReviewEvidence(w http.ResponseWriter, r *http
 		return
 	}
 
-	status := "rejected"
+	moderatorID := middleware.UserID(r.Context())
+	status := "in_progress"
 	if req.Action == "approve" {
 		status = "approved"
 	}
 
 	_, err := h.pool.Exec(r.Context(),
-		`UPDATE conservation_evidence SET status = $2, moderated_by = $3, moderation_note = $4, moderated_at = now() WHERE id = $1`,
-		evidenceID, status, middleware.UserID(r.Context()), req.Note)
+		`UPDATE conservation_evidence SET status = $2, moderated_by = $3, moderation_note = $4, moderated_at = now(), updated_at = now() WHERE id = $1`,
+		evidenceID, status, moderatorID, req.Note)
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to review evidence")
 		return
+	}
+
+	if status == "approved" {
+		var userID, activityID, activityTitle string
+		var badgeName, badgeIconURL *string
+		err := h.pool.QueryRow(r.Context(),
+			`SELECT ce.user_id, ce.activity_id, ca.title, ca.badge_name, ca.badge_icon_url
+			 FROM conservation_evidence ce
+			 JOIN conservation_activities ca ON ca.id = ce.activity_id
+			 WHERE ce.id = $1`, evidenceID,
+		).Scan(&userID, &activityID, &activityTitle, &badgeName, &badgeIconURL)
+		if err == nil && badgeName != nil && *badgeName != "" {
+			bIcon := ""
+			if badgeIconURL != nil {
+				bIcon = *badgeIconURL
+			}
+			_, _ = h.pool.Exec(r.Context(),
+				`INSERT INTO badges (user_id, badge_name, badge_icon_url, source_type, source_id, source_title)
+				 VALUES ($1, $2, $3, 'conservation', $4, $5)`,
+				userID, *badgeName, bIcon, activityID, activityTitle)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -219,22 +247,45 @@ func (h *ConservationAdminHandler) ConservationDetail(w http.ResponseWriter, r *
 	}
 
 	resp := map[string]any{
-		"id":                 id,
-		"title":              title,
-		"organizer":          organizer,
-		"description":        description,
-		"lng":                lng,
-		"lat":                lat,
-		"locationLabel":      locationLabel,
-		"privacyLevel":       privacyLevel,
-		"eventDate":          eventDate,
-		"impactMetric":       impactMetric,
-		"impactTarget":       impactTarget,
-		"participantLimit":   participantLimit,
+		"id":                  id,
+		"title":               title,
+		"organizer":           organizer,
+		"description":         description,
+		"lng":                 lng,
+		"lat":                 lat,
+		"locationLabel":       locationLabel,
+		"privacyLevel":        privacyLevel,
+		"eventDate":           eventDate,
+		"impactMetric":        impactMetric,
+		"impactTarget":        impactTarget,
+		"participantLimit":    participantLimit,
 		"currentParticipants": currentParticipants,
-		"status":             status,
-		"createdAt":          createdAt,
+		"status":              status,
+		"createdAt":           createdAt,
+		"participants":        []any{},
 	}
+
+	participantRows, err := h.pool.Query(r.Context(),
+		`SELECT cp.user_id, COALESCE(up.display_name, 'Explorer')
+		 FROM conservation_participants cp
+		 LEFT JOIN user_profiles up ON up.user_id = cp.user_id
+		 WHERE cp.activity_id = $1`, activityID)
+	if err == nil {
+		defer participantRows.Close()
+		var participants []map[string]any
+		for participantRows.Next() {
+			var pUserID, pName string
+			participantRows.Scan(&pUserID, &pName)
+			participants = append(participants, map[string]any{
+				"userId": pUserID,
+				"name":   pName,
+			})
+		}
+		if participants != nil {
+			resp["participants"] = participants
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }

@@ -148,12 +148,35 @@ func (h *ActionsHandler) JoinConservation(w http.ResponseWriter, r *http.Request
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_ID", "activity id is required")
 		return
 	}
+	userID := middleware.UserID(r.Context())
 
-	_, err := h.pool.Exec(r.Context(),
-		`UPDATE conservation_activities SET current_participants = current_participants + 1 WHERE id = $1`, activityID)
+	var full bool
+	err := h.pool.QueryRow(r.Context(),
+		`SELECT COALESCE(current_participants, 0) >= participant_limit
+		 FROM conservation_activities WHERE id = $1 AND participant_limit IS NOT NULL`, activityID,
+	).Scan(&full)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to check activity")
+		return
+	}
+	if full {
+		handler.WriteError(w, http.StatusConflict, "ACTIVITY_FULL", "this activity has reached its participant limit")
+		return
+	}
+
+	tag, err := h.pool.Exec(r.Context(),
+		`INSERT INTO conservation_participants (user_id, activity_id)
+		 VALUES ($1, $2) ON CONFLICT (user_id, activity_id) DO NOTHING`,
+		userID, activityID)
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to join")
 		return
+	}
+
+	if tag.RowsAffected() > 0 {
+		_, _ = h.pool.Exec(r.Context(),
+			`UPDATE conservation_activities SET current_participants = current_participants + 1 WHERE id = $1`,
+			activityID)
 	}
 
 	w.WriteHeader(http.StatusCreated)
@@ -304,7 +327,16 @@ func (h *ActionsHandler) SubmitConservationEvidence(w http.ResponseWriter, r *ht
 	var evidenceID string
 	err := h.pool.QueryRow(r.Context(),
 		`INSERT INTO conservation_evidence (user_id, activity_id, description, media_ids)
-		 VALUES ($1, $2, $3, $4) RETURNING id`,
+		 VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (user_id, activity_id) DO UPDATE SET
+		 status = 'pending',
+		 description = EXCLUDED.description,
+		 media_ids = EXCLUDED.media_ids,
+		 moderated_by = NULL,
+		 moderation_note = NULL,
+		 moderated_at = NULL,
+		 updated_at = now()
+		 RETURNING id`,
 		middleware.UserID(r.Context()), activityID, req.Description, req.MediaIDs).Scan(&evidenceID)
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to submit evidence")

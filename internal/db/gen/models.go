@@ -16,6 +16,17 @@ type AppOpen struct {
 	OpenedAt   pgtype.Timestamp `json:"opened_at"`
 }
 
+type Badge struct {
+	ID           pgtype.UUID      `json:"id"`
+	UserID       string           `json:"user_id"`
+	BadgeName    string           `json:"badge_name"`
+	BadgeIconUrl *string          `json:"badge_icon_url"`
+	SourceType   string           `json:"source_type"`
+	SourceID     pgtype.UUID      `json:"source_id"`
+	SourceTitle  *string          `json:"source_title"`
+	AwardedAt    pgtype.Timestamp `json:"awarded_at"`
+}
+
 type BucketListItem struct {
 	ID            pgtype.UUID      `json:"id"`
 	UserID        pgtype.UUID      `json:"user_id"`
@@ -96,6 +107,8 @@ type ConservationActivity struct {
 	CreatedBy           pgtype.UUID      `json:"created_by"`
 	CreatedAt           pgtype.Timestamp `json:"created_at"`
 	UpdatedAt           pgtype.Timestamp `json:"updated_at"`
+	BadgeName           *string          `json:"badge_name"`
+	BadgeIconUrl        *string          `json:"badge_icon_url"`
 }
 
 type ConservationEvidence struct {
@@ -109,6 +122,14 @@ type ConservationEvidence struct {
 	ModerationNote *string          `json:"moderation_note"`
 	ModeratedAt    pgtype.Timestamp `json:"moderated_at"`
 	CreatedAt      pgtype.Timestamp `json:"created_at"`
+	UpdatedAt      pgtype.Timestamp `json:"updated_at"`
+}
+
+type ConservationParticipant struct {
+	ID         pgtype.UUID      `json:"id"`
+	UserID     string           `json:"user_id"`
+	ActivityID pgtype.UUID      `json:"activity_id"`
+	JoinedAt   pgtype.Timestamp `json:"joined_at"`
 }
 
 type Course struct {
@@ -122,6 +143,8 @@ type Course struct {
 	CreatedBy     pgtype.UUID      `json:"created_by"`
 	CreatedAt     pgtype.Timestamp `json:"created_at"`
 	UpdatedAt     pgtype.Timestamp `json:"updated_at"`
+	BadgeName     *string          `json:"badge_name"`
+	BadgeIconUrl  *string          `json:"badge_icon_url"`
 }
 
 type CourseEnrollment struct {

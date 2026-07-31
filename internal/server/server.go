@@ -78,6 +78,8 @@ type handlers struct {
 	campaign  *admin.CampaignAdminHandler
 	analytics *admin.AnalyticsHandler
 	quiz      *admin.QuizHandler
+	lessonAdmin *admin.LessonHandler
+	quizAdmin   *admin.QuizAdminHandler
 	bulkImport *admin.BulkImport
 	itinStops *expo.ItineraryStopsHandler
 	feed      *expo.FeedHandler
@@ -106,6 +108,8 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 		campaign:  admin.NewCampaignAdminHandler(pool),
 		analytics: admin.NewAnalyticsHandler(pool),
 		quiz:      admin.NewQuizHandler(pool),
+		lessonAdmin: admin.NewLessonHandler(pool),
+		quizAdmin:   admin.NewQuizAdminHandler(pool),
 		bulkImport: admin.NewBulkImport(pool),
 		itinStops: expo.NewItineraryStopsHandler(pool),
 		feed:      expo.NewFeedHandler(pool),
@@ -119,7 +123,7 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 		comments:  expo.NewCommentHandler(pool),
 		adminComments: admin.NewAdminCommentHandler(pool),
 		account:   expo.NewAccountHandler(pool, r2client),
-		mobileCourses: expo.NewCourseHandler(pool),
+		mobileCourses: expo.NewCourseHandler(pool, r2client),
 	}
 	if pushClient != nil {
 		h.pushAdmin = admin.NewPushHandler(pool, pushClient)
@@ -151,6 +155,11 @@ func mountAdminRoutes(sub chi.Router, h *handlers, r2client r2.Store, jwks *midd
 		aR.Post("/courses", h.course.Create)
 		aR.Patch("/courses/{id}", h.course.Update)
 		aR.Delete("/courses/{id}", h.course.Delete)
+		aR.Post("/courses/{id}/lessons", h.lessonAdmin.Create)
+		aR.Patch("/courses/{id}/lessons/{lessonId}", h.lessonAdmin.Update)
+		aR.Delete("/courses/{id}/lessons/{lessonId}", h.lessonAdmin.Delete)
+		aR.Post("/courses/{id}/quiz", h.quizAdmin.Upsert)
+		aR.Delete("/courses/{id}/quiz", h.quizAdmin.Delete)
 		aR.Post("/quizzes/evaluate", h.quiz.Evaluate)
 		aR.Get("/challenges", h.challenge.List)
 		aR.Post("/challenges", h.challenge.Create)
@@ -254,6 +263,7 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 			aR.Post("/conservation/{id}/join", h.actions.JoinConservation)
 			aR.Post("/conservation/{id}/evidence", h.actions.SubmitConservationEvidence)
 			aR.Post("/courses/{id}/enroll", h.actions.EnrollCourse)
+			aR.Post("/courses/{id}/lessons/{lessonId}/complete", h.mobileCourses.MarkLessonComplete)
 			aR.Post("/events/{id}/save", h.actions.SaveEvent)
 			aR.Post("/events/{id}/attend", h.actions.AttendEvent)
 			aR.Post("/events/{id}/leave", h.actions.LeaveEvent)

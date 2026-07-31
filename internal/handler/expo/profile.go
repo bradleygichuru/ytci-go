@@ -98,11 +98,10 @@ type badge struct {
 func (h *ProfileHandler) Badges(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r.Context())
 	rows, err := h.pool.Query(r.Context(),
-		`SELECT cp.id, c.badge_name, c.badge_icon_url, cp.badge_awarded_at, c.id, c.title
-		 FROM challenge_progress cp
-		 JOIN challenges c ON c.id = cp.challenge_id
-		 WHERE cp.user_id = $1 AND cp.badge_awarded_at IS NOT NULL
-		 ORDER BY cp.badge_awarded_at DESC LIMIT 50`, userID)
+		`SELECT id, badge_name, badge_icon_url, awarded_at::text, source_type, source_id::text, source_title
+		 FROM badges
+		 WHERE user_id = $1
+		 ORDER BY awarded_at DESC LIMIT 50`, userID)
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get badges")
 		return
@@ -112,8 +111,7 @@ func (h *ProfileHandler) Badges(w http.ResponseWriter, r *http.Request) {
 	var items []badge
 	for rows.Next() {
 		var b badge
-		rows.Scan(&b.ID, &b.BadgeName, &b.BadgeIcon, &b.EarnedAt, &b.SourceID, &b.SourceTitle)
-		b.Source = "challenge"
+		rows.Scan(&b.ID, &b.BadgeName, &b.BadgeIcon, &b.EarnedAt, &b.Source, &b.SourceID, &b.SourceTitle)
 		items = append(items, b)
 	}
 	if err := rows.Err(); err != nil {

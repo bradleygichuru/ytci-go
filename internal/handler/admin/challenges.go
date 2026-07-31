@@ -384,6 +384,28 @@ func (h *ChallengeAdminHandler) ReviewEvidence(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	if status == "approved" {
+		var userID, challengeID, challengeTitle string
+		var badgeName, badgeIconURL *string
+		qErr := h.pool.QueryRow(r.Context(),
+			`SELECT cp.user_id, cp.challenge_id, c.title, c.badge_name, c.badge_icon_url
+			 FROM challenge_progress cp
+			 JOIN challenges c ON c.id = cp.challenge_id
+			 WHERE cp.id = $1`, evidenceID,
+		).Scan(&userID, &challengeID, &challengeTitle, &badgeName, &badgeIconURL)
+		if qErr == nil && badgeName != nil && *badgeName != "" {
+			bIcon := ""
+			if badgeIconURL != nil {
+				bIcon = *badgeIconURL
+			}
+			_, _ = h.pool.Exec(r.Context(),
+				`INSERT INTO badges (user_id, badge_name, badge_icon_url, source_type, source_id, source_title)
+				 VALUES ($1, $2, $3, 'challenge', $4, $5)
+				 ON CONFLICT DO NOTHING`,
+				userID, *badgeName, bIcon, challengeID, challengeTitle)
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": status})
 }

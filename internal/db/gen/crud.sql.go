@@ -127,7 +127,7 @@ func (q *Queries) CreateChallenge(ctx context.Context, arg *CreateChallengeParam
 const createCourse = `-- name: CreateCourse :one
 INSERT INTO courses (title, description, difficulty, created_by)
 VALUES ($1, $2, $3, $4)
-RETURNING id, title, description, difficulty, status, image_url, pass_threshold, created_by, created_at, updated_at
+RETURNING id, title, description, difficulty, status, image_url, pass_threshold, created_by, created_at, updated_at, badge_name, badge_icon_url
 `
 
 type CreateCourseParams struct {
@@ -156,6 +156,8 @@ func (q *Queries) CreateCourse(ctx context.Context, arg *CreateCourseParams) (Co
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.BadgeName,
+		&i.BadgeIconUrl,
 	)
 	return i, err
 }

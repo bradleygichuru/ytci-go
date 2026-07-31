@@ -110,20 +110,36 @@ func (h *CourseHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 func (h *CourseHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Title       string `json:"title"`
-		Description string `json:"description,omitempty"`
-		Difficulty  string `json:"difficulty"`
+		Title         string  `json:"title"`
+		Description   string  `json:"description,omitempty"`
+		Difficulty    string  `json:"difficulty"`
+		ImageURL      *string `json:"imageUrl,omitempty"`
+		PassThreshold *int    `json:"passThreshold,omitempty"`
+		Status        *string `json:"status,omitempty"`
+		BadgeName     *string `json:"badgeName,omitempty"`
+		BadgeIconURL  *string `json:"badgeIconUrl,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
 		return
 	}
 
-	var id, status string
+	status := "draft"
+	if req.Status != nil && *req.Status != "" {
+		status = *req.Status
+	}
+	threshold := 70
+	if req.PassThreshold != nil {
+		threshold = *req.PassThreshold
+	}
+
+	var id string
 	if err := h.pool.QueryRow(r.Context(),
-		`INSERT INTO courses (title, description, difficulty, created_by) VALUES ($1, $2, $3, $4) RETURNING id, status`,
-		req.Title, req.Description, req.Difficulty, middleware.UserID(r.Context()),
-	).Scan(&id, &status); err != nil {
+		`INSERT INTO courses (title, description, difficulty, image_url, pass_threshold, status, badge_name, badge_icon_url, created_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+		req.Title, req.Description, req.Difficulty, req.ImageURL, threshold, status,
+		req.BadgeName, req.BadgeIconURL, middleware.UserID(r.Context()),
+	).Scan(&id); err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create course")
 		return
 	}
@@ -136,10 +152,14 @@ func (h *CourseHandler) Create(w http.ResponseWriter, r *http.Request) {
 func (h *CourseHandler) Update(w http.ResponseWriter, r *http.Request) {
 	courseID := r.PathValue("id")
 	var req struct {
-		Title       *string `json:"title,omitempty"`
-		Description *string `json:"description,omitempty"`
-		Difficulty  *string `json:"difficulty,omitempty"`
-		Status      *string `json:"status,omitempty"`
+		Title         *string `json:"title,omitempty"`
+		Description   *string `json:"description,omitempty"`
+		Difficulty    *string `json:"difficulty,omitempty"`
+		Status        *string `json:"status,omitempty"`
+		ImageURL      *string `json:"imageUrl,omitempty"`
+		PassThreshold *int    `json:"passThreshold,omitempty"`
+		BadgeName     *string `json:"badgeName,omitempty"`
+		BadgeIconURL  *string `json:"badgeIconUrl,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
@@ -152,9 +172,22 @@ func (h *CourseHandler) Update(w http.ResponseWriter, r *http.Request) {
 		 description = COALESCE($3::text, description),
 		 difficulty = CASE WHEN $4::text != '' THEN $4 ELSE difficulty END,
 		 status = CASE WHEN $5::text != '' THEN $5 ELSE status END,
+		 image_url = COALESCE($6::text, image_url),
+		 pass_threshold = COALESCE($7::int, pass_threshold),
+		 badge_name = COALESCE($8::text, badge_name),
+		 badge_icon_url = COALESCE($9::text, badge_icon_url),
 		 updated_at = now()
 		 WHERE id = $1`,
-		courseID, valOrEmpty(req.Title), req.Description, valOrEmpty(req.Difficulty), valOrEmpty(req.Status))
+		courseID,
+		valOrEmpty(req.Title),
+		req.Description,
+		valOrEmpty(req.Difficulty),
+		valOrEmpty(req.Status),
+		req.ImageURL,
+		req.PassThreshold,
+		req.BadgeName,
+		req.BadgeIconURL,
+	)
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update course")
 		return
