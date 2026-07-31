@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bradleygichuru/ytci-go/internal/handler"
@@ -436,4 +437,136 @@ func (h *ActionsHandler) LeaveEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
+}
+
+func (h *ActionsHandler) GetMyConservationActivities(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.UserID(r.Context())
+
+	rows, err := h.pool.Query(r.Context(),
+		`SELECT ca.id, ca.title, ca.organizer, ca.status, ca.event_date::text,
+			ca.impact_metric, ca.current_participants, ca.location_label,
+			cp.joined_at::text,
+			CASE WHEN ce.id IS NOT NULL THEN true ELSE false END AS evidence_submitted,
+			ce.status AS evidence_status,
+			CASE WHEN b.id IS NOT NULL THEN true ELSE false END AS badge_earned
+		 FROM conservation_participants cp
+		 JOIN conservation_activities ca ON ca.id = cp.activity_id
+		 LEFT JOIN conservation_evidence ce ON ce.user_id = cp.user_id AND ce.activity_id = cp.activity_id
+		 LEFT JOIN badges b ON b.user_id = cp.user_id AND b.source_type = 'conservation' AND b.source_id = cp.activity_id
+		 WHERE cp.user_id = $1
+		 ORDER BY cp.joined_at DESC LIMIT 50`,
+		userID,
+	)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list activities")
+		return
+	}
+	defer rows.Close()
+
+	type item struct {
+		ID                  string  `json:"id"`
+		Title               string  `json:"title"`
+		Organizer           string  `json:"organizer"`
+		Status              string  `json:"status"`
+		EventDate           *string `json:"eventDate,omitempty"`
+		ImpactMetric        *string `json:"impactMetric,omitempty"`
+		CurrentParticipants int     `json:"currentParticipants"`
+		LocationLabel       *string `json:"locationLabel,omitempty"`
+		JoinedAt            string  `json:"joinedAt"`
+		EvidenceSubmitted   bool    `json:"evidenceSubmitted"`
+		EvidenceStatus      *string `json:"evidenceStatus,omitempty"`
+		BadgeEarned         bool    `json:"badgeEarned"`
+	}
+
+	var items []item
+	for rows.Next() {
+		var i item
+		rows.Scan(&i.ID, &i.Title, &i.Organizer, &i.Status, &i.EventDate,
+			&i.ImpactMetric, &i.CurrentParticipants, &i.LocationLabel,
+			&i.JoinedAt, &i.EvidenceSubmitted, &i.EvidenceStatus, &i.BadgeEarned)
+		items = append(items, i)
+	}
+	if items == nil {
+		items = []item{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"items": items})
+}
+
+func (h *ActionsHandler) GetConservationProgress(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.UserID(r.Context())
+	activityID := r.PathValue("id")
+
+	var joinedAt *string
+	var evidenceDescription *string
+	var evidenceStatus *string
+	var mediaIds *string
+	var moderationNote *string
+	var reviewedAt *string
+	var submittedAt *string
+	var badgeEarned bool
+
+	err := h.pool.QueryRow(r.Context(),
+		`SELECT cp.joined_at::text,
+			ce.description, ce.status, ce.media_ids, ce.moderation_note,
+			ce.moderated_at::text, ce.created_at::text,
+			CASE WHEN b.id IS NOT NULL THEN true ELSE false END
+		 FROM conservation_participants cp
+		 LEFT JOIN conservation_evidence ce ON ce.user_id = cp.user_id AND ce.activity_id = cp.activity_id
+		 LEFT JOIN badges b ON b.user_id = cp.user_id AND b.source_type = 'conservation' AND b.source_id = cp.activity_id
+		 WHERE cp.user_id = $1 AND cp.activity_id = $2`,
+		userID, activityID,
+	).Scan(&joinedAt, &evidenceDescription, &evidenceStatus, &mediaIds,
+		&moderationNote, &reviewedAt, &submittedAt, &badgeEarned)
+	if err == pgx.ErrNoRows {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"joined": false})
+		return
+	}
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get progress")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"joined":              true,
+		"joinedAt":            joinedAt,
+		"evidenceSubmitted":   evidenceDescription != nil,
+		"evidenceStatus":      evidenceStatus,
+		"evidenceDescription": evidenceDescription,
+		"mediaIds":            mediaIds,
+		"moderationNote":      moderationNote,
+		"reviewedAt":          reviewedAt,
+		"submittedAt":         submittedAt,
+		"badgeEarned":         badgeEarned,
+	})
+}
+
+func (h *ActionsHandler) LeaveConservation(w http.ResponseWriter, r *http.Request) {
+	activityID := r.PathValue("id")
+	if activityID == "" {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_ID", "activity id is required")
+		return
+	}
+	userID := middleware.UserID(r.Context())
+
+	tag, err := h.pool.Exec(r.Context(),
+		`DELETE FROM conservation_participants WHERE user_id = $1 AND activity_id = $2`,
+		userID, activityID)
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to leave activity")
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "not joined to this activity")
+		return
+	}
+
+	_, _ = h.pool.Exec(r.Context(),
+		`UPDATE conservation_activities SET current_participants = GREATEST(current_participants - 1, 0) WHERE id = $1`,
+		activityID)
+
+	json.NewEncoder(w).Encode(map[string]string{"status": "left"})
 }

@@ -10,12 +10,13 @@ import (
 )
 
 type FeedItem struct {
-	TrendingDestinations []json.RawMessage `json:"trendingDestinations"`
-	UpcomingEvents       []json.RawMessage `json:"upcomingEvents"`
-	FeaturedStories      []json.RawMessage `json:"featuredStories"`
-	ActiveCampaigns      []json.RawMessage `json:"activeCampaigns"`
-	HighlightedCourses   []json.RawMessage `json:"highlightedCourses"`
-	ActiveChallenges     []json.RawMessage `json:"activeChallenges"`
+	TrendingDestinations  []json.RawMessage `json:"trendingDestinations"`
+	UpcomingEvents        []json.RawMessage `json:"upcomingEvents"`
+	FeaturedStories       []json.RawMessage `json:"featuredStories"`
+	ActiveCampaigns       []json.RawMessage `json:"activeCampaigns"`
+	HighlightedCourses    []json.RawMessage `json:"highlightedCourses"`
+	ActiveChallenges      []json.RawMessage `json:"activeChallenges"`
+	ConservationActivities []json.RawMessage `json:"conservationActivities"`
 }
 
 type FeedHandler struct {
@@ -31,7 +32,7 @@ func (h *FeedHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 	var wg sync.WaitGroup
 	ctx := r.Context()
 
-	wg.Add(6)
+	wg.Add(7)
 	go func() {
 		defer wg.Done()
 		rows, err := h.pool.Query(ctx,
@@ -183,6 +184,30 @@ func (h *FeedHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 		}
 		if feed.ActiveChallenges == nil {
 			feed.ActiveChallenges = []json.RawMessage{}
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		rows, err := h.pool.Query(ctx,
+			`SELECT COALESCE(json_agg(sub), '[]'::json) FROM (
+				SELECT id, title, organizer, event_date, impact_metric,
+					current_participants, location_label
+				FROM conservation_activities
+				WHERE status = 'open' AND privacy_level = 'public'
+				ORDER BY created_at DESC LIMIT 5
+			) sub`)
+		if err == nil {
+			if rows.Next() {
+				rows.Scan(&feed.ConservationActivities)
+			}
+			rows.Close()
+		} else {
+			slog.Warn("feed: conservation activities", "error", err)
+			feed.ConservationActivities = []json.RawMessage{}
+		}
+		if feed.ConservationActivities == nil {
+			feed.ConservationActivities = []json.RawMessage{}
 		}
 	}()
 

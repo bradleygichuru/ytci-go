@@ -43,7 +43,7 @@ func (h *ProfileHandler) Get(w http.ResponseWriter, r *http.Request) {
 		"storiesSubmitted":    stories,
 		"challengesCompleted": 0,
 		"coursesEnrolled":     enrollments,
-		"conservationHours":   conservation,
+		"conservationActions": conservation,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
