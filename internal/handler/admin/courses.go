@@ -24,7 +24,7 @@ func NewCourseHandler(pool *pgxpool.Pool) *CourseHandler {
 
 func (h *CourseHandler) List(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.pool.Query(r.Context(),
-		`SELECT c.id, c.title, c.description, c.difficulty, c.status,
+		`SELECT c.id, c.title, c.description, c.category, c.difficulty, c.status,
 		 c.image_url, c.pass_threshold, c.badge_name, c.badge_icon_url,
 		 c.certificate_enabled, c.certificate_template,
 		 c.created_at, c.updated_at,
@@ -53,6 +53,7 @@ func (h *CourseHandler) List(w http.ResponseWriter, r *http.Request) {
 		ID              string           `json:"id"`
 		Title           string           `json:"title"`
 		Description     *string          `json:"description"`
+		Category        *string          `json:"category,omitempty"`
 		Difficulty      string           `json:"difficulty"`
 		Status          string           `json:"status"`
 		ImageURL        *string          `json:"imageUrl"`
@@ -74,7 +75,7 @@ func (h *CourseHandler) List(w http.ResponseWriter, r *http.Request) {
 		var i item
 		var createdAt, updatedAt pgtype.Timestamp
 		var lessonsJSON, quizJSON json.RawMessage
-		rows.Scan(&i.ID, &i.Title, &i.Description, &i.Difficulty, &i.Status,
+		rows.Scan(&i.ID, &i.Title, &i.Description, &i.Category, &i.Difficulty, &i.Status,
 			&i.ImageURL, &i.PassThreshold, &i.BadgeName, &i.BadgeIconURL,
 			&i.CertificateEnabled, &i.CertificateTemplate,
 			&createdAt, &updatedAt,
@@ -156,15 +157,16 @@ func (h *CourseHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 func (h *CourseHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Title              string  `json:"title"`
-		Description        string  `json:"description,omitempty"`
-		Difficulty         string  `json:"difficulty"`
-		ImageURL           *string `json:"imageUrl,omitempty"`
-		PassThreshold      *int    `json:"passThreshold,omitempty"`
-		Status             *string `json:"status,omitempty"`
-		BadgeName          *string `json:"badgeName,omitempty"`
-		BadgeIconURL       *string `json:"badgeIconUrl,omitempty"`
-		CertificateEnabled *bool   `json:"certificateEnabled,omitempty"`
+		Title               string  `json:"title"`
+		Description         string  `json:"description,omitempty"`
+		Category            *string `json:"category,omitempty"`
+		Difficulty          string  `json:"difficulty"`
+		ImageURL            *string `json:"imageUrl,omitempty"`
+		PassThreshold       *int    `json:"passThreshold,omitempty"`
+		Status              *string `json:"status,omitempty"`
+		BadgeName           *string `json:"badgeName,omitempty"`
+		BadgeIconURL        *string `json:"badgeIconUrl,omitempty"`
+		CertificateEnabled  *bool   `json:"certificateEnabled,omitempty"`
 		CertificateTemplate *string `json:"certificateTemplate,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -191,9 +193,9 @@ func (h *CourseHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	var id string
 	if err := h.pool.QueryRow(r.Context(),
-		`INSERT INTO courses (title, description, difficulty, image_url, pass_threshold, status, badge_name, badge_icon_url, certificate_enabled, certificate_template, created_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
-		req.Title, req.Description, req.Difficulty, req.ImageURL, threshold, status,
+		`INSERT INTO courses (title, description, category, difficulty, image_url, pass_threshold, status, badge_name, badge_icon_url, certificate_enabled, certificate_template, created_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
+		req.Title, req.Description, req.Category, req.Difficulty, req.ImageURL, threshold, status,
 		req.BadgeName, req.BadgeIconURL, certEnabled, certTemplate, middleware.UserID(r.Context()),
 	).Scan(&id); err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create course")
@@ -210,6 +212,7 @@ func (h *CourseHandler) Update(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Title               *string `json:"title,omitempty"`
 		Description         *string `json:"description,omitempty"`
+		Category            *string `json:"category,omitempty"`
 		Difficulty          *string `json:"difficulty,omitempty"`
 		Status              *string `json:"status,omitempty"`
 		ImageURL            *string `json:"imageUrl,omitempty"`
@@ -228,19 +231,21 @@ func (h *CourseHandler) Update(w http.ResponseWriter, r *http.Request) {
 		`UPDATE courses SET
 		 title = CASE WHEN $2::text != '' THEN $2 ELSE title END,
 		 description = COALESCE($3::text, description),
-		 difficulty = CASE WHEN $4::text != '' THEN $4 ELSE difficulty END,
-		 status = CASE WHEN $5::text != '' THEN $5 ELSE status END,
-		 image_url = COALESCE($6::text, image_url),
-		 pass_threshold = COALESCE($7::int, pass_threshold),
-		 badge_name = COALESCE($8::text, badge_name),
-		 badge_icon_url = COALESCE($9::text, badge_icon_url),
-		 certificate_enabled = COALESCE($10::boolean, certificate_enabled),
-		 certificate_template = COALESCE($11::text, certificate_template),
+		 category = COALESCE($4::text, category),
+		 difficulty = CASE WHEN $5::text != '' THEN $5 ELSE difficulty END,
+		 status = CASE WHEN $6::text != '' THEN $6 ELSE status END,
+		 image_url = COALESCE($7::text, image_url),
+		 pass_threshold = COALESCE($8::int, pass_threshold),
+		 badge_name = COALESCE($9::text, badge_name),
+		 badge_icon_url = COALESCE($10::text, badge_icon_url),
+		 certificate_enabled = COALESCE($11::boolean, certificate_enabled),
+		 certificate_template = COALESCE($12::text, certificate_template),
 		 updated_at = now()
 		 WHERE id = $1`,
 		courseID,
 		valOrEmpty(req.Title),
 		req.Description,
+		req.Category,
 		valOrEmpty(req.Difficulty),
 		valOrEmpty(req.Status),
 		req.ImageURL,
