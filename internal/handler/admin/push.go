@@ -3,7 +3,6 @@ package admin
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -54,7 +53,6 @@ func (h *PushHandler) Send(w http.ResponseWriter, r *http.Request) {
 
 	tokens, err := h.resolveTokens(r.Context())
 	if err != nil {
-		slog.Warn("push send: resolve tokens", "error", err)
 		h.pool.Exec(r.Context(),
 			`UPDATE push_notifications SET status = 'failed' WHERE id = $1`, notificationID)
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to resolve tokens", err)
@@ -81,7 +79,6 @@ func (h *PushHandler) Send(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.client.SendMessages(r.Context(), messages)
 	if err != nil {
-		slog.Error("push send: expo api", "error", err)
 		h.pool.Exec(r.Context(),
 			`UPDATE push_notifications SET status = 'failed' WHERE id = $1`, notificationID)
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "push delivery failed", err)
