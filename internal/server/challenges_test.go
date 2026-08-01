@@ -457,6 +457,40 @@ func TestChallengeEvidence(t *testing.T) {
 		assert.Equal(t, "Evidence Challenge", item["challengeTitle"])
 	})
 
+	t.Run("list evidence surfaces gps location from evidence jsonb", func(t *testing.T) {
+		gpsEvidenceID := "00000000-0000-0000-0000-000000000004"
+		_, err := pool.Exec(ctx,
+			`INSERT INTO challenge_progress (id, user_id, challenge_id, status, evidence)
+			 VALUES ($1, $2, $3, 'submitted', $4)`,
+			gpsEvidenceID, userID, challengeID, `{"description":"Visited the site","lat":-1.2921,"lng":36.8219}`)
+		require.NoError(t, err)
+
+		resp := doJSON(t, ts, "GET", "/v1/challenges/evidence", nil, adminAuth)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		result := decodeBody(t, resp)
+
+		items, ok := result["items"].([]interface{})
+		require.True(t, ok)
+
+		var found map[string]interface{}
+		for _, it := range items {
+			if m, ok := it.(map[string]interface{}); ok && m["id"] == gpsEvidenceID {
+				found = m
+				break
+			}
+		}
+		require.NotNil(t, found, "gps evidence row must be present in admin list")
+
+		evidenceRaw, ok := found["evidence"].(string)
+		require.True(t, ok, "evidence must be the raw jsonb blob")
+
+		var evidence map[string]interface{}
+		require.NoError(t, json.Unmarshal([]byte(evidenceRaw), &evidence))
+		assert.Equal(t, "Visited the site", evidence["description"])
+		assert.Equal(t, -1.2921, evidence["lat"])
+		assert.Equal(t, 36.8219, evidence["lng"])
+	})
+
 	t.Run("approve evidence sets approved and badge_awarded_at", func(t *testing.T) {
 		resp := doJSON(t, ts, "POST", fmt.Sprintf("/v1/challenges/evidence/%s/review", evidenceID), map[string]string{
 			"action": "approve",

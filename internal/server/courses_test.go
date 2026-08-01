@@ -340,3 +340,56 @@ func TestListPublishedCoursesWithCategory(t *testing.T) {
 	assert.Equal(t, "conservation", courses[0]["category"])
 	assert.Equal(t, float64(750), courses[0]["totalDurationMinutes"])
 }
+
+func TestListPublishedCoursesEdgeCases(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	ctx := context.Background()
+	pool := db.SetupTestDB(t)
+	defer pool.Close()
+
+	cfg := &config.Config{Port: "8080", DatabaseURL: "ignored", AdminJWKSURL: "http://test.invalid/jwks", CORSOrigins: "*"}
+	r := server.New(cfg, pool)
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	var noLessonsID string
+	err := pool.QueryRow(ctx, `
+		INSERT INTO courses (id, title, description, difficulty, status, pass_threshold)
+		VALUES (gen_random_uuid(), 'Empty Course', 'No lessons yet', 'beginner', 'published', 70)
+		RETURNING id
+	`).Scan(&noLessonsID)
+	require.NoError(t, err)
+
+	var noCategoryID string
+	err = pool.QueryRow(ctx, `
+		INSERT INTO courses (id, title, description, difficulty, status, pass_threshold)
+		VALUES (gen_random_uuid(), 'Uncategorized Course', 'No category set', 'intermediate', 'published', 70)
+		RETURNING id
+	`).Scan(&noCategoryID)
+	require.NoError(t, err)
+
+	resp, err := http.Get(ts.URL + "/v1/public/courses")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var courses []map[string]any
+	err = json.NewDecoder(resp.Body).Decode(&courses)
+	require.NoError(t, err)
+	require.Len(t, courses, 2)
+
+	byID := map[string]map[string]any{}
+	for _, c := range courses {
+		byID[c["id"].(string)] = c
+	}
+
+	noLessons, ok := byID[noLessonsID]
+	require.True(t, ok, "course with zero lessons must be returned")
+	assert.Equal(t, float64(0), noLessons["totalDurationMinutes"])
+
+	noCategory, ok := byID[noCategoryID]
+	require.True(t, ok, "course with nil category must be returned")
+	assert.Nil(t, noCategory["category"])
+}

@@ -444,3 +444,83 @@ func TestSubmitConservationEvidenceMetricsOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "pending", result["status"])
 }
+
+func TestAdminConservationEvidenceListSurfacesMetrics(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	ctx := context.Background()
+	pool := db.SetupTestDB(t)
+	defer pool.Close()
+
+	setupAuthTables(t, ctx, pool)
+
+	cfg := &config.Config{Port: "8080", DatabaseURL: "ignored", AdminJWKSURL: "http://test.invalid/jwks", CORSOrigins: "*"}
+	r := server.New(cfg, pool)
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	adminID := "ta-conserv-admin"
+	_, err := pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, created_at, updated_at, role)
+		VALUES ($1, 'Conserv Admin', 'conservadmin@test.com', now(), now(), 'super_admin')
+	`, adminID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO sessions (id, expires_at, token, created_at, updated_at, user_id)
+		VALUES ($1, now() + interval '1 day', $2, now(), now(), $3)
+	`, "sess-conserv-admin", "token-conserv-admin", adminID)
+	require.NoError(t, err)
+
+	var activityID string
+	err = pool.QueryRow(ctx, `
+		INSERT INTO conservation_activities (id, title, organizer, privacy_level, status)
+		VALUES (gen_random_uuid(), 'Coastal Cleanup', 'Ocean Trust', 'public', 'open')
+		RETURNING id
+	`).Scan(&activityID)
+	require.NoError(t, err)
+
+	userID := "ta-conserv-user"
+	_, err = pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, created_at, updated_at)
+		VALUES ($1, 'Metrics User', 'metricsuser@test.com', now(), now())
+	`, userID)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `
+		INSERT INTO user_profiles (user_id, display_name, created_by)
+		VALUES ($1, 'Green Hands', $1)
+	`, userID)
+	require.NoError(t, err)
+
+	var evidenceID string
+	err = pool.QueryRow(ctx, `
+		INSERT INTO conservation_evidence (id, user_id, activity_id, description, trees_planted, hours_spent, lat, lng, status)
+		VALUES (gen_random_uuid(), $1, $2, 'Collected 20kg of litter', 12, 4.5, -1.2833, 36.8167, 'pending')
+		RETURNING id
+	`, userID, activityID).Scan(&evidenceID)
+	require.NoError(t, err)
+
+	req := authReq(t, "GET", ts.URL+"/v1/conservation/evidence", "token-conserv-admin")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body map[string]any
+	err = json.NewDecoder(resp.Body).Decode(&body)
+	require.NoError(t, err)
+
+	items, ok := body["items"].([]interface{})
+	require.True(t, ok)
+	require.Len(t, items, 1)
+
+	item := items[0].(map[string]interface{})
+	assert.Equal(t, evidenceID, item["id"])
+	assert.Equal(t, "Coastal Cleanup", item["activityTitle"])
+	assert.Equal(t, "Green Hands", item["userName"])
+	assert.Equal(t, float64(12), item["treesPlanted"])
+	assert.Equal(t, float64(4.5), item["hoursSpent"])
+	assert.Equal(t, float64(-1.2833), item["lat"])
+	assert.Equal(t, float64(36.8167), item["lng"])
+}
