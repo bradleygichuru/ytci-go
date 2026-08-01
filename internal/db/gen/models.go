@@ -123,6 +123,10 @@ type ConservationEvidence struct {
 	ModeratedAt    pgtype.Timestamp `json:"moderated_at"`
 	CreatedAt      pgtype.Timestamp `json:"created_at"`
 	UpdatedAt      pgtype.Timestamp `json:"updated_at"`
+	TreesPlanted   *int32           `json:"trees_planted"`
+	HoursSpent     *float64         `json:"hours_spent"`
+	Lat            *float64         `json:"lat"`
+	Lng            *float64         `json:"lng"`
 }
 
 type ConservationParticipant struct {
@@ -145,6 +149,7 @@ type Course struct {
 	UpdatedAt     pgtype.Timestamp `json:"updated_at"`
 	BadgeName     *string          `json:"badge_name"`
 	BadgeIconUrl  *string          `json:"badge_icon_url"`
+	Category      *string          `json:"category"`
 }
 
 type CourseEnrollment struct {

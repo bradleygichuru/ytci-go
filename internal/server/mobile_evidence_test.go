@@ -133,6 +133,53 @@ func TestSubmitChallengeEvidenceWithLocation(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, resp2.StatusCode)
 }
 
+func TestListPublishedCoursesWithCategory(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	ctx := context.Background()
+	pool := db.SetupTestDB(t)
+	defer pool.Close()
+
+	cfg := &config.Config{Port: "8080", DatabaseURL: "ignored", AdminJWKSURL: "http://test.invalid/jwks", CORSOrigins: "*"}
+	r := server.New(cfg, pool)
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	var courseID string
+	err := pool.QueryRow(ctx, `
+		INSERT INTO courses (id, title, description, category, difficulty, status, pass_threshold)
+		VALUES (gen_random_uuid(), 'Wildlife Course', 'Learn about wildlife', 'conservation', 'beginner', 'published', 70)
+		RETURNING id
+	`).Scan(&courseID)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `
+		INSERT INTO lessons (course_id, title, content_type, content_url, duration, display_order)
+		VALUES ($1, 'Lesson 1', 'video', 'https://example.com/v1', 300, 1)
+	`, courseID)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `
+		INSERT INTO lessons (course_id, title, content_type, content_url, duration, display_order)
+		VALUES ($1, 'Lesson 2', 'video', 'https://example.com/v2', 450, 2)
+	`, courseID)
+	require.NoError(t, err)
+
+	resp, err := http.Get(ts.URL + "/v1/public/courses")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var courses []map[string]any
+	err = json.NewDecoder(resp.Body).Decode(&courses)
+	require.NoError(t, err)
+	require.Len(t, courses, 1)
+	assert.Equal(t, "Wildlife Course", courses[0]["title"])
+	assert.Equal(t, "conservation", courses[0]["category"])
+	assert.Equal(t, float64(750), courses[0]["total_duration_minutes"])
+}
+
 func TestSubmitConservationEvidenceWithMetrics(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")

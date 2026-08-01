@@ -42,12 +42,12 @@ ORDER BY c.end_date ASC
 LIMIT $2;
 
 -- name: ListPublishedCourses :many
-SELECT c.id, c.title, c.description, c.difficulty, c.image_url, c.created_at,
+SELECT c.id, c.title, c.description, c.category, c.difficulty, c.image_url, c.created_at,
        COALESCE(SUM(l.duration), 0)::integer AS total_duration_minutes
 FROM courses c
 LEFT JOIN lessons l ON l.course_id = c.id
 WHERE c.status = 'published'
-GROUP BY c.id, c.title, c.description, c.difficulty, c.image_url, c.created_at
+GROUP BY c.id, c.title, c.description, c.category, c.difficulty, c.image_url, c.created_at
 ORDER BY c.created_at DESC
 LIMIT $1;
 

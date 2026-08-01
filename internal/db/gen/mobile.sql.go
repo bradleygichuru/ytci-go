@@ -474,12 +474,12 @@ func (q *Queries) ListPublicConservation(ctx context.Context, limit int32) ([]Li
 }
 
 const listPublishedCourses = `-- name: ListPublishedCourses :many
-SELECT c.id, c.title, c.description, c.difficulty, c.image_url, c.created_at,
+SELECT c.id, c.title, c.description, c.category, c.difficulty, c.image_url, c.created_at,
        COALESCE(SUM(l.duration), 0)::integer AS total_duration_minutes
 FROM courses c
 LEFT JOIN lessons l ON l.course_id = c.id
 WHERE c.status = 'published'
-GROUP BY c.id, c.title, c.description, c.difficulty, c.image_url, c.created_at
+GROUP BY c.id, c.title, c.description, c.category, c.difficulty, c.image_url, c.created_at
 ORDER BY c.created_at DESC
 LIMIT $1
 `
@@ -488,6 +488,7 @@ type ListPublishedCoursesRow struct {
 	ID                   pgtype.UUID      `json:"id"`
 	Title                string           `json:"title"`
 	Description          *string          `json:"description"`
+	Category             *string          `json:"category"`
 	Difficulty           string           `json:"difficulty"`
 	ImageUrl             *string          `json:"image_url"`
 	CreatedAt            pgtype.Timestamp `json:"created_at"`
@@ -507,6 +508,7 @@ func (q *Queries) ListPublishedCourses(ctx context.Context, limit int32) ([]List
 			&i.ID,
 			&i.Title,
 			&i.Description,
+			&i.Category,
 			&i.Difficulty,
 			&i.ImageUrl,
 			&i.CreatedAt,
