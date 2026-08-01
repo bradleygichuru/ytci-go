@@ -271,10 +271,12 @@ func (h *CourseHandler) SubmitQuiz(w http.ResponseWriter, r *http.Request) {
 	for i, q := range questions {
 		isCorrect := false
 		submitted := answersByIndex[i]
+		correctAnswer := ""
 
 		if idx, ok := getFloat(q, "correctIndex"); ok {
 			if opts, ok := q["options"].([]any); ok && int(idx) < len(opts) {
 				if correctOpt, ok := opts[int(idx)].(string); ok {
+					correctAnswer = correctOpt
 					isCorrect = submitted == correctOpt
 				}
 			}
@@ -286,6 +288,7 @@ func (h *CourseHandler) SubmitQuiz(w http.ResponseWriter, r *http.Request) {
 			"questionIndex": i,
 			"correct":       isCorrect,
 			"yourAnswer":    submitted,
+			"correctAnswer": correctAnswer,
 		})
 	}
 

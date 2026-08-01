@@ -344,10 +344,10 @@ func (h *ActionsHandler) SubmitConservationEvidence(w http.ResponseWriter, r *ht
 		 status = 'pending',
 		 description = EXCLUDED.description,
 		 media_ids = EXCLUDED.media_ids,
-		 trees_planted = EXCLUDED.trees_planted,
-		 hours_spent = EXCLUDED.hours_spent,
-		 lat = EXCLUDED.lat,
-		 lng = EXCLUDED.lng,
+		 trees_planted = COALESCE(EXCLUDED.trees_planted, conservation_evidence.trees_planted),
+		 hours_spent = COALESCE(EXCLUDED.hours_spent, conservation_evidence.hours_spent),
+		 lat = COALESCE(EXCLUDED.lat, conservation_evidence.lat),
+		 lng = COALESCE(EXCLUDED.lng, conservation_evidence.lng),
 		 moderated_by = NULL,
 		 moderation_note = NULL,
 		 moderated_at = NULL,
@@ -384,9 +384,12 @@ func (h *ActionsHandler) SubmitChallengeEvidence(w http.ResponseWriter, r *http.
 		`UPDATE challenge_progress SET
 		 status = 'submitted',
 		 evidence = CASE
-			WHEN $3::text != '' AND $4::text != '' THEN jsonb_build_object('description', $3::text, 'mediaIds', $4::text, 'lat', $5::float, 'lng', $6::float)
-			WHEN $3::text != '' THEN jsonb_build_object('description', $3::text, 'lat', $5::float, 'lng', $6::float)
-			WHEN $4::text != '' THEN jsonb_build_object('mediaIds', $4::text, 'lat', $5::float, 'lng', $6::float)
+			WHEN $3::text != '' AND $4::text != '' AND $5::float IS NOT NULL AND $6::float IS NOT NULL THEN jsonb_build_object('description', $3::text, 'mediaIds', $4::text, 'lat', $5::float, 'lng', $6::float)
+			WHEN $3::text != '' AND $4::text != '' THEN jsonb_build_object('description', $3::text, 'mediaIds', $4::text)
+			WHEN $3::text != '' AND $5::float IS NOT NULL AND $6::float IS NOT NULL THEN jsonb_build_object('description', $3::text, 'lat', $5::float, 'lng', $6::float)
+			WHEN $3::text != '' THEN jsonb_build_object('description', $3::text)
+			WHEN $4::text != '' AND $5::float IS NOT NULL AND $6::float IS NOT NULL THEN jsonb_build_object('mediaIds', $4::text, 'lat', $5::float, 'lng', $6::float)
+			WHEN $4::text != '' THEN jsonb_build_object('mediaIds', $4::text)
 			ELSE evidence
 		 END,
 		 updated_at = now()
