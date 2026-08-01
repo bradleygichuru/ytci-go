@@ -151,16 +151,17 @@ func (h *ActionsHandler) JoinConservation(w http.ResponseWriter, r *http.Request
 	}
 	userID := middleware.UserID(r.Context())
 
-	var full bool
+	var participantLimit *int
+	var currentParticipants int
 	err := h.pool.QueryRow(r.Context(),
-		`SELECT COALESCE(current_participants, 0) >= participant_limit
-		 FROM conservation_activities WHERE id = $1 AND participant_limit IS NOT NULL`, activityID,
-	).Scan(&full)
+		`SELECT participant_limit, COALESCE(current_participants, 0)
+		 FROM conservation_activities WHERE id = $1`, activityID,
+	).Scan(&participantLimit, &currentParticipants)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to check activity")
+		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "activity not found")
 		return
 	}
-	if full {
+	if participantLimit != nil && currentParticipants >= *participantLimit {
 		handler.WriteError(w, http.StatusConflict, "ACTIVITY_FULL", "this activity has reached its participant limit")
 		return
 	}
