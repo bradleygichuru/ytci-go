@@ -145,8 +145,7 @@ func (h *StoriesHandler) Moderate(w http.ResponseWriter, r *http.Request) {
 		`UPDATE stories SET status = $2, moderated_by = $3, moderation_note = $4, moderated_at = now(), updated_at = now() WHERE id = $1`,
 		storyID, status, moderatorID, req.Reason)
 	if err != nil {
-		slog.Error("moderate story", "error", err, "story_id", storyID)
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to moderate story")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to moderate story", err)
 		return
 	}
 	if result.RowsAffected() == 0 {
@@ -188,8 +187,7 @@ func (h *StoriesHandler) ModerationList(w http.ResponseWriter, r *http.Request) 
 
 	rows, err := h.pool.Query(r.Context(), query, args...)
 	if err != nil {
-		slog.Error("list moderation stories", "error", err)
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list stories")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list stories", err)
 		return
 	}
 	defer rows.Close()
@@ -293,7 +291,7 @@ func (h *StoriesHandler) Report(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO story_reports (story_id, reported_by, reason, details) VALUES ($1, $2, $3, $4)`,
 		storyID, middleware.UserID(r.Context()), req.Reason, req.Details)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to report story")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to report story", err)
 		return
 	}
 

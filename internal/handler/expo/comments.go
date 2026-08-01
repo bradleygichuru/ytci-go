@@ -76,7 +76,7 @@ func (h *CommentHandler) ListComments(w http.ResponseWriter, r *http.Request) {
 		Offset:  int32(offset),
 	})
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list comments")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list comments", err)
 		return
 	}
 
@@ -98,7 +98,7 @@ func (h *CommentHandler) ListComments(w http.ResponseWriter, r *http.Request) {
 	if len(topIDs) > 0 {
 		replies, err := queries.GetReplies(r.Context(), topIDs)
 		if err != nil {
-			handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to load replies")
+			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to load replies", err)
 			return
 		}
 
@@ -221,7 +221,7 @@ func (h *CommentHandler) CreateComment(w http.ResponseWriter, r *http.Request) {
 		ParentID: pgtype.UUID{},
 	})
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create comment")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create comment", err)
 		return
 	}
 
@@ -274,7 +274,7 @@ func (h *CommentHandler) CreateReply(w http.ResponseWriter, r *http.Request) {
 		ParentID: toUUID(parentID),
 	})
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create reply")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create reply", err)
 		return
 	}
 
@@ -324,7 +324,7 @@ func (h *CommentHandler) UpdateComment(w http.ResponseWriter, r *http.Request) {
 		Body: req.Body,
 	})
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update comment")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to update comment", err)
 		return
 	}
 
@@ -348,7 +348,7 @@ func (h *CommentHandler) DeleteComment(w http.ResponseWriter, r *http.Request) {
 		if err == pgx.ErrNoRows {
 			handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "comment not found")
 		} else {
-			handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get comment")
+			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to get comment", err)
 		}
 		return
 	}
@@ -357,7 +357,7 @@ func (h *CommentHandler) DeleteComment(w http.ResponseWriter, r *http.Request) {
 	if isAuthor {
 		_, err = queries.SoftDeleteComment(r.Context(), toUUID(commentID))
 		if err != nil {
-			handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to delete comment")
+			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to delete comment", err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -371,7 +371,7 @@ func (h *CommentHandler) DeleteComment(w http.ResponseWriter, r *http.Request) {
 	if err == nil && storyCreatorID == userID {
 		_, err = queries.SoftDeleteComment(r.Context(), toUUID(commentID))
 		if err != nil {
-			handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to delete comment")
+			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to delete comment", err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -397,7 +397,7 @@ func (h *CommentHandler) ToggleLike(w http.ResponseWriter, r *http.Request) {
 		InteractionType: "like",
 	})
 	if err != nil && err != pgx.ErrNoRows {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to toggle like")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to toggle like", err)
 		return
 	}
 
@@ -448,7 +448,7 @@ func (h *CommentHandler) ReportComment(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO story_reports (story_id, reported_by, reason, details) VALUES ($1, $2, $3, $4)`,
 		existing.StoryID, middleware.UserID(r.Context()), req.Reason, details)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to report comment")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to report comment", err)
 		return
 	}
 

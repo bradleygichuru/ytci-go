@@ -61,7 +61,7 @@ func (h *QuizAdminHandler) Upsert(w http.ResponseWriter, r *http.Request) {
 		courseID, req.Title, questionsJSON, threshold,
 	).Scan(&quizID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to upsert quiz")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to upsert quiz", err)
 		return
 	}
 
@@ -74,7 +74,7 @@ func (h *QuizAdminHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	_, err := h.pool.Exec(r.Context(), `DELETE FROM quizzes WHERE course_id = $1`, courseID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to delete quiz")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to delete quiz", err)
 		return
 	}
 

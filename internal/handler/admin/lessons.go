@@ -44,7 +44,7 @@ func (h *LessonHandler) Create(w http.ResponseWriter, r *http.Request) {
 		courseID, req.Title, req.Description, req.ContentType, req.ContentURL, req.Duration, req.DisplayOrder,
 	).Scan(&id)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create lesson")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create lesson", err)
 		return
 	}
 
@@ -81,7 +81,7 @@ func (h *LessonHandler) Update(w http.ResponseWriter, r *http.Request) {
 		 WHERE id = $1`,
 		lessonID, req.Title, req.Description, req.ContentType, req.ContentURL, req.Duration, req.DisplayOrder)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update lesson")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to update lesson", err)
 		return
 	}
 
@@ -94,7 +94,7 @@ func (h *LessonHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	tag, err := h.pool.Exec(r.Context(), `DELETE FROM lessons WHERE id = $1`, lessonID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to delete lesson")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to delete lesson", err)
 		return
 	}
 	if tag.RowsAffected() == 0 {

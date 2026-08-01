@@ -143,7 +143,7 @@ func (h *MediaHandler) Complete(w http.ResponseWriter, r *http.Request) {
 
 	var id string
 	if err := row.Scan(&id); err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to record media")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to record media", err)
 		return
 	}
 
@@ -172,7 +172,7 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 		 thumbnail_key, created_at
 		 FROM media_assets ORDER BY created_at DESC LIMIT 50`)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list media")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list media", err)
 		return
 	}
 	defer rows.Close()
@@ -275,7 +275,7 @@ func (h *MediaHandler) UpdateMetadata(w http.ResponseWriter, r *http.Request) {
 		 WHERE id = $1`,
 		mediaID, req.Caption, req.AltText, req.Credit)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update media")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to update media", err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

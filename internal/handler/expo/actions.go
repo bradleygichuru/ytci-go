@@ -97,7 +97,7 @@ func (h *ActionsHandler) toggleInteraction(w http.ResponseWriter, r *http.Reques
 		`DELETE FROM story_interactions WHERE user_id = $1 AND story_id = $2 AND interaction_type = $3`,
 		middleware.UserID(r.Context()), req.StoryID, interactionType)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to toggle")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to toggle", err)
 		return
 	}
 
@@ -106,7 +106,7 @@ func (h *ActionsHandler) toggleInteraction(w http.ResponseWriter, r *http.Reques
 			`INSERT INTO story_interactions (user_id, story_id, interaction_type) VALUES ($1, $2, $3)`,
 			middleware.UserID(r.Context()), req.StoryID, interactionType)
 		if err != nil {
-			handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to toggle")
+			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to toggle", err)
 			return
 		}
 	}
@@ -135,7 +135,7 @@ func (h *ActionsHandler) JoinChallenge(w http.ResponseWriter, r *http.Request) {
 		 VALUES ($1, $2, 'joined') ON CONFLICT DO NOTHING`,
 		middleware.UserID(r.Context()), challengeID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to join challenge")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to join challenge", err)
 		return
 	}
 
@@ -171,7 +171,7 @@ func (h *ActionsHandler) JoinConservation(w http.ResponseWriter, r *http.Request
 		 VALUES ($1, $2) ON CONFLICT (user_id, activity_id) DO NOTHING`,
 		userID, activityID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to join")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to join", err)
 		return
 	}
 
@@ -196,7 +196,7 @@ func (h *ActionsHandler) EnrollCourse(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO course_enrollments (user_id, course_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
 		middleware.UserID(r.Context()), courseID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to enroll")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to enroll", err)
 		return
 	}
 
@@ -221,7 +221,7 @@ func (h *ActionsHandler) RecordAppOpen(w http.ResponseWriter, r *http.Request) {
 		`SELECT COUNT(*) FROM app_opens WHERE user_id = $1 AND opened_at > now() - interval '5 minutes'`,
 		userID).Scan(&recent)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to check recent app opens")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to check recent app opens", err)
 		return
 	}
 	if recent > 0 {
@@ -234,7 +234,7 @@ func (h *ActionsHandler) RecordAppOpen(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO app_opens (user_id, platform, app_version) VALUES ($1, $2, $3)`,
 		userID, req.Platform, req.AppVersion)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to record app open")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to record app open", err)
 		return
 	}
 
@@ -253,7 +253,7 @@ func (h *ActionsHandler) SaveEvent(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO event_saves (user_id, event_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
 		middleware.UserID(r.Context()), eventID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to save event")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to save event", err)
 		return
 	}
 
@@ -271,7 +271,7 @@ func (h *ActionsHandler) ListSavedEvents(w http.ResponseWriter, r *http.Request)
 		 ORDER BY e.event_date ASC
 		 LIMIT 50`, userID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list saved events")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list saved events", err)
 		return
 	}
 	defer rows.Close()
@@ -294,7 +294,7 @@ func (h *ActionsHandler) ListSavedEvents(w http.ResponseWriter, r *http.Request)
 		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to iterate events")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to iterate events", err)
 		return
 	}
 	if items == nil {
@@ -358,7 +358,7 @@ func (h *ActionsHandler) SubmitConservationEvidence(w http.ResponseWriter, r *ht
 		 RETURNING id`,
 		middleware.UserID(r.Context()), activityID, req.Description, req.MediaIDs, req.TreesPlanted, req.HoursSpent, req.Lat, req.Lng).Scan(&evidenceID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to submit evidence")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to submit evidence", err)
 		return
 	}
 
@@ -399,7 +399,7 @@ func (h *ActionsHandler) SubmitChallengeEvidence(w http.ResponseWriter, r *http.
 		 WHERE user_id = $1 AND challenge_id = $2 RETURNING id`,
 		middleware.UserID(r.Context()), challengeID, req.Description, req.MediaIDs, req.Lat, req.Lng).Scan(&progressID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to submit evidence")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to submit evidence", err)
 		return
 	}
 
@@ -435,7 +435,7 @@ func (h *ActionsHandler) AttendEvent(w http.ResponseWriter, r *http.Request) {
 		 DO UPDATE SET status = EXCLUDED.status`,
 		eventID, middleware.UserID(r.Context()), req.Status)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to attend event")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to attend event", err)
 		return
 	}
 
@@ -453,7 +453,7 @@ func (h *ActionsHandler) LeaveEvent(w http.ResponseWriter, r *http.Request) {
 		`DELETE FROM event_attendees WHERE event_id = $1 AND user_id = $2`,
 		eventID, middleware.UserID(r.Context()))
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to leave event")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to leave event", err)
 		return
 	}
 
@@ -479,7 +479,7 @@ func (h *ActionsHandler) GetMyConservationActivities(w http.ResponseWriter, r *h
 		userID,
 	)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list activities")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list activities", err)
 		return
 	}
 	defer rows.Close()
@@ -549,7 +549,7 @@ func (h *ActionsHandler) GetConservationProgress(w http.ResponseWriter, r *http.
 		return
 	}
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get progress")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to get progress", err)
 		return
 	}
 
@@ -582,7 +582,7 @@ func (h *ActionsHandler) LeaveConservation(w http.ResponseWriter, r *http.Reques
 		`DELETE FROM conservation_participants WHERE user_id = $1 AND activity_id = $2`,
 		userID, activityID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to leave activity")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to leave activity", err)
 		return
 	}
 	if tag.RowsAffected() == 0 {

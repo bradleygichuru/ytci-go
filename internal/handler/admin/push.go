@@ -48,7 +48,7 @@ func (h *PushHandler) Send(w http.ResponseWriter, r *http.Request) {
 		req.Title, req.Body, req.ImageURL, req.Data, req.TargetAudience, userID,
 	).Scan(&notificationID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create notification")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create notification", err)
 		return
 	}
 
@@ -57,7 +57,7 @@ func (h *PushHandler) Send(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("push send: resolve tokens", "error", err)
 		h.pool.Exec(r.Context(),
 			`UPDATE push_notifications SET status = 'failed' WHERE id = $1`, notificationID)
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to resolve tokens")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to resolve tokens", err)
 		return
 	}
 
@@ -84,7 +84,7 @@ func (h *PushHandler) Send(w http.ResponseWriter, r *http.Request) {
 		slog.Error("push send: expo api", "error", err)
 		h.pool.Exec(r.Context(),
 			`UPDATE push_notifications SET status = 'failed' WHERE id = $1`, notificationID)
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "push delivery failed")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "push delivery failed", err)
 		return
 	}
 
@@ -125,7 +125,7 @@ func (h *PushHandler) Schedule(w http.ResponseWriter, r *http.Request) {
 		req.Title, req.Body, req.ImageURL, req.Data, req.TargetAudience, req.ScheduledAt, middleware.UserID(r.Context()),
 	).Scan(&notificationID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to schedule notification")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to schedule notification", err)
 		return
 	}
 
@@ -139,7 +139,7 @@ func (h *PushHandler) History(w http.ResponseWriter, r *http.Request) {
 		`SELECT id, title, status, recipient_count, sent_at, created_at FROM push_notifications
 		 ORDER BY created_at DESC LIMIT 50`)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list history")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list history", err)
 		return
 	}
 	defer rows.Close()

@@ -79,13 +79,13 @@ func (h *ItinerariesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		"budgetBand": req.BudgetBand, "interests": req.Interests,
 	})
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to serialize inputs")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to serialize inputs", err)
 		return
 	}
 
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create itinerary")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create itinerary", err)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -95,7 +95,7 @@ func (h *ItinerariesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO itineraries (user_id, title, inputs) VALUES ($1, $2, $3::jsonb) RETURNING id`,
 		userID, req.Title, string(inputsRaw)).Scan(&itineraryID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create itinerary")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create itinerary", err)
 		return
 	}
 
@@ -106,13 +106,13 @@ func (h *ItinerariesHandler) Create(w http.ResponseWriter, r *http.Request) {
 			itineraryID, s.DestinationID, s.Day, s.DisplayOrder, s.Title, s.Description,
 			s.StartTime, s.Category, s.ImageURL, s.EstimatedCost)
 		if err != nil {
-			handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create stops")
+			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create stops", err)
 			return
 		}
 	}
 
 	if err := tx.Commit(r.Context()); err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to finalize")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to finalize", err)
 		return
 	}
 
@@ -166,7 +166,7 @@ func (h *ItinerariesHandler) Update(w http.ResponseWriter, r *http.Request) {
 		 WHERE id = $1 AND user_id = $4`,
 		itineraryID, req.Title, req.Status, middleware.UserID(r.Context()))
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to update", err)
 		return
 	}
 
@@ -185,7 +185,7 @@ func (h *ItinerariesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		`DELETE FROM itineraries WHERE id = $1 AND user_id = $2`,
 		itineraryID, middleware.UserID(r.Context()))
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to delete")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to delete", err)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -203,7 +203,7 @@ func (h *ItinerariesHandler) Duplicate(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to duplicate")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to duplicate", err)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -216,7 +216,7 @@ func (h *ItinerariesHandler) Duplicate(w http.ResponseWriter, r *http.Request) {
 		 RETURNING id`,
 		itineraryID, userID).Scan(&newID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to duplicate")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to duplicate", err)
 		return
 	}
 
@@ -226,12 +226,12 @@ func (h *ItinerariesHandler) Duplicate(w http.ResponseWriter, r *http.Request) {
 		 FROM itinerary_stops WHERE itinerary_id = $2`,
 		newID, itineraryID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to duplicate stops")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to duplicate stops", err)
 		return
 	}
 
 	if err := tx.Commit(r.Context()); err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to finish duplicate")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to finish duplicate", err)
 		return
 	}
 

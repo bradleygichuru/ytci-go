@@ -119,7 +119,7 @@ func (h *CourseHandler) ListMobile(w http.ResponseWriter, r *http.Request) {
 	queries := gen.New(h.pool)
 	courses, err := queries.ListPublishedCourses(r.Context(), 50)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list courses")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list courses", err)
 		return
 	}
 	resp := []mobileCourse{}
@@ -219,7 +219,7 @@ func (h *CourseHandler) Create(w http.ResponseWriter, r *http.Request) {
 		req.Title, req.Description, req.Category, req.Difficulty, req.ImageURL, threshold, status,
 		req.BadgeName, req.BadgeIconURL, certEnabled, certTemplate, middleware.UserID(r.Context()),
 	).Scan(&id); err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create course")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create course", err)
 		return
 	}
 
@@ -277,7 +277,7 @@ func (h *CourseHandler) Update(w http.ResponseWriter, r *http.Request) {
 		req.CertificateTemplate,
 	)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update course")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to update course", err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -288,7 +288,7 @@ func (h *CourseHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	courseID := r.PathValue("id")
 	_, err := h.pool.Exec(r.Context(), `DELETE FROM courses WHERE id = $1`, courseID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to delete course")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to delete course", err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

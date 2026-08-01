@@ -50,7 +50,7 @@ func (h *QuizHandler) Evaluate(w http.ResponseWriter, r *http.Request) {
 
 	var storedQuestions []question
 	if err := json.Unmarshal([]byte(questionsJSON), &storedQuestions); err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "invalid quiz data")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "invalid quiz data", err)
 		return
 	}
 

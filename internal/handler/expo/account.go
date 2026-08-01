@@ -77,27 +77,27 @@ func (h *AccountHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to begin transaction")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to begin transaction", err)
 		return
 	}
 	defer tx.Rollback(r.Context())
 
 	pendingKeys := h.collectPendingMediaKeys(r.Context(), tx, userID)
 
-	if !h.execCleanupOps(r.Context(), tx, w, "delete", deleteOps, userID) {
+	if !h.execCleanupOps(r.Context(), tx, w, r, "delete", deleteOps, userID) {
 		return
 	}
-	if !h.execCleanupOps(r.Context(), tx, w, "anonymize", anonymizeOps, userID) {
+	if !h.execCleanupOps(r.Context(), tx, w, r, "anonymize", anonymizeOps, userID) {
 		return
 	}
 
 	if _, err := tx.Exec(r.Context(), `DELETE FROM users WHERE id = $1`, userID); err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to delete user")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to delete user", err)
 		return
 	}
 
 	if err := tx.Commit(r.Context()); err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to commit transaction")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to commit transaction", err)
 		return
 	}
 
@@ -110,11 +110,11 @@ func (h *AccountHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 }
 
-func (h *AccountHandler) execCleanupOps(ctx context.Context, tx pgx.Tx, w http.ResponseWriter, verb string, ops []cleanupOp, userID string) bool {
+func (h *AccountHandler) execCleanupOps(ctx context.Context, tx pgx.Tx, w http.ResponseWriter, r *http.Request, verb string, ops []cleanupOp, userID string) bool {
 	for _, op := range ops {
 		if _, err := tx.Exec(ctx, op.sql, userID); err != nil {
-			handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR",
-				fmt.Sprintf("failed to %s %s", verb, op.label))
+			handler.WriteServerError(w, r, "INTERNAL_ERROR",
+				fmt.Sprintf("failed to %s %s", verb, op.label), err)
 			return false
 		}
 	}

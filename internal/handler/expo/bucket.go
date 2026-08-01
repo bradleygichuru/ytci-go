@@ -26,7 +26,7 @@ func (h *BucketHandler) List(w http.ResponseWriter, r *http.Request) {
 		 FROM bucket_list_items b JOIN destinations d ON d.id = b.destination_id
 		 WHERE b.user_id = $1 ORDER BY b.created_at DESC`, userID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list bucket")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list bucket", err)
 		return
 	}
 	defer rows.Close()
@@ -75,7 +75,7 @@ func (h *BucketHandler) Add(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO bucket_list_items (user_id, destination_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
 		middleware.UserID(r.Context()), req.DestinationID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to add")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to add", err)
 		return
 	}
 
@@ -94,7 +94,7 @@ func (h *BucketHandler) Remove(w http.ResponseWriter, r *http.Request) {
 		`DELETE FROM bucket_list_items WHERE user_id = $1 AND destination_id = $2`,
 		middleware.UserID(r.Context()), destID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to remove")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to remove", err)
 		return
 	}
 
@@ -113,7 +113,7 @@ func (h *BucketHandler) MarkVisited(w http.ResponseWriter, r *http.Request) {
 		`UPDATE bucket_list_items SET visited = true, visited_at = now() WHERE user_id = $1 AND destination_id = $2`,
 		middleware.UserID(r.Context()), destID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to mark visited")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to mark visited", err)
 		return
 	}
 

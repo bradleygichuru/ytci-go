@@ -40,7 +40,7 @@ func (h *ChallengeAdminHandler) ListMobile(w http.ResponseWriter, r *http.Reques
 	queries := gen.New(h.pool)
 	challenges, err := queries.ListActiveChallenges(r.Context(), 50)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list challenges")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list challenges", err)
 		return
 	}
 	if challenges == nil {
@@ -59,7 +59,7 @@ func (h *ChallengeAdminHandler) ListMyChallenges(w http.ResponseWriter, r *http.
 	queries := gen.New(h.pool)
 	rows, err := queries.ListMyChallenges(r.Context(), strToUUID(userID))
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list challenges")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list challenges", err)
 		return
 	}
 	type item struct {
@@ -116,7 +116,7 @@ func (h *ChallengeAdminHandler) List(w http.ResponseWriter, r *http.Request) {
 		`SELECT id, title, description, rules, badge_name, badge_icon_url, eligibility::text, status, start_date::text, end_date::text, created_at::text
 		 FROM challenges ORDER BY created_at DESC LIMIT 50`)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list challenges")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list challenges", err)
 		return
 	}
 	defer rows.Close()
@@ -188,7 +188,7 @@ func (h *ChallengeAdminHandler) Create(w http.ResponseWriter, r *http.Request) {
 		req.Title, req.Description, req.BadgeName, req.Rules, req.BadgeIconURL, req.Eligibility,
 		startDate, endDate, middleware.UserID(r.Context()),
 	).Scan(&id); err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create challenge")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create challenge", err)
 		return
 	}
 
@@ -268,7 +268,7 @@ func (h *ChallengeAdminHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	_, err := h.pool.Exec(r.Context(), query, args...)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update challenge")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to update challenge", err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -280,7 +280,7 @@ func (h *ChallengeAdminHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	tag, err := h.pool.Exec(r.Context(),
 		`UPDATE challenges SET status = 'ended', updated_at = now() WHERE id = $1`, challengeID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to end challenge")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to end challenge", err)
 		return
 	}
 	if tag.RowsAffected() == 0 {
@@ -309,7 +309,7 @@ func (h *ChallengeAdminHandler) ChallengeDetail(w http.ResponseWriter, r *http.R
 		return
 	}
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get challenge")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to get challenge", err)
 		return
 	}
 
@@ -318,7 +318,7 @@ func (h *ChallengeAdminHandler) ChallengeDetail(w http.ResponseWriter, r *http.R
 		 FROM challenge_progress WHERE challenge_id = $1`, challengeID,
 	).Scan(&currentParticipants)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get challenge stats")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to get challenge stats", err)
 		return
 	}
 
@@ -362,7 +362,7 @@ func (h *ChallengeAdminHandler) Leaderboard(w http.ResponseWriter, r *http.Reque
 		LEFT JOIN user_profiles up ON up.user_id = r.user_id
 		ORDER BY r.rank`, challengeID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get leaderboard")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to get leaderboard", err)
 		return
 	}
 	defer rows.Close()
@@ -374,7 +374,7 @@ func (h *ChallengeAdminHandler) Leaderboard(w http.ResponseWriter, r *http.Reque
 		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to iterate leaderboard")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to iterate leaderboard", err)
 		return
 	}
 	if items == nil {
@@ -395,7 +395,7 @@ func (h *ChallengeAdminHandler) ListEvidence(w http.ResponseWriter, r *http.Requ
 		 WHERE cp.status = 'submitted'
 		 ORDER BY cp.created_at DESC LIMIT 50`)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list evidence")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list evidence", err)
 		return
 	}
 	defer rows.Close()
@@ -456,7 +456,7 @@ func (h *ChallengeAdminHandler) ReviewEvidence(w http.ResponseWriter, r *http.Re
 
 	_, err := h.pool.Exec(r.Context(), query, evidenceID, status, middleware.UserID(r.Context()), req.Note)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to review evidence")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to review evidence", err)
 		return
 	}
 

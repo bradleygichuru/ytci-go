@@ -77,7 +77,7 @@ func (h *ProfileHandler) Update(w http.ResponseWriter, r *http.Request) {
 		 updated_at = now()`,
 		userID, req.AgeRange, req.County, req.Languages, req.Preferences, req.DisplayName)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update profile")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to update profile", err)
 		return
 	}
 
@@ -103,7 +103,7 @@ func (h *ProfileHandler) Badges(w http.ResponseWriter, r *http.Request) {
 		 WHERE user_id = $1
 		 ORDER BY awarded_at DESC LIMIT 50`, userID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get badges")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to get badges", err)
 		return
 	}
 	defer rows.Close()
@@ -115,7 +115,7 @@ func (h *ProfileHandler) Badges(w http.ResponseWriter, r *http.Request) {
 		items = append(items, b)
 	}
 	if err := rows.Err(); err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to iterate badges")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to iterate badges", err)
 		return
 	}
 	if items == nil {
@@ -148,7 +148,7 @@ func (h *ProfileHandler) ConsentGet(w http.ResponseWriter, r *http.Request) {
 		err = nil
 	}
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get consent")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to get consent", err)
 		return
 	}
 
@@ -193,7 +193,7 @@ func (h *ProfileHandler) ConsentUpdate(w http.ResponseWriter, r *http.Request) {
 			updated_at = now()`,
 		userID, req.Location, req.Camera, req.Notifications, req.Ugc)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update consent")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to update consent", err)
 		return
 	}
 

@@ -25,7 +25,7 @@ func (h *ConservationAdminHandler) ListMobile(w http.ResponseWriter, r *http.Req
 	queries := gen.New(h.pool)
 	activities, err := queries.ListPublicConservation(r.Context(), 50)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list conservation activities")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list conservation activities", err)
 		return
 	}
 	if activities == nil {
@@ -44,7 +44,7 @@ func (h *ConservationAdminHandler) List(w http.ResponseWriter, r *http.Request) 
 		 FROM conservation_activities
 		 WHERE privacy_level = 'public' ORDER BY created_at DESC LIMIT 50`)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list activities")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list activities", err)
 		return
 	}
 	defer rows.Close()
@@ -118,7 +118,7 @@ func (h *ConservationAdminHandler) Create(w http.ResponseWriter, r *http.Request
 		req.BadgeName, req.BadgeIconURL, middleware.UserID(r.Context()),
 	).Scan(&id)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create activity")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create activity", err)
 		return
 	}
 
@@ -173,7 +173,7 @@ func (h *ConservationAdminHandler) Update(w http.ResponseWriter, r *http.Request
 		req.ImpactMetric, req.ImpactTarget, req.ImpactActual, req.MeasurementUnit,
 		req.ParticipantLimit, req.BadgeName, req.BadgeIconURL)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update activity")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to update activity", err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -191,7 +191,7 @@ func (h *ConservationAdminHandler) ListEvidence(w http.ResponseWriter, r *http.R
 		 LEFT JOIN user_profiles up ON up.user_id = ce.user_id
 		 ORDER BY ce.created_at DESC LIMIT 50`)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list evidence")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list evidence", err)
 		return
 	}
 	defer rows.Close()
@@ -252,7 +252,7 @@ func (h *ConservationAdminHandler) ReviewEvidence(w http.ResponseWriter, r *http
 		`UPDATE conservation_evidence SET status = $2, moderated_by = $3, moderation_note = $4, moderated_at = now(), updated_at = now() WHERE id = $1`,
 		evidenceID, status, moderatorID, req.Note)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to review evidence")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to review evidence", err)
 		return
 	}
 
@@ -301,7 +301,7 @@ func (h *ConservationAdminHandler) ConservationDetail(w http.ResponseWriter, r *
 		return
 	}
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get activity")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to get activity", err)
 		return
 	}
 

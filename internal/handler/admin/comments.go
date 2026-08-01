@@ -40,7 +40,7 @@ func (h *AdminCommentHandler) ModerationList(w http.ResponseWriter, r *http.Requ
 		Offset: int32(offset),
 	})
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list comments")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list comments", err)
 		return
 	}
 
@@ -126,7 +126,7 @@ func (h *AdminCommentHandler) Moderate(w http.ResponseWriter, r *http.Request) {
 		`UPDATE story_comments SET status = 'deleted', body = '[deleted]', updated_at = now() WHERE id = $1`,
 		strToUUID(commentID))
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to moderate comment")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to moderate comment", err)
 		return
 	}
 
@@ -134,7 +134,7 @@ func (h *AdminCommentHandler) Moderate(w http.ResponseWriter, r *http.Request) {
 		`UPDATE story_comments SET moderation_note = $2 WHERE id = $1`,
 		strToUUID(commentID), reason)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to record moderation note")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to record moderation note", err)
 		return
 	}
 

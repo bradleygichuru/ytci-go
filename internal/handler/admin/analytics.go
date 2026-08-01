@@ -93,7 +93,7 @@ func (h *AnalyticsHandler) Export(w http.ResponseWriter, r *http.Request) {
 		middleware.UserID(r.Context()), req.Format, req.DateFrom, req.DateTo, strings.Join(req.Sections, ","),
 	).Scan(&reportID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create report")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create report", err)
 		return
 	}
 

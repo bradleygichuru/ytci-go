@@ -113,7 +113,7 @@ func (h *DestinationsHandler) List(w http.ResponseWriter, r *http.Request) {
 			q+` ORDER BY d.created_at DESC, d.id DESC LIMIT $1`, limit)
 	}
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list destinations")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list destinations", err)
 		return
 	}
 	defer rows.Close()
@@ -306,7 +306,7 @@ func (h *DestinationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		VerificationStatus: strPtr(req.VerificationStatus),
 	})
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create destination")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create destination", err)
 		return
 	}
 
@@ -397,8 +397,7 @@ func (h *DestinationsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		req.Source, req.ContentOwner, req.VerificationStatus,
 		valOrEmpty(req.Status))
 	if err != nil {
-		slog.Error("update destination", "error", err, "id", destID)
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update destination")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to update destination", err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -410,7 +409,7 @@ func (h *DestinationsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	_, err := h.pool.Exec(r.Context(),
 		`UPDATE destinations SET status = 'archived', updated_at = now() WHERE id = $1`, destID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to archive destination")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to archive destination", err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -570,8 +569,7 @@ func (h *DestinationsHandler) ListMobile(w http.ResponseWriter, r *http.Request)
 
 	rows, err := h.pool.Query(r.Context(), q, args...)
 	if err != nil {
-		slog.Error("list destinations", "error", err)
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list destinations")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list destinations", err)
 		return
 	}
 	defer rows.Close()

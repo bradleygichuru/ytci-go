@@ -26,7 +26,7 @@ func (h *CampaignAdminHandler) List(w http.ResponseWriter, r *http.Request) {
 		`SELECT id, title, type, status, start_date, end_date, banner_url, target_url, destination_id, audience
 		 FROM campaigns ORDER BY created_at DESC LIMIT 50`)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list campaigns")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list campaigns", err)
 		return
 	}
 	defer rows.Close()
@@ -134,8 +134,7 @@ func (h *CampaignAdminHandler) Create(w http.ResponseWriter, r *http.Request) {
 		middleware.UserID(r.Context()),
 	).Scan(&id)
 	if err != nil {
-		slog.Error("create campaign", "error", err)
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create campaign")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create campaign", err)
 		return
 	}
 
@@ -200,8 +199,7 @@ func (h *CampaignAdminHandler) Update(w http.ResponseWriter, r *http.Request) {
 	q := "UPDATE campaigns SET updated_at = now()" + sets + " WHERE id = $1"
 	result, err := h.pool.Exec(r.Context(), q, args...)
 	if err != nil {
-		slog.Error("update campaign", "error", err, "campaign_id", campaignID)
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update campaign")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to update campaign", err)
 		return
 	}
 	if result.RowsAffected() == 0 {
@@ -225,7 +223,7 @@ func (h *CampaignAdminHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	_, err := h.pool.Exec(r.Context(),
 		`UPDATE campaigns SET status = 'ended', updated_at = now() WHERE id = $1`, campaignID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to end campaign")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to end campaign", err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

@@ -41,7 +41,7 @@ func (h *PushRegisterHandler) Register(w http.ResponseWriter, r *http.Request) {
 		 ON CONFLICT (token) DO UPDATE SET is_active = true, platform = EXCLUDED.platform`,
 		userID, req.Token, req.Platform)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to register push token")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to register push token", err)
 		return
 	}
 

@@ -42,7 +42,7 @@ func (h *CourseHandler) GetCourseDetail(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get course")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to get course", err)
 		return
 	}
 
@@ -50,7 +50,7 @@ func (h *CourseHandler) GetCourseDetail(w http.ResponseWriter, r *http.Request) 
 		`SELECT id, title, description, content_type, content_url, duration, display_order
 		 FROM lessons WHERE course_id = $1 ORDER BY display_order`, courseID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list lessons")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list lessons", err)
 		return
 	}
 	defer lessonRows.Close()
@@ -62,7 +62,7 @@ func (h *CourseHandler) GetCourseDetail(w http.ResponseWriter, r *http.Request) 
 		lessons = append(lessons, l)
 	}
 	if err := lessonRows.Err(); err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to iterate lessons")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to iterate lessons", err)
 		return
 	}
 	if lessons == nil {
@@ -100,7 +100,7 @@ func (h *CourseHandler) ListLessons(w http.ResponseWriter, r *http.Request) {
 		`SELECT id, title, description, content_type, content_url, duration, display_order
 		 FROM lessons WHERE course_id = $1 ORDER BY display_order LIMIT 50`, courseID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list lessons")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list lessons", err)
 		return
 	}
 	defer rows.Close()
@@ -112,7 +112,7 @@ func (h *CourseHandler) ListLessons(w http.ResponseWriter, r *http.Request) {
 		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to iterate lessons")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to iterate lessons", err)
 		return
 	}
 	if items == nil {
@@ -136,7 +136,7 @@ func (h *CourseHandler) GetLesson(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get lesson")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to get lesson", err)
 		return
 	}
 
@@ -159,7 +159,7 @@ func (h *CourseHandler) MarkLessonComplete(w http.ResponseWriter, r *http.Reques
 		 WHERE user_id = $1 AND course_id = $2`,
 		userID, courseID, lessonID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to mark lesson complete")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to mark lesson complete", err)
 		return
 	}
 	if tag.RowsAffected() == 0 {
@@ -186,13 +186,13 @@ func (h *CourseHandler) GetQuiz(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get quiz")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to get quiz", err)
 		return
 	}
 
 	var questions []map[string]any
 	if err := json.Unmarshal(rawQuestions, &questions); err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to parse quiz")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to parse quiz", err)
 		return
 	}
 
@@ -249,13 +249,13 @@ func (h *CourseHandler) SubmitQuiz(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get quiz")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to get quiz", err)
 		return
 	}
 
 	var questions []map[string]any
 	if err := json.Unmarshal(rawQuestions, &questions); err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to parse quiz")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to parse quiz", err)
 		return
 	}
 
@@ -311,7 +311,7 @@ func (h *CourseHandler) SubmitQuiz(w http.ResponseWriter, r *http.Request) {
 		 WHERE user_id = $1 AND course_id = $2`,
 		userID, courseID, attemptKey, string(attemptJSON))
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to record quiz attempt")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to record quiz attempt", err)
 		return
 	}
 
@@ -474,7 +474,7 @@ func (h *CourseHandler) GetCertificate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get certificate")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to get certificate", err)
 		return
 	}
 
@@ -521,7 +521,7 @@ func (h *CourseHandler) GetCourseProgress(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get progress")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to get progress", err)
 		return
 	}
 
@@ -586,7 +586,7 @@ func (h *CourseHandler) GetEnrolledCourses(w http.ResponseWriter, r *http.Reques
 		userID,
 	)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list enrolled courses")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list enrolled courses", err)
 		return
 	}
 	defer rows.Close()

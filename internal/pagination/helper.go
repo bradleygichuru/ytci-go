@@ -32,7 +32,7 @@ func (p *CursorPaginator[T]) WritePage(w http.ResponseWriter, r *http.Request, f
 		items, err = first(limit + 1)
 	}
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list items")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list items", err)
 		return
 	}
 

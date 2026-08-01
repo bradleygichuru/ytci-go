@@ -109,7 +109,7 @@ func (h *EventsHandler) ListMobile(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := h.pool.Query(r.Context(), q, 50)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list events")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list events", err)
 		return
 	}
 	defer rows.Close()
@@ -142,7 +142,7 @@ func (h *EventsHandler) ListMobile(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Scan(&e.ID, &e.Title, &e.Organizer, &e.County, &e.Venue, &e.EventDate, &e.EndDate, &e.Type,
 			&e.Description, &e.ContactEmail, &e.ContactPhone, &e.ImageURL, &e.CreatedAt,
 			&e.StartTime, &e.EndTime, &e.EntryFee, &e.LocationLat, &e.LocationLng, &e.OrganizerAvatarl); err != nil {
-			handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to scan event")
+			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to scan event", err)
 			return
 		}
 		if e.ImageURL != nil && *e.ImageURL != "" {
@@ -189,7 +189,7 @@ func (h *EventsHandler) GetMobile(w http.ResponseWriter, r *http.Request) {
 	hlRows, err := h.pool.Query(r.Context(),
 		`SELECT label, icon FROM event_highlights WHERE event_id = $1 ORDER BY display_order`, eventID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to fetch highlights")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to fetch highlights", err)
 		return
 	}
 	defer hlRows.Close()
@@ -219,7 +219,7 @@ func (h *EventsHandler) GetMobile(w http.ResponseWriter, r *http.Request) {
 		 ORDER BY ea.created_at ASC
 		 LIMIT 20`, eventID)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to fetch attendees")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to fetch attendees", err)
 		return
 	}
 	defer attRows.Close()
@@ -333,7 +333,7 @@ func (h *EventsHandler) List(w http.ResponseWriter, r *http.Request) {
 		items, err = firstPage(limit)
 	}
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list events")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list events", err)
 		return
 	}
 
@@ -420,7 +420,7 @@ func (h *EventsHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	var e adminEvent
 	if err := row.Scan(scanEvent(&e)...); err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create event")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create event", err)
 		return
 	}
 
@@ -510,7 +510,7 @@ func (h *EventsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	var e adminEvent
 	err := h.pool.QueryRow(r.Context(), q, args...).Scan(scanEvent(&e)...)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update event")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to update event", err)
 		return
 	}
 
@@ -525,7 +525,7 @@ func (h *EventsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	queries := gen.New(h.pool)
 	_, err := queries.DeleteEvent(r.Context(), id)
 	if err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to cancel event")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to cancel event", err)
 		return
 	}
 
@@ -575,7 +575,7 @@ func (h *EventsHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := h.pool.Exec(r.Context(),
 		`UPDATE events SET status = $2, updated_at = now() WHERE id = $1`, eventID, req.Status); err != nil {
-		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update status")
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to update status", err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -597,7 +597,7 @@ func (h *EventsHandler) AddMedia(w http.ResponseWriter, r *http.Request) {
 			`UPDATE media_assets SET entity_type = 'event', entity_id = $1 WHERE id = $2`,
 			eventID, req.HeroMediaID)
 		if err != nil {
-			handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to link media")
+			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to link media", err)
 			return
 		}
 		if tag.RowsAffected() == 0 {
