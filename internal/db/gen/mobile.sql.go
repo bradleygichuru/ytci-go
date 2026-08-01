@@ -355,13 +355,7 @@ FROM challenges c
 LEFT JOIN challenge_progress cp ON cp.challenge_id = c.id AND cp.user_id = $1
 WHERE c.status <> 'draft'
 ORDER BY c.end_date ASC
-LIMIT $2
 `
-
-type ListMyChallengesParams struct {
-	UserID pgtype.UUID `json:"user_id"`
-	Limit  int32       `json:"limit"`
-}
 
 type ListMyChallengesRow struct {
 	ID             pgtype.UUID      `json:"id"`
@@ -377,8 +371,8 @@ type ListMyChallengesRow struct {
 	BadgeAwardedAt pgtype.Timestamp `json:"badge_awarded_at"`
 }
 
-func (q *Queries) ListMyChallenges(ctx context.Context, arg *ListMyChallengesParams) ([]ListMyChallengesRow, error) {
-	rows, err := q.db.Query(ctx, listMyChallenges, arg.UserID, arg.Limit)
+func (q *Queries) ListMyChallenges(ctx context.Context, userID pgtype.UUID) ([]ListMyChallengesRow, error) {
+	rows, err := q.db.Query(ctx, listMyChallenges, userID)
 	if err != nil {
 		return nil, err
 	}

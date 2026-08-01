@@ -331,8 +331,10 @@ func (h *ActionsHandler) SubmitConservationEvidence(w http.ResponseWriter, r *ht
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
 		return
 	}
-	if req.Description == "" && req.MediaIDs == "" {
-		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "description or mediaIds is required")
+	if req.Description == "" && req.MediaIDs == "" &&
+		(req.TreesPlanted == nil || *req.TreesPlanted <= 0) &&
+		(req.HoursSpent == nil || *req.HoursSpent <= 0) {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "description, mediaIds, treesPlanted, or hoursSpent is required")
 		return
 	}
 

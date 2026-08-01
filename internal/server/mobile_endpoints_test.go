@@ -391,3 +391,56 @@ func TestSubmitConservationEvidenceWithMetrics(t *testing.T) {
 	defer resp2.Body.Close()
 	assert.Equal(t, http.StatusUnauthorized, resp2.StatusCode)
 }
+
+func TestSubmitConservationEvidenceMetricsOnly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	ctx := context.Background()
+	pool := db.SetupTestDB(t)
+	defer pool.Close()
+
+	setupAuthTables(t, ctx, pool)
+
+	cfg := &config.Config{Port: "8080", DatabaseURL: "ignored", AdminJWKSURL: "http://test.invalid/jwks", CORSOrigins: "*"}
+	r := server.New(cfg, pool)
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	userID := "tu-metrics-only"
+	createSession(t, ctx, pool, userID, "metrics@t.com", "token-metrics")
+
+	var activityID string
+	err := pool.QueryRow(ctx, `
+		INSERT INTO conservation_activities (id, title, organizer, privacy_level, status)
+		VALUES (gen_random_uuid(), 'Beach Cleanup', 'Ocean Trust', 'public', 'open')
+		RETURNING id
+	`).Scan(&activityID)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `
+		INSERT INTO conservation_participants (user_id, activity_id, status)
+		VALUES ($1, $2, 'joined')
+	`, userID, activityID)
+	require.NoError(t, err)
+
+	treesPlanted := 8
+	body, _ := json.Marshal(map[string]interface{}{
+		"treesPlanted": treesPlanted,
+		"hoursSpent":   2,
+		"lat":          -4.0435,
+		"lng":          39.6682,
+	})
+	req, _ := http.NewRequest("POST", ts.URL+"/v1/mobile/conservation/"+activityID+"/evidence", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer token-metrics")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var result map[string]any
+	err = json.NewDecoder(resp.Body).Decode(&result)
+	require.NoError(t, err)
+	assert.Equal(t, "pending", result["status"])
+}

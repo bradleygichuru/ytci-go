@@ -38,8 +38,7 @@ SELECT c.id, c.title, c.description, c.badge_name, c.badge_icon_url,
 FROM challenges c
 LEFT JOIN challenge_progress cp ON cp.challenge_id = c.id AND cp.user_id = $1
 WHERE c.status <> 'draft'
-ORDER BY c.end_date ASC
-LIMIT $2;
+ORDER BY c.end_date ASC;
 
 -- name: ListPublishedCourses :many
 SELECT c.id, c.title, c.description, c.category, c.difficulty, c.image_url, c.created_at,

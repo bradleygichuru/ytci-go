@@ -57,10 +57,7 @@ func (h *ChallengeAdminHandler) ListMyChallenges(w http.ResponseWriter, r *http.
 		return
 	}
 	queries := gen.New(h.pool)
-	rows, err := queries.ListMyChallenges(r.Context(), &gen.ListMyChallengesParams{
-		UserID: strToUUID(userID),
-		Limit:  50,
-	})
+	rows, err := queries.ListMyChallenges(r.Context(), strToUUID(userID))
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list challenges")
 		return
