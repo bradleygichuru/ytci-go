@@ -104,6 +104,17 @@ func (h *CourseHandler) List(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(model.Paginated[item]{Items: items, HasMore: false})
 }
 
+type mobileCourse struct {
+	ID                   string  `json:"id"`
+	Title                string  `json:"title"`
+	Description          *string `json:"description,omitempty"`
+	Category             *string `json:"category"`
+	Difficulty           string  `json:"difficulty"`
+	ImageURL             *string `json:"imageUrl"`
+	CreatedAt            string  `json:"createdAt"`
+	TotalDurationMinutes int32   `json:"totalDurationMinutes"`
+}
+
 func (h *CourseHandler) ListMobile(w http.ResponseWriter, r *http.Request) {
 	queries := gen.New(h.pool)
 	courses, err := queries.ListPublishedCourses(r.Context(), 50)
@@ -111,11 +122,21 @@ func (h *CourseHandler) ListMobile(w http.ResponseWriter, r *http.Request) {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list courses")
 		return
 	}
-	if courses == nil {
-		courses = []gen.ListPublishedCoursesRow{}
+	resp := []mobileCourse{}
+	for _, c := range courses {
+		resp = append(resp, mobileCourse{
+			ID:                   c.ID.String(),
+			Title:                c.Title,
+			Description:          c.Description,
+			Category:             c.Category,
+			Difficulty:           c.Difficulty,
+			ImageURL:             c.ImageUrl,
+			CreatedAt:            c.CreatedAt.Time.UTC().Format(time.RFC3339),
+			TotalDurationMinutes: c.TotalDurationMinutes,
+		})
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(courses)
+	json.NewEncoder(w).Encode(resp)
 }
 
 func (h *CourseHandler) Get(w http.ResponseWriter, r *http.Request) {

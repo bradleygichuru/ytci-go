@@ -338,5 +338,5 @@ func TestListPublishedCoursesWithCategory(t *testing.T) {
 	require.Len(t, courses, 1)
 	assert.Equal(t, "Wildlife Course", courses[0]["title"])
 	assert.Equal(t, "conservation", courses[0]["category"])
-	assert.Equal(t, float64(750), courses[0]["total_duration_minutes"])
+	assert.Equal(t, float64(750), courses[0]["totalDurationMinutes"])
 }
