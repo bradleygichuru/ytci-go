@@ -22,7 +22,7 @@ func NewBucketHandler(pool *pgxpool.Pool) *BucketHandler {
 func (h *BucketHandler) List(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r.Context())
 	rows, err := h.pool.Query(r.Context(),
-		`SELECT d.id, d.name, d.slug, d.county, d.short_description, b.visited, b.visited_at
+		`SELECT d.id, d.name, d.slug, d.county, d.short_description, b.visited, b.visited_at::text
 		 FROM bucket_list_items b JOIN destinations d ON d.id = b.destination_id
 		 WHERE b.user_id = $1 ORDER BY b.created_at DESC`, userID)
 	if err != nil {

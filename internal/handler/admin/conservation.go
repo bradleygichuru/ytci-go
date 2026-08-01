@@ -37,7 +37,7 @@ func (h *ConservationAdminHandler) ListMobile(w http.ResponseWriter, r *http.Req
 
 func (h *ConservationAdminHandler) List(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.pool.Query(r.Context(),
-		`SELECT id, title, organizer, event_date, status, current_participants,
+		`SELECT id, title, organizer, event_date::text, status, current_participants,
 			ST_X(location::geometry) AS lng, ST_Y(location::geometry) AS lat,
 			impact_metric, impact_target, impact_actual, measurement_unit,
 			badge_name, badge_icon_url

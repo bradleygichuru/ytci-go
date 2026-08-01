@@ -23,7 +23,7 @@ func NewCampaignAdminHandler(pool *pgxpool.Pool) *CampaignAdminHandler {
 
 func (h *CampaignAdminHandler) List(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.pool.Query(r.Context(),
-		`SELECT id, title, type, status, start_date, end_date, banner_url, target_url, destination_id, audience
+		`SELECT id, title, type, status, start_date::text, end_date::text, banner_url, target_url, destination_id, audience
 		 FROM campaigns ORDER BY created_at DESC LIMIT 50`)
 	if err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list campaigns", err)
@@ -62,7 +62,7 @@ func (h *CampaignAdminHandler) List(w http.ResponseWriter, r *http.Request) {
 func (h *CampaignAdminHandler) Get(w http.ResponseWriter, r *http.Request) {
 	campaignID := r.PathValue("id")
 	row := h.pool.QueryRow(r.Context(),
-		`SELECT id, title, type, status, start_date, end_date, banner_url, target_url, destination_id, audience
+		`SELECT id, title, type, status, start_date::text, end_date::text, banner_url, target_url, destination_id, audience
 		 FROM campaigns WHERE id = $1`, campaignID)
 
 	var id, title, ctype, status string
