@@ -305,8 +305,19 @@ func (h *ActionsHandler) ListSavedEvents(w http.ResponseWriter, r *http.Request)
 }
 
 type evidenceRequest struct {
-	MediaIDs    string `json:"mediaIds"`
-	Description string `json:"description,omitempty"`
+	MediaIDs    string   `json:"mediaIds"`
+	Description string   `json:"description,omitempty"`
+	Lat         *float64 `json:"lat,omitempty"`
+	Lng         *float64 `json:"lng,omitempty"`
+}
+
+type conservationEvidenceRequest struct {
+	MediaIDs     string   `json:"mediaIds"`
+	Description  string   `json:"description,omitempty"`
+	TreesPlanted *int     `json:"treesPlanted,omitempty"`
+	HoursSpent   *float64 `json:"hoursSpent,omitempty"`
+	Lat          *float64 `json:"lat,omitempty"`
+	Lng          *float64 `json:"lng,omitempty"`
 }
 
 func (h *ActionsHandler) SubmitConservationEvidence(w http.ResponseWriter, r *http.Request) {
@@ -315,7 +326,7 @@ func (h *ActionsHandler) SubmitConservationEvidence(w http.ResponseWriter, r *ht
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_ID", "activity id is required")
 		return
 	}
-	var req evidenceRequest
+	var req conservationEvidenceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
 		return
@@ -327,18 +338,22 @@ func (h *ActionsHandler) SubmitConservationEvidence(w http.ResponseWriter, r *ht
 
 	var evidenceID string
 	err := h.pool.QueryRow(r.Context(),
-		`INSERT INTO conservation_evidence (user_id, activity_id, description, media_ids)
-		 VALUES ($1, $2, $3, $4)
+		`INSERT INTO conservation_evidence (user_id, activity_id, description, media_ids, trees_planted, hours_spent, lat, lng)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		 ON CONFLICT (user_id, activity_id) DO UPDATE SET
 		 status = 'pending',
 		 description = EXCLUDED.description,
 		 media_ids = EXCLUDED.media_ids,
+		 trees_planted = EXCLUDED.trees_planted,
+		 hours_spent = EXCLUDED.hours_spent,
+		 lat = EXCLUDED.lat,
+		 lng = EXCLUDED.lng,
 		 moderated_by = NULL,
 		 moderation_note = NULL,
 		 moderated_at = NULL,
 		 updated_at = now()
 		 RETURNING id`,
-		middleware.UserID(r.Context()), activityID, req.Description, req.MediaIDs).Scan(&evidenceID)
+		middleware.UserID(r.Context()), activityID, req.Description, req.MediaIDs, req.TreesPlanted, req.HoursSpent, req.Lat, req.Lng).Scan(&evidenceID)
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to submit evidence")
 		return
@@ -369,14 +384,14 @@ func (h *ActionsHandler) SubmitChallengeEvidence(w http.ResponseWriter, r *http.
 		`UPDATE challenge_progress SET
 		 status = 'submitted',
 		 evidence = CASE
-			WHEN $3::text != '' AND $4::text != '' THEN jsonb_build_object('description', $3::text, 'mediaIds', $4::text)
-			WHEN $3::text != '' THEN jsonb_build_object('description', $3::text)
-			WHEN $4::text != '' THEN jsonb_build_object('mediaIds', $4::text)
+			WHEN $3::text != '' AND $4::text != '' THEN jsonb_build_object('description', $3::text, 'mediaIds', $4::text, 'lat', $5::float, 'lng', $6::float)
+			WHEN $3::text != '' THEN jsonb_build_object('description', $3::text, 'lat', $5::float, 'lng', $6::float)
+			WHEN $4::text != '' THEN jsonb_build_object('mediaIds', $4::text, 'lat', $5::float, 'lng', $6::float)
 			ELSE evidence
 		 END,
 		 updated_at = now()
 		 WHERE user_id = $1 AND challenge_id = $2 RETURNING id`,
-		middleware.UserID(r.Context()), challengeID, req.Description, req.MediaIDs).Scan(&progressID)
+		middleware.UserID(r.Context()), challengeID, req.Description, req.MediaIDs, req.Lat, req.Lng).Scan(&progressID)
 	if err != nil {
 		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to submit evidence")
 		return

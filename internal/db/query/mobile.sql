@@ -31,11 +31,24 @@ WHERE status = 'active'
 ORDER BY end_date ASC
 LIMIT $1;
 
+-- name: ListMyChallenges :many
+SELECT c.id, c.title, c.description, c.badge_name, c.badge_icon_url,
+       c.start_date, c.end_date, c.status, c.created_at,
+       cp.status AS user_status, cp.badge_awarded_at
+FROM challenges c
+LEFT JOIN challenge_progress cp ON cp.challenge_id = c.id AND cp.user_id = $1
+WHERE c.status = 'active'
+ORDER BY c.end_date ASC
+LIMIT $2;
+
 -- name: ListPublishedCourses :many
-SELECT id, title, description, difficulty, image_url, created_at
-FROM courses
-WHERE status = 'published'
-ORDER BY created_at DESC
+SELECT c.id, c.title, c.description, c.difficulty, c.image_url, c.created_at,
+       COALESCE(SUM(l.duration), 0)::integer AS total_duration_minutes
+FROM courses c
+LEFT JOIN lessons l ON l.course_id = c.id
+WHERE c.status = 'published'
+GROUP BY c.id, c.title, c.description, c.difficulty, c.image_url, c.created_at
+ORDER BY c.created_at DESC
 LIMIT $1;
 
 -- name: ListScheduledEvents :many

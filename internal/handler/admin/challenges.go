@@ -36,6 +36,69 @@ func (h *ChallengeAdminHandler) ListMobile(w http.ResponseWriter, r *http.Reques
 	json.NewEncoder(w).Encode(challenges)
 }
 
+func (h *ChallengeAdminHandler) ListMyChallenges(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.UserID(r.Context())
+	if userID == "" {
+		handler.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
+		return
+	}
+	queries := gen.New(h.pool)
+	rows, err := queries.ListMyChallenges(r.Context(), &gen.ListMyChallengesParams{
+		UserID: strToUUID(userID),
+		Limit:  50,
+	})
+	if err != nil {
+		handler.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list challenges")
+		return
+	}
+	type item struct {
+		ID             string  `json:"id"`
+		Title          string  `json:"title"`
+		Description    *string `json:"description,omitempty"`
+		BadgeName      *string `json:"badgeName,omitempty"`
+		BadgeIconURL   *string `json:"badgeIconUrl,omitempty"`
+		StartDate      *string `json:"startDate,omitempty"`
+		EndDate        *string `json:"endDate,omitempty"`
+		Status         string  `json:"status"`
+		CreatedAt      string  `json:"createdAt"`
+		UserStatus     *string `json:"userStatus,omitempty"`
+		BadgeAwardedAt *string `json:"badgeAwardedAt,omitempty"`
+	}
+	var items []item
+	for _, row := range rows {
+		i := item{
+			ID:           row.ID.String(),
+			Title:        row.Title,
+			Description:  row.Description,
+			BadgeName:    row.BadgeName,
+			BadgeIconURL: row.BadgeIconUrl,
+			Status:       row.Status,
+			CreatedAt:    row.CreatedAt.Time.Format("2006-01-02T15:04:05Z"),
+		}
+		if row.StartDate.Valid {
+			s := row.StartDate.Time.Format("2006-01-02")
+			i.StartDate = &s
+		}
+		if row.EndDate.Valid {
+			s := row.EndDate.Time.Format("2006-01-02")
+			i.EndDate = &s
+		}
+		if row.UserStatus != nil {
+			i.UserStatus = row.UserStatus
+		}
+		if row.BadgeAwardedAt.Valid {
+			s := row.BadgeAwardedAt.Time.Format("2006-01-02T15:04:05Z")
+			i.BadgeAwardedAt = &s
+		}
+		items = append(items, i)
+	}
+	if items == nil {
+		items = []item{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(items)
+}
+
 func (h *ChallengeAdminHandler) List(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.pool.Query(r.Context(),
 		`SELECT id, title, description, rules, badge_name, badge_icon_url, eligibility::text, status, start_date::text, end_date::text, created_at::text
@@ -311,7 +374,7 @@ func (h *ChallengeAdminHandler) Leaderboard(w http.ResponseWriter, r *http.Reque
 
 func (h *ChallengeAdminHandler) ListEvidence(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.pool.Query(r.Context(),
-		`SELECT cp.id, cp.user_id, cp.challenge_id, cp.status, cp.moderated_by, cp.moderation_note, cp.badge_awarded_at::text, cp.created_at::text,
+		`SELECT cp.id, cp.user_id, cp.challenge_id, cp.status, cp.evidence, cp.moderated_by, cp.moderation_note, cp.badge_awarded_at::text, cp.created_at::text,
 			ch.title as challenge_title,
 			COALESCE(up.display_name, 'Anonymous') as user_name
 		 FROM challenge_progress cp
@@ -332,6 +395,7 @@ func (h *ChallengeAdminHandler) ListEvidence(w http.ResponseWriter, r *http.Requ
 		ChallengeTitle string  `json:"challengeTitle"`
 		UserName       string  `json:"userName"`
 		Status         string  `json:"status"`
+		Evidence       *string `json:"evidence,omitempty"`
 		ModeratedBy    *string `json:"moderatedBy,omitempty"`
 		ModerationNote *string `json:"moderationNote,omitempty"`
 		BadgeAwardedAt *string `json:"badgeAwardedAt,omitempty"`
@@ -340,7 +404,7 @@ func (h *ChallengeAdminHandler) ListEvidence(w http.ResponseWriter, r *http.Requ
 	var items []item
 	for rows.Next() {
 		var i item
-		rows.Scan(&i.ID, &i.UserID, &i.ChallengeID, &i.Status, &i.ModeratedBy, &i.ModerationNote, &i.BadgeAwardedAt, &i.CreatedAt, &i.ChallengeTitle, &i.UserName)
+		rows.Scan(&i.ID, &i.UserID, &i.ChallengeID, &i.Status, &i.Evidence, &i.ModeratedBy, &i.ModerationNote, &i.BadgeAwardedAt, &i.CreatedAt, &i.ChallengeTitle, &i.UserName)
 		items = append(items, i)
 	}
 	if items == nil {

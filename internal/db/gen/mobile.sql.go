@@ -347,6 +347,68 @@ func (q *Queries) ListMobileDestinations(ctx context.Context, limit int32) ([]Li
 	return items, nil
 }
 
+const listMyChallenges = `-- name: ListMyChallenges :many
+SELECT c.id, c.title, c.description, c.badge_name, c.badge_icon_url,
+       c.start_date, c.end_date, c.status, c.created_at,
+       cp.status AS user_status, cp.badge_awarded_at
+FROM challenges c
+LEFT JOIN challenge_progress cp ON cp.challenge_id = c.id AND cp.user_id = $1
+WHERE c.status = 'active'
+ORDER BY c.end_date ASC
+LIMIT $2
+`
+
+type ListMyChallengesParams struct {
+	UserID pgtype.UUID `json:"user_id"`
+	Limit  int32       `json:"limit"`
+}
+
+type ListMyChallengesRow struct {
+	ID             pgtype.UUID      `json:"id"`
+	Title          string           `json:"title"`
+	Description    *string          `json:"description"`
+	BadgeName      *string          `json:"badge_name"`
+	BadgeIconUrl   *string          `json:"badge_icon_url"`
+	StartDate      pgtype.Date      `json:"start_date"`
+	EndDate        pgtype.Date      `json:"end_date"`
+	Status         string           `json:"status"`
+	CreatedAt      pgtype.Timestamp `json:"created_at"`
+	UserStatus     *string          `json:"user_status"`
+	BadgeAwardedAt pgtype.Timestamp `json:"badge_awarded_at"`
+}
+
+func (q *Queries) ListMyChallenges(ctx context.Context, arg *ListMyChallengesParams) ([]ListMyChallengesRow, error) {
+	rows, err := q.db.Query(ctx, listMyChallenges, arg.UserID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMyChallengesRow
+	for rows.Next() {
+		var i ListMyChallengesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Description,
+			&i.BadgeName,
+			&i.BadgeIconUrl,
+			&i.StartDate,
+			&i.EndDate,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UserStatus,
+			&i.BadgeAwardedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPublicConservation = `-- name: ListPublicConservation :many
 SELECT id, title, organizer, description, event_date,
        impact_metric, impact_target, current_participants, participant_limit,
@@ -412,20 +474,24 @@ func (q *Queries) ListPublicConservation(ctx context.Context, limit int32) ([]Li
 }
 
 const listPublishedCourses = `-- name: ListPublishedCourses :many
-SELECT id, title, description, difficulty, image_url, created_at
-FROM courses
-WHERE status = 'published'
-ORDER BY created_at DESC
+SELECT c.id, c.title, c.description, c.difficulty, c.image_url, c.created_at,
+       COALESCE(SUM(l.duration), 0)::integer AS total_duration_minutes
+FROM courses c
+LEFT JOIN lessons l ON l.course_id = c.id
+WHERE c.status = 'published'
+GROUP BY c.id, c.title, c.description, c.difficulty, c.image_url, c.created_at
+ORDER BY c.created_at DESC
 LIMIT $1
 `
 
 type ListPublishedCoursesRow struct {
-	ID          pgtype.UUID      `json:"id"`
-	Title       string           `json:"title"`
-	Description *string          `json:"description"`
-	Difficulty  string           `json:"difficulty"`
-	ImageUrl    *string          `json:"image_url"`
-	CreatedAt   pgtype.Timestamp `json:"created_at"`
+	ID                   pgtype.UUID      `json:"id"`
+	Title                string           `json:"title"`
+	Description          *string          `json:"description"`
+	Difficulty           string           `json:"difficulty"`
+	ImageUrl             *string          `json:"image_url"`
+	CreatedAt            pgtype.Timestamp `json:"created_at"`
+	TotalDurationMinutes int32            `json:"total_duration_minutes"`
 }
 
 func (q *Queries) ListPublishedCourses(ctx context.Context, limit int32) ([]ListPublishedCoursesRow, error) {
@@ -444,6 +510,7 @@ func (q *Queries) ListPublishedCourses(ctx context.Context, limit int32) ([]List
 			&i.Difficulty,
 			&i.ImageUrl,
 			&i.CreatedAt,
+			&i.TotalDurationMinutes,
 		); err != nil {
 			return nil, err
 		}

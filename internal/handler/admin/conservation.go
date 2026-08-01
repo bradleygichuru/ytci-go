@@ -182,7 +182,7 @@ func (h *ConservationAdminHandler) Update(w http.ResponseWriter, r *http.Request
 
 func (h *ConservationAdminHandler) ListEvidence(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.pool.Query(r.Context(),
-		`SELECT ce.id, ce.user_id, ce.activity_id, ce.description, ce.media_ids, ce.status,
+		`SELECT ce.id, ce.user_id, ce.activity_id, ce.description, ce.media_ids, ce.trees_planted, ce.hours_spent, ce.lat, ce.lng, ce.status,
 			ce.moderated_by, ce.moderation_note, ce.moderated_at::text, ce.created_at::text,
 			ca.title as activity_title,
 			COALESCE(up.display_name, 'Explorer') as user_name
@@ -197,23 +197,27 @@ func (h *ConservationAdminHandler) ListEvidence(w http.ResponseWriter, r *http.R
 	defer rows.Close()
 
 	type item struct {
-		ID            string  `json:"id"`
-		UserID        string  `json:"userId"`
-		UserName      string  `json:"userName"`
-		ActivityID    string  `json:"activityId"`
-		ActivityTitle *string `json:"activityTitle,omitempty"`
-		Description   *string `json:"description,omitempty"`
-		MediaIds      *string `json:"mediaIds,omitempty"`
-		Status        string  `json:"status"`
-		ModeratedBy   *string `json:"moderatedBy,omitempty"`
-		ReviewerNote  *string `json:"reviewerNote,omitempty"`
-		ReviewedAt    *string `json:"reviewedAt,omitempty"`
-		CreatedAt     string  `json:"createdAt"`
+		ID            string   `json:"id"`
+		UserID        string   `json:"userId"`
+		UserName      string   `json:"userName"`
+		ActivityID    string   `json:"activityId"`
+		ActivityTitle *string  `json:"activityTitle,omitempty"`
+		Description   *string  `json:"description,omitempty"`
+		MediaIds      *string  `json:"mediaIds,omitempty"`
+		TreesPlanted  *int     `json:"treesPlanted,omitempty"`
+		HoursSpent    *float64 `json:"hoursSpent,omitempty"`
+		Lat           *float64 `json:"lat,omitempty"`
+		Lng           *float64 `json:"lng,omitempty"`
+		Status        string   `json:"status"`
+		ModeratedBy   *string  `json:"moderatedBy,omitempty"`
+		ReviewerNote  *string  `json:"reviewerNote,omitempty"`
+		ReviewedAt    *string  `json:"reviewedAt,omitempty"`
+		CreatedAt     string   `json:"createdAt"`
 	}
 	var items []item
 	for rows.Next() {
 		var i item
-		rows.Scan(&i.ID, &i.UserID, &i.ActivityID, &i.Description, &i.MediaIds, &i.Status,
+		rows.Scan(&i.ID, &i.UserID, &i.ActivityID, &i.Description, &i.MediaIds, &i.TreesPlanted, &i.HoursSpent, &i.Lat, &i.Lng, &i.Status,
 			&i.ModeratedBy, &i.ReviewerNote, &i.ReviewedAt, &i.CreatedAt, &i.ActivityTitle, &i.UserName)
 		items = append(items, i)
 	}

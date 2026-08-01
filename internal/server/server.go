@@ -229,6 +229,7 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 		m.Group(func(aR chi.Router) {
 			aR.Use(middleware.AuthGate)
 
+			aR.Get("/challenges", h.challenge.ListMyChallenges)
 			aR.Get("/bucket", h.bucket.List)
 			aR.Post("/bucket", h.bucket.Add)
 			aR.Delete("/bucket/{destinationId}", h.bucket.Remove)
