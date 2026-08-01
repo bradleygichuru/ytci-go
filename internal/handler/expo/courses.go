@@ -300,8 +300,9 @@ func (h *CourseHandler) SubmitQuiz(w http.ResponseWriter, r *http.Request) {
 
 	attemptKey := time.Now().UTC().Format(time.RFC3339)
 	attemptJSON, _ := json.Marshal(map[string]any{
-		"score":  score,
-		"passed": passed,
+		"score":     score,
+		"passed":    passed,
+		"breakdown": breakdown,
 	})
 
 	_, err = h.pool.Exec(r.Context(),
@@ -331,6 +332,93 @@ func (h *CourseHandler) SubmitQuiz(w http.ResponseWriter, r *http.Request) {
 		"totalQuestions": totalQuestions,
 		"correctAnswers": correctAnswers,
 		"breakdown":      breakdown,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func (h *CourseHandler) GetQuizResult(w http.ResponseWriter, r *http.Request) {
+	courseID := r.PathValue("id")
+	userID := middleware.UserID(r.Context())
+
+	var quizAttempts []byte
+	err := h.pool.QueryRow(r.Context(),
+		`SELECT quiz_attempts FROM course_enrollments WHERE user_id = $1 AND course_id = $2`,
+		userID, courseID,
+	).Scan(&quizAttempts)
+	if err == pgx.ErrNoRows {
+		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "quiz attempt not found")
+		return
+	}
+	if err != nil {
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to get quiz attempt", err)
+		return
+	}
+
+	var latest map[string]any
+	if len(quizAttempts) > 2 {
+		var attempts map[string]any
+		if err := json.Unmarshal(quizAttempts, &attempts); err == nil {
+			var latestKey string
+			for k := range attempts {
+				if k > latestKey {
+					latestKey = k
+				}
+			}
+			if latestKey != "" {
+				if m, ok := attempts[latestKey].(map[string]any); ok {
+					latest = m
+				}
+			}
+		}
+	}
+	if latest == nil {
+		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "no quiz attempt recorded")
+		return
+	}
+
+	var rawQuestions []byte
+	var quizTitle string
+	err = h.pool.QueryRow(r.Context(),
+		`SELECT title, questions FROM quizzes WHERE course_id = $1 LIMIT 1`, courseID,
+	).Scan(&quizTitle, &rawQuestions)
+	if err != nil {
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to get quiz", err)
+		return
+	}
+
+	var questions []map[string]any
+	if err := json.Unmarshal(rawQuestions, &questions); err != nil {
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to parse quiz", err)
+		return
+	}
+	for i := range questions {
+		delete(questions[i], "correctIndex")
+	}
+
+	score, _ := latest["score"].(float64)
+	passed, _ := latest["passed"].(bool)
+	correctAnswers := 0
+	breakdown := []any{}
+	if bd, ok := latest["breakdown"].([]any); ok {
+		breakdown = bd
+		for _, item := range bd {
+			if m, ok := item.(map[string]any); ok {
+				if correct, _ := m["correct"].(bool); correct {
+					correctAnswers++
+				}
+			}
+		}
+	}
+
+	resp := map[string]any{
+		"score":          int(score),
+		"passed":         passed,
+		"totalQuestions": len(questions),
+		"correctAnswers": correctAnswers,
+		"breakdown":      breakdown,
+		"questions":      questions,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

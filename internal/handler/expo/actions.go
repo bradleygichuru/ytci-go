@@ -130,7 +130,7 @@ func (h *ActionsHandler) JoinChallenge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := h.pool.Exec(r.Context(),
+	tag, err := h.pool.Exec(r.Context(),
 		`INSERT INTO challenge_progress (user_id, challenge_id, status)
 		 VALUES ($1, $2, 'joined') ON CONFLICT DO NOTHING`,
 		middleware.UserID(r.Context()), challengeID)
@@ -139,8 +139,15 @@ func (h *ActionsHandler) JoinChallenge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// RowsAffected is 0 when the user had already joined — the frontend uses
+	// alreadyJoined to avoid re-sending and to show the joined state.
+	alreadyJoined := tag.RowsAffected() == 0
+
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"status": "joined"})
+	json.NewEncoder(w).Encode(map[string]any{
+		"status":        "joined",
+		"alreadyJoined": alreadyJoined,
+	})
 }
 
 func (h *ActionsHandler) JoinConservation(w http.ResponseWriter, r *http.Request) {
@@ -181,8 +188,15 @@ func (h *ActionsHandler) JoinConservation(w http.ResponseWriter, r *http.Request
 			activityID)
 	}
 
+	// RowsAffected is 0 when the user had already joined — the frontend uses
+	// alreadyJoined to avoid re-sending and to show the joined state.
+	alreadyJoined := tag.RowsAffected() == 0
+
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"status": "joined"})
+	json.NewEncoder(w).Encode(map[string]any{
+		"status":        "joined",
+		"alreadyJoined": alreadyJoined,
+	})
 }
 
 func (h *ActionsHandler) EnrollCourse(w http.ResponseWriter, r *http.Request) {

@@ -322,19 +322,37 @@ func (h *ChallengeAdminHandler) ChallengeDetail(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// The mobile route is mounted under OptionalAuth, so a valid token attaches
+	// a user ID even on this otherwise-public endpoint. When present, surface
+	// the user's own progress so the detail page can render the joined state
+	// without a separate "my challenges" lookup.
+	var userStatus *string
+	if userID := middleware.UserID(r.Context()); userID != "" {
+		var rawStatus string
+		err := h.pool.QueryRow(r.Context(),
+			`SELECT status FROM challenge_progress WHERE user_id = $1 AND challenge_id = $2`,
+			userID, challengeID,
+		).Scan(&rawStatus)
+		if err == nil {
+			mapped := mapUserStatus(rawStatus)
+			userStatus = &mapped
+		}
+	}
+
 	resp := map[string]any{
-		"id":                 id,
-		"title":              title,
-		"description":        description,
-		"rules":              rules,
-		"badgeName":          badgeName,
-		"badgeIconUrl":       badgeIcon,
-		"eligibility":        eligibility,
-		"startDate":          startDate,
-		"endDate":            endDate,
-		"status":             status,
+		"id":                  id,
+		"title":               title,
+		"description":         description,
+		"rules":               rules,
+		"badgeName":           badgeName,
+		"badgeIconUrl":        badgeIcon,
+		"eligibility":         eligibility,
+		"startDate":           startDate,
+		"endDate":             endDate,
+		"status":              status,
 		"currentParticipants": currentParticipants,
-		"createdAt":          createdAt,
+		"userStatus":          userStatus,
+		"createdAt":           createdAt,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
