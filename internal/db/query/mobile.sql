@@ -37,7 +37,7 @@ SELECT c.id, c.title, c.description, c.badge_name, c.badge_icon_url,
        cp.status AS user_status, cp.badge_awarded_at
 FROM challenges c
 LEFT JOIN challenge_progress cp ON cp.challenge_id = c.id AND cp.user_id = $1
-WHERE c.status IN ('active', 'completed')
+WHERE c.status <> 'draft'
 ORDER BY c.end_date ASC
 LIMIT $2;
 

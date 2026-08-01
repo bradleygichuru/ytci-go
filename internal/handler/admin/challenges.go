@@ -18,6 +18,20 @@ type ChallengeAdminHandler struct {
 	pool *pgxpool.Pool
 }
 
+// mapUserStatus maps the internal challenge_progress.status values to the
+// mobile userStatus contract (null / in_progress / submitted / approved).
+// 'joined' is the status written by JoinChallenge; 'rejected' means the
+// submitted evidence was rejected and the participant may resubmit — both
+// surface as in_progress so the challenge stays in the Active tab.
+func mapUserStatus(status string) string {
+	switch status {
+	case "joined", "rejected":
+		return "in_progress"
+	default:
+		return status
+	}
+}
+
 func NewChallengeAdminHandler(pool *pgxpool.Pool) *ChallengeAdminHandler {
 	return &ChallengeAdminHandler{pool: pool}
 }
@@ -61,7 +75,7 @@ func (h *ChallengeAdminHandler) ListMyChallenges(w http.ResponseWriter, r *http.
 		EndDate        *string `json:"endDate,omitempty"`
 		Status         string  `json:"status"`
 		CreatedAt      string  `json:"createdAt"`
-		UserStatus     *string `json:"userStatus,omitempty"`
+		UserStatus     *string `json:"userStatus"`
 		BadgeAwardedAt *string `json:"badgeAwardedAt,omitempty"`
 	}
 	var items []item
@@ -84,7 +98,8 @@ func (h *ChallengeAdminHandler) ListMyChallenges(w http.ResponseWriter, r *http.
 			i.EndDate = &s
 		}
 		if row.UserStatus != nil {
-			i.UserStatus = row.UserStatus
+			mapped := mapUserStatus(*row.UserStatus)
+			i.UserStatus = &mapped
 		}
 		if row.BadgeAwardedAt.Valid {
 			s := row.BadgeAwardedAt.Time.Format("2006-01-02T15:04:05Z")

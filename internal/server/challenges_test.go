@@ -250,6 +250,173 @@ func TestChallengeUpdateValidation(t *testing.T) {
 	})
 }
 
+func TestListMyChallengesContract(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	ts, pool, _, _ := setupChallengeTest(t)
+	defer ts.Close()
+
+	ctx := context.Background()
+	userID := "mc-contract-user"
+
+	_, err := pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, created_at, updated_at)
+		VALUES ($1, 'Contract User', 'contract@test.com', now(), now())
+	`, userID)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `
+		INSERT INTO sessions (id, expires_at, token, created_at, updated_at, user_id)
+		VALUES ($1, now() + interval '1 day', $2, now(), now(), $3)
+	`, "sess-mc-contract", "token-mc-contract", userID)
+	require.NoError(t, err)
+
+	// No-progress challenge (never joined): userStatus must be null (key present, value null)
+	var availableID string
+	err = pool.QueryRow(ctx, `
+		INSERT INTO challenges (id, title, description, badge_name, status)
+		VALUES (gen_random_uuid(), 'Available Challenge', 'Desc', 'Badge', 'active')
+		RETURNING id
+	`).Scan(&availableID)
+	require.NoError(t, err)
+
+	// Joined challenge: DB stores 'joined', spec contract says in_progress
+	var joinedID string
+	err = pool.QueryRow(ctx, `
+		INSERT INTO challenges (id, title, description, badge_name, status)
+		VALUES (gen_random_uuid(), 'Joined Challenge', 'Desc', 'Badge', 'active')
+		RETURNING id
+	`).Scan(&joinedID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO challenge_progress (user_id, challenge_id, status)
+		VALUES ($1, $2, 'joined')
+	`, userID, joinedID)
+	require.NoError(t, err)
+
+	// Submitted challenge: stays submitted
+	var submittedID string
+	err = pool.QueryRow(ctx, `
+		INSERT INTO challenges (id, title, description, badge_name, status)
+		VALUES (gen_random_uuid(), 'Submitted Challenge', 'Desc', 'Badge', 'active')
+		RETURNING id
+	`).Scan(&submittedID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO challenge_progress (user_id, challenge_id, status)
+		VALUES ($1, $2, 'submitted')
+	`, userID, submittedID)
+	require.NoError(t, err)
+
+	// Ended challenge with an approved badge: must still be returned (spec: all published challenges)
+	var endedID string
+	err = pool.QueryRow(ctx, `
+		INSERT INTO challenges (id, title, description, badge_name, status)
+		VALUES (gen_random_uuid(), 'Ended Approved', 'Desc', 'Badge', 'ended')
+		RETURNING id
+	`).Scan(&endedID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO challenge_progress (user_id, challenge_id, status, badge_awarded_at)
+		VALUES ($1, $2, 'approved', now())
+	`, userID, endedID)
+	require.NoError(t, err)
+
+	resp := doJSON(t, ts, "GET", "/v1/mobile/challenges", nil, func(req *http.Request) {
+		req.Header.Set("Authorization", "Bearer token-mc-contract")
+	})
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	defer resp.Body.Close()
+
+	var items []map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&items))
+	require.Len(t, items, 4)
+
+	byTitle := map[string]map[string]any{}
+	for _, it := range items {
+		byTitle[it["title"].(string)] = it
+	}
+
+	// 1. No progress row -> userStatus key present with explicit null
+	avail := byTitle["Available Challenge"]
+	val, ok := avail["userStatus"]
+	assert.True(t, ok, "userStatus key must be present even when there is no progress row")
+	assert.Nil(t, val, "userStatus must be null for a challenge the user never joined")
+
+	// 2. DB 'joined' status maps to the spec contract 'in_progress'
+	assert.Equal(t, "in_progress", byTitle["Joined Challenge"]["userStatus"])
+
+	// 3. Submitted stays submitted
+	assert.Equal(t, "submitted", byTitle["Submitted Challenge"]["userStatus"])
+
+	// 4. Ended + approved challenge still returned, userStatus approved
+	assert.Equal(t, "approved", byTitle["Ended Approved"]["userStatus"])
+}
+
+func TestChallengeEvidenceJsonbIncludesLocation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	ts, pool, _, _ := setupChallengeTest(t)
+	defer ts.Close()
+
+	ctx := context.Background()
+	userID := "ev-jsonb-user"
+
+	_, err := pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, created_at, updated_at)
+		VALUES ($1, 'Jsonb User', 'jsonb@test.com', now(), now())
+	`, userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO sessions (id, expires_at, token, created_at, updated_at, user_id)
+		VALUES ($1, now() + interval '1 day', $2, now(), now(), $3)
+	`, "sess-ev-jsonb", "token-ev-jsonb", userID)
+	require.NoError(t, err)
+
+	var challengeID string
+	err = pool.QueryRow(ctx, `
+		INSERT INTO challenges (id, title, description, badge_name, status)
+		VALUES (gen_random_uuid(), 'Jsonb Challenge', 'Desc', 'Badge', 'active')
+		RETURNING id
+	`).Scan(&challengeID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO challenge_progress (user_id, challenge_id, status)
+		VALUES ($1, $2, 'in_progress')
+	`, userID, challengeID)
+	require.NoError(t, err)
+
+	lat, lng := -1.2921, 36.8219
+	resp := doJSON(t, ts, "POST", "/v1/mobile/challenges/"+challengeID+"/evidence", map[string]any{
+		"description": "Visited the park",
+		"lat":         lat,
+		"lng":         lng,
+	}, func(req *http.Request) {
+		req.Header.Set("Authorization", "Bearer token-ev-jsonb")
+	})
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Read back the evidence jsonb and confirm lat/lng were persisted
+	var evidenceJSON []byte
+	err = pool.QueryRow(ctx,
+		`SELECT evidence::text FROM challenge_progress WHERE user_id = $1 AND challenge_id = $2`,
+		userID, challengeID).Scan(&evidenceJSON)
+	require.NoError(t, err)
+
+	var evidence map[string]any
+	require.NoError(t, json.Unmarshal(evidenceJSON, &evidence))
+	assert.Equal(t, "Visited the park", evidence["description"])
+	loc, ok := evidence["lat"].(float64)
+	require.True(t, ok, "evidence jsonb must contain lat")
+	assert.Equal(t, lat, loc)
+	lon, ok := evidence["lng"].(float64)
+	require.True(t, ok, "evidence jsonb must contain lng")
+	assert.Equal(t, lng, lon)
+}
+
 func TestChallengeEvidence(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -337,4 +504,119 @@ func TestChallengeEvidence(t *testing.T) {
 		assert.NotNil(t, moderationNote)
 		assert.Equal(t, "try again", *moderationNote)
 	})
+}
+
+func TestListMyChallengesAuthGating(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	ctx := context.Background()
+	pool := db.SetupTestDB(t)
+	defer pool.Close()
+
+	setupAuthTables(t, ctx, pool)
+
+	cfg := &config.Config{Port: "8080", DatabaseURL: "ignored", AdminJWKSURL: "http://test.invalid/jwks", CORSOrigins: "*"}
+	r := server.New(cfg, pool)
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	userID := "tu-mychallenges"
+	createSession(t, ctx, pool, userID, "mc@t.com", "token-mc")
+
+	var challengeID string
+	err := pool.QueryRow(ctx, `
+		INSERT INTO challenges (id, title, description, badge_name, status)
+		VALUES (gen_random_uuid(), 'List My Challenge', 'Desc', 'Explorer', 'active')
+		RETURNING id
+	`).Scan(&challengeID)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `
+		INSERT INTO challenge_progress (user_id, challenge_id, status)
+		VALUES ($1, $2, 'in_progress')
+	`, userID, challengeID)
+	require.NoError(t, err)
+
+	req := authReq(t, "GET", ts.URL+"/v1/mobile/challenges", "token-mc")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var challenges []map[string]any
+	err = json.NewDecoder(resp.Body).Decode(&challenges)
+	require.NoError(t, err)
+	require.Len(t, challenges, 1)
+	assert.Equal(t, "List My Challenge", challenges[0]["title"])
+	assert.Equal(t, "in_progress", challenges[0]["userStatus"])
+
+	// Unauthenticated request should return 401
+	req2, _ := http.NewRequest("GET", ts.URL+"/v1/mobile/challenges", nil)
+	resp2, err := http.DefaultClient.Do(req2)
+	require.NoError(t, err)
+	defer resp2.Body.Close()
+	assert.Equal(t, http.StatusUnauthorized, resp2.StatusCode)
+}
+
+func TestSubmitChallengeEvidenceWithLocation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	ctx := context.Background()
+	pool := db.SetupTestDB(t)
+	defer pool.Close()
+
+	setupAuthTables(t, ctx, pool)
+
+	cfg := &config.Config{Port: "8080", DatabaseURL: "ignored", AdminJWKSURL: "http://test.invalid/jwks", CORSOrigins: "*"}
+	r := server.New(cfg, pool)
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	userID := "tu-evidence"
+	createSession(t, ctx, pool, userID, "ev@t.com", "token-ev")
+
+	var challengeID string
+	err := pool.QueryRow(ctx, `
+		INSERT INTO challenges (id, title, description, badge_name, status)
+		VALUES (gen_random_uuid(), 'Evidence Challenge', 'Desc', 'Gold', 'active')
+		RETURNING id
+	`).Scan(&challengeID)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `
+		INSERT INTO challenge_progress (user_id, challenge_id, status)
+		VALUES ($1, $2, 'in_progress')
+	`, userID, challengeID)
+	require.NoError(t, err)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"description": "Visited Nairobi National Park",
+		"lat":         -1.2921,
+		"lng":         36.8219,
+	})
+	req, _ := http.NewRequest("POST", ts.URL+"/v1/mobile/challenges/"+challengeID+"/evidence", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer token-ev")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var result map[string]any
+	err = json.NewDecoder(resp.Body).Decode(&result)
+	require.NoError(t, err)
+	assert.Equal(t, "submitted", result["status"])
+
+	// Unauthenticated request should return 401
+	body2, _ := json.Marshal(map[string]interface{}{
+		"description": "test",
+	})
+	req2, _ := http.NewRequest("POST", ts.URL+"/v1/mobile/challenges/"+challengeID+"/evidence", bytes.NewBuffer(body2))
+	req2.Header.Set("Content-Type", "application/json")
+	resp2, err := http.DefaultClient.Do(req2)
+	require.NoError(t, err)
+	defer resp2.Body.Close()
+	assert.Equal(t, http.StatusUnauthorized, resp2.StatusCode)
 }

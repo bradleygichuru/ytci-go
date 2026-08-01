@@ -523,12 +523,15 @@ func (h *ActionsHandler) GetConservationProgress(w http.ResponseWriter, r *http.
 	var moderationNote *string
 	var reviewedAt *string
 	var submittedAt *string
+	var treesPlanted *int
+	var hoursSpent *float64
 	var badgeEarned bool
 
 	err := h.pool.QueryRow(r.Context(),
 		`SELECT cp.joined_at::text,
 			ce.description, ce.status, ce.media_ids, ce.moderation_note,
 			ce.moderated_at::text, ce.created_at::text,
+			ce.trees_planted, ce.hours_spent,
 			CASE WHEN b.id IS NOT NULL THEN true ELSE false END
 		 FROM conservation_participants cp
 		 LEFT JOIN conservation_evidence ce ON ce.user_id = cp.user_id AND ce.activity_id = cp.activity_id
@@ -536,7 +539,7 @@ func (h *ActionsHandler) GetConservationProgress(w http.ResponseWriter, r *http.
 		 WHERE cp.user_id = $1 AND cp.activity_id = $2`,
 		userID, activityID,
 	).Scan(&joinedAt, &evidenceDescription, &evidenceStatus, &mediaIds,
-		&moderationNote, &reviewedAt, &submittedAt, &badgeEarned)
+		&moderationNote, &reviewedAt, &submittedAt, &treesPlanted, &hoursSpent, &badgeEarned)
 	if err == pgx.ErrNoRows {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"joined": false})
@@ -558,6 +561,8 @@ func (h *ActionsHandler) GetConservationProgress(w http.ResponseWriter, r *http.
 		"moderationNote":      moderationNote,
 		"reviewedAt":          reviewedAt,
 		"submittedAt":         submittedAt,
+		"treesPlanted":        treesPlanted,
+		"hoursSpent":          hoursSpent,
 		"badgeEarned":         badgeEarned,
 	})
 }
