@@ -198,6 +198,12 @@ func (h *CourseHandler) GetQuiz(w http.ResponseWriter, r *http.Request) {
 
 	for i := range questions {
 		delete(questions[i], "correctIndex")
+		// Admin quiz editor stores the question text under "text"; the
+		// mobile client reads "question". Normalise so the frontend can
+		// use a single field name.
+		if text, ok := questions[i]["text"].(string); ok {
+			questions[i]["question"] = text
+		}
 	}
 
 	resp := map[string]any{
@@ -395,6 +401,9 @@ func (h *CourseHandler) GetQuizResult(w http.ResponseWriter, r *http.Request) {
 	}
 	for i := range questions {
 		delete(questions[i], "correctIndex")
+		if text, ok := questions[i]["text"].(string); ok {
+			questions[i]["question"] = text
+		}
 	}
 
 	score, _ := latest["score"].(float64)
