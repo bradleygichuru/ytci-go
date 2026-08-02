@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bradleygichuru/ytci-go/internal/db/gen"
@@ -56,12 +57,21 @@ func (h *ChallengeAdminHandler) ListMyChallenges(w http.ResponseWriter, r *http.
 		handler.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
 		return
 	}
-	queries := gen.New(h.pool)
-	rows, err := queries.ListMyChallenges(r.Context(), strToUUID(userID))
+	rows, err := h.pool.Query(r.Context(),
+		`SELECT c.id, c.title, c.description, c.badge_name, c.badge_icon_url,
+			c.start_date, c.end_date, c.status, c.created_at,
+			cp.status AS user_status, cp.badge_awarded_at
+		 FROM challenges c
+		 LEFT JOIN challenge_progress cp ON cp.challenge_id = c.id AND cp.user_id = $1
+		 WHERE c.status <> 'draft'
+		 ORDER BY c.end_date ASC`,
+		userID,
+	)
 	if err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list challenges", err)
 		return
 	}
+	defer rows.Close()
 	type item struct {
 		ID             string  `json:"id"`
 		Title          string  `json:"title"`
@@ -76,33 +86,56 @@ func (h *ChallengeAdminHandler) ListMyChallenges(w http.ResponseWriter, r *http.
 		BadgeAwardedAt *string `json:"badgeAwardedAt,omitempty"`
 	}
 	var items []item
-	for _, row := range rows {
-		i := item{
-			ID:           row.ID.String(),
-			Title:        row.Title,
-			Description:  row.Description,
-			BadgeName:    row.BadgeName,
-			BadgeIconURL: row.BadgeIconUrl,
-			Status:       row.Status,
-			CreatedAt:    row.CreatedAt.Time.Format("2006-01-02T15:04:05Z"),
+	for rows.Next() {
+		var (
+			rowID           pgtype.UUID
+			rowTitle        string
+			rowDesc         *string
+			rowBadgeName    *string
+			rowBadgeIcon    *string
+			rowStartDate    pgtype.Date
+			rowEndDate      pgtype.Date
+			rowStatus       string
+			rowCreatedAt    pgtype.Timestamp
+			rowUserStatus   *string
+			rowBadgeAwarded pgtype.Timestamp
+		)
+		if err := rows.Scan(&rowID, &rowTitle, &rowDesc, &rowBadgeName, &rowBadgeIcon,
+			&rowStartDate, &rowEndDate, &rowStatus, &rowCreatedAt,
+			&rowUserStatus, &rowBadgeAwarded); err != nil {
+			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to scan challenges", err)
+			return
 		}
-		if row.StartDate.Valid {
-			s := row.StartDate.Time.Format("2006-01-02")
+		i := item{
+			ID:           rowID.String(),
+			Title:        rowTitle,
+			Description:  rowDesc,
+			BadgeName:    rowBadgeName,
+			BadgeIconURL: rowBadgeIcon,
+			Status:       rowStatus,
+			CreatedAt:    rowCreatedAt.Time.Format("2006-01-02T15:04:05Z"),
+		}
+		if rowStartDate.Valid {
+			s := rowStartDate.Time.Format("2006-01-02")
 			i.StartDate = &s
 		}
-		if row.EndDate.Valid {
-			s := row.EndDate.Time.Format("2006-01-02")
+		if rowEndDate.Valid {
+			s := rowEndDate.Time.Format("2006-01-02")
 			i.EndDate = &s
 		}
-		if row.UserStatus != nil {
-			mapped := mapUserStatus(*row.UserStatus)
+		if rowUserStatus != nil {
+			mapped := mapUserStatus(*rowUserStatus)
 			i.UserStatus = &mapped
 		}
-		if row.BadgeAwardedAt.Valid {
-			s := row.BadgeAwardedAt.Time.Format("2006-01-02T15:04:05Z")
+		if rowBadgeAwarded.Valid {
+			s := rowBadgeAwarded.Time.Format("2006-01-02T15:04:05Z")
 			i.BadgeAwardedAt = &s
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to iterate challenges", err)
+		return
 	}
 	if items == nil {
 		items = []item{}

@@ -393,9 +393,6 @@ func (h *EventsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var userUUID pgtype.UUID
-	userUUID.Scan(middleware.UserID(r.Context()))
-
 	var endDate *time.Time
 	if req.EndDate != "" {
 		t := parseDate(req.EndDate)
@@ -416,7 +413,7 @@ func (h *EventsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		req.Title, req.Organizer, req.County, strPtr(req.Venue),
 		parseDate(req.EventDate), endDate, req.Type, strPtr(req.Desc),
 		strPtr(req.Contact), strPtr(req.ContactPhone), imgUrl,
-		req.ReminderEnabled, reminderMin, userUUID)
+		req.ReminderEnabled, reminderMin, middleware.UserID(r.Context()))
 
 	var e adminEvent
 	if err := row.Scan(scanEvent(&e)...); err != nil {
