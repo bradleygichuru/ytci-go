@@ -30,7 +30,7 @@ func (h *CourseHandler) GetCourseDetail(w http.ResponseWriter, r *http.Request) 
 	courseID := r.PathValue("id")
 
 	row := h.pool.QueryRow(r.Context(),
-		`SELECT id, title, description, difficulty, image_url, pass_threshold, created_at
+		`SELECT id, title, description, difficulty, image_url, pass_threshold, created_at::text
 		 FROM courses WHERE id = $1 AND status = 'published'`, courseID)
 
 	var id, title, difficulty, createdAt string
