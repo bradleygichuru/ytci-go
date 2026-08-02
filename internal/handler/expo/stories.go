@@ -246,12 +246,14 @@ func (h *StoriesHandler) StoryDetail(w http.ResponseWriter, r *http.Request) {
 }
 
 type myStory struct {
-	ID        string      `json:"id"`
-	Caption   *string     `json:"caption,omitempty"`
-	Media     []mediaItem `json:"media"`
-	Status    string      `json:"status"`
-	LikeCount int         `json:"likeCount"`
-	CreatedAt string      `json:"createdAt"`
+	ID            string      `json:"id"`
+	Caption       *string     `json:"caption,omitempty"`
+	Media         []mediaItem `json:"media"`
+	Status        string      `json:"status"`
+	LikeCount     int         `json:"likeCount"`
+	CommentCount  int         `json:"commentCount"`
+	SaveCount     int         `json:"saveCount"`
+	CreatedAt     string      `json:"createdAt"`
 }
 
 func (h *StoriesHandler) SavedStories(w http.ResponseWriter, r *http.Request) {
@@ -310,7 +312,9 @@ func (h *StoriesHandler) SavedStories(w http.ResponseWriter, r *http.Request) {
 func (h *StoriesHandler) MyStories(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r.Context())
 	rows, err := h.pool.Query(r.Context(),
-		`SELECT s.id, s.caption, med.media, s.status, COALESCE(s.like_count, 0), s.created_at
+		`SELECT s.id, s.caption, med.media, s.status, COALESCE(s.like_count, 0),
+			(SELECT COUNT(*) FROM story_comments sc WHERE sc.story_id = s.id AND sc.parent_id IS NULL AND sc.status != 'deleted') AS comment_count,
+			COALESCE(s.save_count, 0), s.created_at
 		 FROM stories s
 		 LEFT JOIN LATERAL (
 			SELECT COALESCE(json_agg(json_build_object(
@@ -334,7 +338,7 @@ func (h *StoriesHandler) MyStories(w http.ResponseWriter, r *http.Request) {
 		var i myStory
 		var mediaJSON []byte
 		var createdAt pgtype.Timestamp
-		rows.Scan(&i.ID, &i.Caption, &mediaJSON, &i.Status, &i.LikeCount, &createdAt)
+		rows.Scan(&i.ID, &i.Caption, &mediaJSON, &i.Status, &i.LikeCount, &i.CommentCount, &i.SaveCount, &createdAt)
 		i.CreatedAt = createdAt.Time.Format(time.RFC3339)
 		if mediaJSON != nil {
 			if err := json.Unmarshal(mediaJSON, &i.Media); err != nil {

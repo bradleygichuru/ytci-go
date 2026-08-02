@@ -94,6 +94,7 @@ func (h *FeedHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 		rows, err := h.pool.Query(ctx,
 			`SELECT COALESCE(json_agg(sub), '[]'::json) FROM (
 				SELECT s.id, s.caption, s.like_count, s.created_at,
+					(SELECT COUNT(*) FROM story_comments sc WHERE sc.story_id = s.id AND sc.parent_id IS NULL AND sc.status != 'deleted') AS comment_count,
 					COALESCE(med.media, '[]'::json) AS media
 				FROM stories s
 				LEFT JOIN LATERAL (
