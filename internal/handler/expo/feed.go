@@ -103,7 +103,7 @@ func (h *FeedHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 					FROM media_assets ma
 					WHERE ma.entity_type = 'story' AND ma.entity_id = s.id::text
 				) med ON true
-				WHERE s.status = 'approved'
+				WHERE s.status != 'rejected'
 				ORDER BY s.created_at DESC LIMIT 5
 			) sub`)
 		if err == nil {

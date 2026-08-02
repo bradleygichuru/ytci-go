@@ -91,10 +91,10 @@ func (h *StoriesHandler) ListEnriched(w http.ResponseWriter, r *http.Request) {
 			 WHERE si3.story_id = s.id AND si3.user_id = $1 AND si3.interaction_type = 'save') AS saved
 		) en ON true`
 		query = `SELECT s.id, s.caption, med.media, COALESCE(s.like_count, 0), COALESCE(s.save_count, 0), comments.comment_count, comments.preview_comments, s.created_at, en.liked, en.saved
-			 FROM stories s ` + mediaJoin + ` ` + commentsJoin + ` ` + enrichJoin + ` WHERE s.status = 'approved' ORDER BY s.created_at DESC LIMIT 50`
+			 FROM stories s ` + mediaJoin + ` ` + commentsJoin + ` ` + enrichJoin + ` WHERE s.status != 'rejected' ORDER BY s.created_at DESC LIMIT 50`
 	} else {
 		query = `SELECT s.id, s.caption, med.media, COALESCE(s.like_count, 0), COALESCE(s.save_count, 0), comments.comment_count, comments.preview_comments, s.created_at, false, false
-			 FROM stories s ` + mediaJoin + ` ` + commentsJoin + ` WHERE s.status = 'approved' ORDER BY s.created_at DESC LIMIT 50`
+			 FROM stories s ` + mediaJoin + ` ` + commentsJoin + ` WHERE s.status != 'rejected' ORDER BY s.created_at DESC LIMIT 50`
 	}
 
 	var rows pgx.Rows
