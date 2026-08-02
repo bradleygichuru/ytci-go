@@ -65,6 +65,18 @@ func (h *ProfileHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	userID := middleware.UserID(r.Context())
 
+	// When the caller doesn't supply a displayName, fall back to the
+	// sign-up name stored in the better-auth users table so that
+	// user_profiles.display_name is never left NULL for new users.
+	displayName := req.DisplayName
+	if displayName == nil || *displayName == "" {
+		var authName string
+		if err := h.pool.QueryRow(r.Context(),
+			`SELECT name FROM users WHERE id = $1`, userID).Scan(&authName); err == nil && authName != "" {
+			displayName = &authName
+		}
+	}
+
 	_, err := h.pool.Exec(r.Context(),
 		`INSERT INTO user_profiles (user_id, created_by, age_range, county, languages, preferences, display_name)
 		 VALUES ($1, $1, $2, $3, $4, $5, $6)
@@ -75,7 +87,7 @@ func (h *ProfileHandler) Update(w http.ResponseWriter, r *http.Request) {
 		 preferences = COALESCE($5, user_profiles.preferences),
 		 display_name = COALESCE($6, user_profiles.display_name),
 		 updated_at = now()`,
-		userID, req.AgeRange, req.County, req.Languages, req.Preferences, req.DisplayName)
+		userID, req.AgeRange, req.County, req.Languages, req.Preferences, displayName)
 	if err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to update profile", err)
 		return
@@ -179,10 +191,19 @@ func (h *ProfileHandler) ConsentUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Populate display_name from the auth sign-up name when creating
+	// a new user_profiles row so it is never left NULL.
+	var displayName *string
+	var authName string
+	if err := h.pool.QueryRow(r.Context(),
+		`SELECT name FROM users WHERE id = $1`, userID).Scan(&authName); err == nil && authName != "" {
+		displayName = &authName
+	}
+
 	_, err := h.pool.Exec(r.Context(),
-		`INSERT INTO user_profiles (user_id, created_by,
+		`INSERT INTO user_profiles (user_id, created_by, display_name,
 			consent_location, consent_camera, consent_notifications, consent_ugc)
-		 VALUES ($1, $1,
+		 VALUES ($1, $1, $6,
 			COALESCE($2, false), COALESCE($3, false),
 			COALESCE($4, false), COALESCE($5, false))
 		 ON CONFLICT (user_id) DO UPDATE SET
@@ -190,8 +211,9 @@ func (h *ProfileHandler) ConsentUpdate(w http.ResponseWriter, r *http.Request) {
 			consent_camera = COALESCE($3, user_profiles.consent_camera),
 			consent_notifications = COALESCE($4, user_profiles.consent_notifications),
 			consent_ugc = COALESCE($5, user_profiles.consent_ugc),
+			display_name = COALESCE($6, user_profiles.display_name),
 			updated_at = now()`,
-		userID, req.Location, req.Camera, req.Notifications, req.Ugc)
+		userID, req.Location, req.Camera, req.Notifications, req.Ugc, displayName)
 	if err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to update consent", err)
 		return
