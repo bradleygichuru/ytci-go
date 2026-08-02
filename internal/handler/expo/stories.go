@@ -45,6 +45,8 @@ type enrichedStory struct {
 	CommentCount  int              `json:"commentCount"`
 	PreviewComments []previewComment `json:"previewComments"`
 	CreatedAt     string           `json:"createdAt"`
+	AuthorName    string           `json:"authorName"`
+	AuthorID      string           `json:"authorId"`
 	IsLiked       bool             `json:"isLiked"`
 	IsSaved       bool             `json:"isSaved"`
 }
@@ -89,12 +91,15 @@ func (h *StoriesHandler) ListEnriched(w http.ResponseWriter, r *http.Request) {
 			 WHERE si2.story_id = s.id AND si2.user_id = $1 AND si2.interaction_type = 'like') AS liked,
 			EXISTS(SELECT 1 FROM story_interactions si3
 			 WHERE si3.story_id = s.id AND si3.user_id = $1 AND si3.interaction_type = 'save') AS saved
-		) en ON true`
-		query = `SELECT s.id, s.caption, med.media, COALESCE(s.like_count, 0), COALESCE(s.save_count, 0), comments.comment_count, comments.preview_comments, s.created_at, en.liked, en.saved
+		) en ON true
+		LEFT JOIN user_profiles up ON up.user_id = s.creator_id`
+		query = `SELECT s.id, s.caption, med.media, COALESCE(s.like_count, 0), COALESCE(s.save_count, 0), comments.comment_count, comments.preview_comments, s.created_at,
+				COALESCE(up.display_name, 'Anonymous') AS author_name, s.creator_id, en.liked, en.saved
 			 FROM stories s ` + mediaJoin + ` ` + commentsJoin + ` ` + enrichJoin + ` WHERE s.status != 'rejected' ORDER BY s.created_at DESC LIMIT 50`
 	} else {
-		query = `SELECT s.id, s.caption, med.media, COALESCE(s.like_count, 0), COALESCE(s.save_count, 0), comments.comment_count, comments.preview_comments, s.created_at, false, false
-			 FROM stories s ` + mediaJoin + ` ` + commentsJoin + ` WHERE s.status != 'rejected' ORDER BY s.created_at DESC LIMIT 50`
+		query = `SELECT s.id, s.caption, med.media, COALESCE(s.like_count, 0), COALESCE(s.save_count, 0), comments.comment_count, comments.preview_comments, s.created_at,
+				COALESCE(up.display_name, 'Anonymous') AS author_name, s.creator_id, false, false
+			 FROM stories s ` + mediaJoin + ` ` + commentsJoin + ` LEFT JOIN user_profiles up ON up.user_id = s.creator_id WHERE s.status != 'rejected' ORDER BY s.created_at DESC LIMIT 50`
 	}
 
 	var rows pgx.Rows
@@ -116,9 +121,9 @@ func (h *StoriesHandler) ListEnriched(w http.ResponseWriter, r *http.Request) {
 		var mediaJSON, previewJSON []byte
 		var createdAt pgtype.Timestamp
 		if hasAuth {
-			rows.Scan(&i.ID, &i.Caption, &mediaJSON, &i.LikeCount, &i.SaveCount, &i.CommentCount, &previewJSON, &createdAt, &i.IsLiked, &i.IsSaved)
+			rows.Scan(&i.ID, &i.Caption, &mediaJSON, &i.LikeCount, &i.SaveCount, &i.CommentCount, &previewJSON, &createdAt, &i.AuthorName, &i.AuthorID, &i.IsLiked, &i.IsSaved)
 		} else {
-			rows.Scan(&i.ID, &i.Caption, &mediaJSON, &i.LikeCount, &i.SaveCount, &i.CommentCount, &previewJSON, &createdAt, &i.IsLiked, &i.IsSaved)
+			rows.Scan(&i.ID, &i.Caption, &mediaJSON, &i.LikeCount, &i.SaveCount, &i.CommentCount, &previewJSON, &createdAt, &i.AuthorName, &i.AuthorID, &i.IsLiked, &i.IsSaved)
 		}
 		i.CreatedAt = createdAt.Time.Format(time.RFC3339)
 		if mediaJSON != nil {
@@ -167,6 +172,8 @@ type storyDetail struct {
 	ViewCount    int         `json:"viewCount"`
 	Status       string      `json:"status"`
 	CreatedAt    string      `json:"createdAt"`
+	AuthorName   string      `json:"authorName"`
+	AuthorID     string      `json:"authorId"`
 	IsLiked      bool        `json:"isLiked"`
 	IsSaved      bool        `json:"isSaved"`
 }
@@ -196,15 +203,21 @@ func (h *StoriesHandler) StoryDetail(w http.ResponseWriter, r *http.Request) {
 	if hasAuth {
 		err = h.pool.QueryRow(r.Context(),
 			`SELECT s.id, s.caption, s.journal, s.tags, med.media, COALESCE(s.like_count, 0), COALESCE(s.save_count, 0), `+commentCountSub+`, COALESCE(s.view_count, 0), s.status, s.created_at,
+				COALESCE(up.display_name, 'Anonymous') AS author_name, s.creator_id,
 				EXISTS(SELECT 1 FROM story_interactions si WHERE si.story_id = s.id AND si.user_id = $1 AND si.interaction_type = 'like') AS is_liked,
 				EXISTS(SELECT 1 FROM story_interactions si WHERE si.story_id = s.id AND si.user_id = $1 AND si.interaction_type = 'save') AS is_saved
-			 FROM stories s `+mediaJoin+` WHERE s.id = $2`, userID, storyID,
-		).Scan(&s.ID, &s.Caption, &s.Journal, &s.Tags, &mediaJSON, &s.LikeCount, &s.SaveCount, &s.CommentCount, &s.ViewCount, &s.Status, &createdAt, &s.IsLiked, &s.IsSaved)
+			 FROM stories s `+mediaJoin+`
+			 LEFT JOIN user_profiles up ON up.user_id = s.creator_id
+			 WHERE s.id = $2`, userID, storyID,
+		).Scan(&s.ID, &s.Caption, &s.Journal, &s.Tags, &mediaJSON, &s.LikeCount, &s.SaveCount, &s.CommentCount, &s.ViewCount, &s.Status, &createdAt, &s.AuthorName, &s.AuthorID, &s.IsLiked, &s.IsSaved)
 	} else {
 		err = h.pool.QueryRow(r.Context(),
-			`SELECT s.id, s.caption, s.journal, s.tags, med.media, COALESCE(s.like_count, 0), COALESCE(s.save_count, 0), `+commentCountSub+`, COALESCE(s.view_count, 0), s.status, s.created_at, false, false
-			 FROM stories s `+mediaJoin+` WHERE s.id = $1`, storyID,
-		).Scan(&s.ID, &s.Caption, &s.Journal, &s.Tags, &mediaJSON, &s.LikeCount, &s.SaveCount, &s.CommentCount, &s.ViewCount, &s.Status, &createdAt, &s.IsLiked, &s.IsSaved)
+			`SELECT s.id, s.caption, s.journal, s.tags, med.media, COALESCE(s.like_count, 0), COALESCE(s.save_count, 0), `+commentCountSub+`, COALESCE(s.view_count, 0), s.status, s.created_at,
+				COALESCE(up.display_name, 'Anonymous') AS author_name, s.creator_id, false, false
+			 FROM stories s `+mediaJoin+`
+			 LEFT JOIN user_profiles up ON up.user_id = s.creator_id
+			 WHERE s.id = $1`, storyID,
+		).Scan(&s.ID, &s.Caption, &s.Journal, &s.Tags, &mediaJSON, &s.LikeCount, &s.SaveCount, &s.CommentCount, &s.ViewCount, &s.Status, &createdAt, &s.AuthorName, &s.AuthorID, &s.IsLiked, &s.IsSaved)
 	}
 	if err == pgx.ErrNoRows {
 		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "story not found")
