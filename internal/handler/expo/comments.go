@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -389,11 +390,17 @@ func (h *CommentHandler) ToggleLike(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cid := toUUID(commentID)
+	if !cid.Valid {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_ID", "invalid comment id")
+		return
+	}
+
 	queries := gen.New(h.pool)
 
 	_, err := queries.ToggleCommentInteraction(r.Context(), &gen.ToggleCommentInteractionParams{
 		UserID:          middleware.UserID(r.Context()),
-		CommentID:       toUUID(commentID),
+		CommentID:       cid,
 		InteractionType: "like",
 	})
 	if err != nil && err != pgx.ErrNoRows {
@@ -401,7 +408,6 @@ func (h *CommentHandler) ToggleLike(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cid := toUUID(commentID)
 	var cnt int64
 	h.pool.QueryRow(r.Context(),
 		`SELECT COUNT(*) FROM comment_interactions WHERE comment_id = $1 AND interaction_type = 'like'`,
@@ -458,7 +464,9 @@ func (h *CommentHandler) ReportComment(w http.ResponseWriter, r *http.Request) {
 
 func toUUID(s string) pgtype.UUID {
 	var u pgtype.UUID
-	u.Scan(s)
+	if err := u.Scan(s); err != nil {
+		slog.Error("toUUID: failed to scan", "input", s, "error", err)
+	}
 	return u
 }
 
