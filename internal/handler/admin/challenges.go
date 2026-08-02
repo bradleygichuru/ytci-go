@@ -360,6 +360,7 @@ func (h *ChallengeAdminHandler) ChallengeDetail(w http.ResponseWriter, r *http.R
 	// the user's own progress so the detail page can render the joined state
 	// without a separate "my challenges" lookup.
 	var userStatus *string
+	var leaderboardItems []leaderboardEntry
 	if userID := middleware.UserID(r.Context()); userID != "" {
 		var rawStatus string
 		err := h.pool.QueryRow(r.Context(),
@@ -370,6 +371,31 @@ func (h *ChallengeAdminHandler) ChallengeDetail(w http.ResponseWriter, r *http.R
 			mapped := mapUserStatus(rawStatus)
 			userStatus = &mapped
 		}
+
+		// Include leaderboard preview when the caller is authenticated, keeping
+		// the leaderboard auth-gated without requiring a second request.
+		rows, err := h.pool.Query(r.Context(),
+			`WITH ranked AS (
+				SELECT cp.user_id, cp.status, cp.badge_awarded_at,
+					ROW_NUMBER() OVER (ORDER BY cp.badge_awarded_at ASC NULLS LAST, cp.created_at ASC) AS rank
+				FROM challenge_progress cp
+				WHERE cp.challenge_id = $1 AND cp.status = 'approved'
+			)
+			SELECT r.user_id, COALESCE(up.display_name, 'Anonymous'), r.rank, r.status, r.badge_awarded_at::text
+			FROM ranked r
+			LEFT JOIN user_profiles up ON up.user_id = r.user_id
+			ORDER BY r.rank`, challengeID)
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var entry leaderboardEntry
+				rows.Scan(&entry.UserID, &entry.UserName, &entry.Rank, &entry.Status, &entry.BadgeAwardedAt)
+				leaderboardItems = append(leaderboardItems, entry)
+			}
+		}
+	}
+	if leaderboardItems == nil {
+		leaderboardItems = []leaderboardEntry{}
 	}
 
 	resp := map[string]any{
@@ -385,6 +411,7 @@ func (h *ChallengeAdminHandler) ChallengeDetail(w http.ResponseWriter, r *http.R
 		"status":              status,
 		"currentParticipants": currentParticipants,
 		"userStatus":          userStatus,
+		"leaderboard":         leaderboardItems,
 		"createdAt":           createdAt,
 	}
 	w.Header().Set("Content-Type", "application/json")
