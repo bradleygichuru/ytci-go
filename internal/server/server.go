@@ -273,6 +273,7 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 			aR.Post("/events/{id}/attend", h.actions.AttendEvent)
 			aR.Post("/events/{id}/leave", h.actions.LeaveEvent)
 			aR.Post("/analytics/app-open", h.actions.RecordAppOpen)
+			aR.Post("/analytics", h.actions.RecordEvent)
 			aR.Post("/account/delete", h.account.Delete)
 			aR.Get("/courses/{id}/quiz", h.mobileCourses.GetQuiz)
 			aR.Get("/courses/{id}/quiz/result", h.mobileCourses.GetQuizResult)

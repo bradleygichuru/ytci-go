@@ -256,6 +256,36 @@ func (h *ActionsHandler) RecordAppOpen(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "recorded"})
 }
 
+func (h *ActionsHandler) RecordEvent(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Event      string                 `json:"event"`
+		Properties map[string]interface{} `json:"properties"`
+		Platform   string                 `json:"platform"`
+		AppVersion string                 `json:"appVersion"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
+		return
+	}
+	if req.Event == "" {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "event is required")
+		return
+	}
+
+	userID := middleware.UserID(r.Context())
+
+	_, err := h.pool.Exec(r.Context(),
+		`INSERT INTO analytics_events (user_id, event, properties, platform, app_version) VALUES ($1, $2, $3, $4, $5)`,
+		userID, req.Event, req.Properties, req.Platform, req.AppVersion)
+	if err != nil {
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to record analytics event", err)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"status": "recorded"})
+}
+
 func (h *ActionsHandler) SaveEvent(w http.ResponseWriter, r *http.Request) {
 	eventID := r.PathValue("id")
 	if eventID == "" {
