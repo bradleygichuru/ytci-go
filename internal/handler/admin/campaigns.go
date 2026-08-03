@@ -23,7 +23,7 @@ func NewCampaignAdminHandler(pool *pgxpool.Pool) *CampaignAdminHandler {
 
 func (h *CampaignAdminHandler) List(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.pool.Query(r.Context(),
-		`SELECT id, title, type, status, start_date::text, end_date::text, banner_url, target_url, destination_id, audience
+		`SELECT id, title, type, status, start_date::text, end_date::text, banner_url, target_url, destination_id, audience, description
 		 FROM campaigns ORDER BY created_at DESC LIMIT 50`)
 	if err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list campaigns", err)
@@ -34,6 +34,7 @@ func (h *CampaignAdminHandler) List(w http.ResponseWriter, r *http.Request) {
 	type item struct {
 		ID            string  `json:"id"`
 		Title         string  `json:"title"`
+		Description   *string `json:"description"`
 		Type          string  `json:"type"`
 		Status        string  `json:"status"`
 		StartDate     *string `json:"startDate"`
@@ -46,7 +47,7 @@ func (h *CampaignAdminHandler) List(w http.ResponseWriter, r *http.Request) {
 	var items []item
 	for rows.Next() {
 		var i item
-		if err := rows.Scan(&i.ID, &i.Title, &i.Type, &i.Status, &i.StartDate, &i.EndDate, &i.BannerUrl, &i.TargetUrl, &i.DestinationId, &i.Audience); err != nil {
+		if err := rows.Scan(&i.ID, &i.Title, &i.Description, &i.Type, &i.Status, &i.StartDate, &i.EndDate, &i.BannerUrl, &i.TargetUrl, &i.DestinationId, &i.Audience); err != nil {
 			slog.Warn("scan campaign row", "error", err)
 			continue
 		}
@@ -62,12 +63,12 @@ func (h *CampaignAdminHandler) List(w http.ResponseWriter, r *http.Request) {
 func (h *CampaignAdminHandler) Get(w http.ResponseWriter, r *http.Request) {
 	campaignID := r.PathValue("id")
 	row := h.pool.QueryRow(r.Context(),
-		`SELECT id, title, type, status, start_date::text, end_date::text, banner_url, target_url, destination_id, audience
+		`SELECT id, title, type, status, start_date::text, end_date::text, banner_url, target_url, destination_id, audience, description
 		 FROM campaigns WHERE id = $1`, campaignID)
 
 	var id, title, ctype, status string
-	var start, end, banner, target, destID, audience *string
-	err := row.Scan(&id, &title, &ctype, &status, &start, &end, &banner, &target, &destID, &audience)
+	var start, end, banner, target, destID, audience, description *string
+	err := row.Scan(&id, &title, &ctype, &status, &start, &end, &banner, &target, &destID, &audience, &description)
 	if err != nil {
 		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "campaign not found")
 		return
@@ -75,7 +76,7 @@ func (h *CampaignAdminHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"id": id, "title": title, "type": ctype, "status": status,
+		"id": id, "title": title, "description": description, "type": ctype, "status": status,
 		"startDate": start, "endDate": end, "bannerUrl": banner,
 		"targetUrl": target, "destinationId": destID, "audience": audience,
 	})
@@ -84,6 +85,7 @@ func (h *CampaignAdminHandler) Get(w http.ResponseWriter, r *http.Request) {
 func (h *CampaignAdminHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Title         string `json:"title"`
+		Description   string `json:"description"`
 		Type          string `json:"type"`
 		StartDate     string `json:"startDate"`
 		EndDate       string `json:"endDate,omitempty"`
@@ -126,12 +128,17 @@ func (h *CampaignAdminHandler) Create(w http.ResponseWriter, r *http.Request) {
 		audience = &req.Audience
 	}
 
+	var description *string
+	if req.Description != "" {
+		description = &req.Description
+	}
+
 	var id string
 	err := h.pool.QueryRow(r.Context(),
-		`INSERT INTO campaigns (title, banner_url, type, start_date, end_date, target_url, destination_id, audience, created_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+		`INSERT INTO campaigns (title, banner_url, type, start_date, end_date, target_url, destination_id, audience, created_by, description)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
 		req.Title, bannerURL, req.Type, req.StartDate, endDate, targetURL, destID, audience,
-		middleware.UserID(r.Context()),
+		middleware.UserID(r.Context()), description,
 	).Scan(&id)
 	if err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create campaign", err)
@@ -147,6 +154,7 @@ func (h *CampaignAdminHandler) Update(w http.ResponseWriter, r *http.Request) {
 	campaignID := r.PathValue("id")
 	var req struct {
 		Title         *string `json:"title,omitempty"`
+		Description   *string `json:"description,omitempty"`
 		Status        *string `json:"status,omitempty"`
 		Type          *string `json:"type,omitempty"`
 		StartDate     *string `json:"startDate,omitempty"`
@@ -182,6 +190,7 @@ func (h *CampaignAdminHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	addStr("title", req.Title)
+	addStr("description", req.Description)
 	addStr("status", req.Status)
 	addStr("type", req.Type)
 	addStr("start_date", req.StartDate)
