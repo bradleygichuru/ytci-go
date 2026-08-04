@@ -29,6 +29,10 @@ ON CONFLICT (query_hash) DO UPDATE SET
 SELECT * FROM google_places_search_cache
 WHERE query_hash = $1 AND expires_at > now();
 
+-- name: GetGooglePlacesSearchCacheStale :one
+SELECT * FROM google_places_search_cache
+WHERE query_hash = $1 AND cached_at > now() - interval '7 days';
+
 -- name: CreateGooglePlacesDraft :one
 INSERT INTO destinations (name, slug, county, locality, category, status, source, google_place_id, location, short_description)
 VALUES ($1, $2, $3, $4, $5, 'draft', 'google_places', $6, ST_SetSRID(ST_MakePoint($7, $8), 4326), $9)

@@ -233,6 +233,7 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 		m.Get("/places/autocomplete", h.places.Autocomplete)
 		m.Get("/places/search", h.places.Search)
 		m.Get("/places/location", h.places.GetLocation)
+		m.Get("/places/details", h.places.GetPlaceDetails)
 		m.Get("/destinations/popular", h.places.Popular)
 
 		m.Group(func(aR chi.Router) {

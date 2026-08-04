@@ -117,6 +117,19 @@ func (c *Cache) SetNearbyResults(ctx context.Context, results []NearbyPlace) err
 	return c.setSearchResults(ctx, "nearby:kenya:popular", results, 24*time.Hour)
 }
 
+func (c *Cache) GetNearbyResultsStale(ctx context.Context) ([]NearbyPlace, bool, error) {
+	queryHash := hashQuery("nearby:kenya:popular")
+	row, err := c.queries().GetGooglePlacesSearchCacheStale(ctx, queryHash)
+	if err != nil {
+		return nil, false, nil
+	}
+	var results []NearbyPlace
+	if err := json.Unmarshal(row.Response, &results); err != nil {
+		return nil, false, fmt.Errorf("places cache: unmarshal stale results: %w", err)
+	}
+	return results, true, nil
+}
+
 func (c *Cache) getSearchResults(ctx context.Context, key string, target interface{}) (bool, error) {
 	queryHash := hashQuery(key)
 	row, err := c.queries().GetGooglePlacesSearchCache(ctx, queryHash)

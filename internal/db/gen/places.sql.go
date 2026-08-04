@@ -189,6 +189,23 @@ func (q *Queries) GetGooglePlacesSearchCache(ctx context.Context, queryHash stri
 	return i, err
 }
 
+const getGooglePlacesSearchCacheStale = `-- name: GetGooglePlacesSearchCacheStale :one
+SELECT query_hash, response, cached_at, expires_at FROM google_places_search_cache
+WHERE query_hash = $1 AND cached_at > now() - interval '7 days'
+`
+
+func (q *Queries) GetGooglePlacesSearchCacheStale(ctx context.Context, queryHash string) (GooglePlacesSearchCache, error) {
+	row := q.db.QueryRow(ctx, getGooglePlacesSearchCacheStale, queryHash)
+	var i GooglePlacesSearchCache
+	err := row.Scan(
+		&i.QueryHash,
+		&i.Response,
+		&i.CachedAt,
+		&i.ExpiresAt,
+	)
+	return i, err
+}
+
 const getPopularDestinations = `-- name: GetPopularDestinations :many
 SELECT d.id, d.name, d.slug, d.county, d.locality, d.category, d.status, d.location, d.map_label, d.access_route, d.distance_reference, d.short_description, d.full_description, d.significance, d.history, d.things_to_do, d.suitable_audiences, d.duration, d.difficulty, d.seasonality, d.indicative_fees, d.opening_info, d.transport_notes, d.accessibility, d.facilities, d.safety_notes, d.source, d.content_owner, d.verification_status, d.last_updated, d.review_date, d.created_by, d.created_at, d.updated_at, d.google_place_id, COUNT(bli.id) AS save_count
 FROM destinations d
