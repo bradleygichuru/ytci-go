@@ -18,7 +18,8 @@ type Config struct {
 	R2Bucket         string `env:"R2_BUCKET"`
 	ExpoPushToken    string `env:"EXPO_PUSH_TOKEN"`
 	LogLevel         string `env:"LOG_LEVEL" envDefault:"info"`
-	JWKSCacheTTL     int    `env:"JWKS_CACHE_TTL_MINUTES" envDefault:"60"`
+	JWKSCacheTTL         int    `env:"JWKS_CACHE_TTL_MINUTES" envDefault:"60"`
+	GooglePlacesAPIKey   string `env:"GOOGLE_PLACES_API_KEY,required"`
 }
 
 func Load() (*Config, error) {

@@ -464,6 +464,20 @@ type StoryReport struct {
 	CreatedAt  pgtype.Timestamp `json:"created_at"`
 }
 
+type User struct {
+	ID            string           `json:"id"`
+	Name          string           `json:"name"`
+	Email         string           `json:"email"`
+	EmailVerified bool             `json:"email_verified"`
+	Image         *string          `json:"image"`
+	CreatedAt     pgtype.Timestamp `json:"created_at"`
+	UpdatedAt     pgtype.Timestamp `json:"updated_at"`
+	Role          *string          `json:"role"`
+	Banned        *bool            `json:"banned"`
+	BanReason     *string          `json:"ban_reason"`
+	BanExpires    pgtype.Timestamp `json:"ban_expires"`
+}
+
 type UserProfile struct {
 	UserID               string           `json:"user_id"`
 	AgeRange             *string          `json:"age_range"`

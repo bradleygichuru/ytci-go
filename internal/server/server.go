@@ -48,7 +48,7 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 
 	r.Get("/health", handler.Health)
 
-	h := mountHandlers(pool, r2client, pushClient)
+	h := mountHandlers(pool, r2client, pushClient, cfg)
 
 	publicLimiter := middleware.PublicRateLimiter()
 
@@ -95,9 +95,10 @@ type handlers struct {
 	account   *expo.AccountHandler
 	mobileCourses *expo.CourseHandler
 	companion *expo.CompanionHandler
+	places    *expo.PlacesHandler
 }
 
-func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Client) *handlers {
+func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Client, cfg *config.Config) *handlers {
 	h := &handlers{
 		dest:      admin.NewDestinationsHandler(pool, r2client),
 		events:    admin.NewEventsHandler(pool, r2client),
@@ -124,6 +125,7 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 		account:   expo.NewAccountHandler(pool, r2client),
 		mobileCourses: expo.NewCourseHandler(pool, r2client),
 		companion: expo.NewCompanionHandler(pool),
+		places:    expo.NewPlacesHandler(pool, cfg.GooglePlacesAPIKey),
 	}
 	if pushClient != nil {
 		h.pushAdmin = admin.NewPushHandler(pool, pushClient)
@@ -227,6 +229,9 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 		m.Get("/challenges/{id}", h.challenge.ChallengeDetail)
 		m.Get("/conservation/{id}", h.conserv.ConservationDetail)
 		m.Get("/stories/{id}", h.mStories.StoryDetail)
+		m.Get("/places/autocomplete", h.places.Autocomplete)
+		m.Get("/places/search", h.places.Search)
+		m.Get("/destinations/popular", h.places.Popular)
 
 		m.Group(func(aR chi.Router) {
 			aR.Use(middleware.AuthGate)
@@ -293,6 +298,8 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 			aR.Delete("/stories/{id}/comments/{cid}", h.comments.DeleteComment)
 			aR.Post("/stories/{id}/comments/{cid}/like", h.comments.ToggleLike)
 			aR.Post("/stories/{id}/comments/{cid}/report", h.comments.ReportComment)
+			aR.Post("/places/session", h.places.CreateSession)
+			aR.Post("/places/resolve", h.places.Resolve)
 		})
 	})
 }
