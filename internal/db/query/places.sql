@@ -47,3 +47,12 @@ WHERE d.status = 'published'
 GROUP BY d.id
 ORDER BY save_count DESC, d.updated_at DESC
 LIMIT $1;
+
+-- name: ListPublishedDestinationsWithoutPlaceID :many
+SELECT * FROM destinations
+WHERE status = 'published' AND google_place_id IS NULL
+ORDER BY name;
+
+-- name: UpdateDestinationPlaceID :exec
+UPDATE destinations SET google_place_id = $2, updated_at = now()
+WHERE id = $1;
