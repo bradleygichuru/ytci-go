@@ -13,8 +13,8 @@ func (c *Client) NearbySearch(ctx context.Context) ([]NearbyPlace, error) {
 		MaxResultCount: 20,
 		LocationRestriction: &LocationRestriction{
 			Circle: &Circle{
-				Center: &LatLng{Latitude: 0.0236, Longitude: 36.8888},
-				Radius: 500000,
+			Center: &LatLng{Latitude: 0.0236, Longitude: 36.8888},
+			Radius: 50000,
 			},
 		},
 	}

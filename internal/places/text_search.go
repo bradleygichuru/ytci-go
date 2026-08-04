@@ -37,8 +37,8 @@ func (c *Client) TextSearch(ctx context.Context, query string) ([]TextSearchResu
 		TextQuery: query,
 		LocationBias: &locationBias{
 			Circle: &circle{
-				Center: LatLng{Latitude: 0.0236, Longitude: 36.8888},
-				Radius: 500000,
+			Center: LatLng{Latitude: 0.0236, Longitude: 36.8888},
+			Radius: 50000,
 			},
 		},
 	}

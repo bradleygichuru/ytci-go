@@ -63,8 +63,8 @@ func (c *Client) Autocomplete(ctx context.Context, input, sessionToken string) (
 		SessionToken: sessionToken,
 		LocationBias: &locationBias{
 			Circle: &circle{
-				Center: LatLng{Latitude: 0.0236, Longitude: 36.8888},
-				Radius: 500000,
+			Center: LatLng{Latitude: 0.0236, Longitude: 36.8888},
+			Radius: 50000,
 			},
 		},
 	}
