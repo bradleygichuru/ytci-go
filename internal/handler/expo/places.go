@@ -262,13 +262,89 @@ func (h *PlacesHandler) createDraftDestination(ctx context.Context, details *pla
 	return dest, nil
 }
 
+type popularDestination struct {
+	ID                 pgtype.UUID      `json:"id"`
+	Name               string           `json:"name"`
+	Slug               string           `json:"slug"`
+	County             string           `json:"county"`
+	Locality           *string          `json:"locality,omitempty"`
+	Category           string           `json:"category"`
+	ShortDescription   *string          `json:"shortDescription,omitempty"`
+	Media              json.RawMessage  `json:"media"`
+	SaveCount          int64            `json:"-"`
+}
+
+type mobilePopularMedia struct {
+	ObjectKey    string `json:"objectKey"`
+	ThumbnailKey string `json:"thumbnailKey,omitempty"`
+	Type         string `json:"type,omitempty"`
+	AltText      string `json:"altText,omitempty"`
+	URL          string `json:"url,omitempty"`
+	ThumbnailURL string `json:"thumbnailUrl,omitempty"`
+}
+
+const popularQuery = `SELECT d.id, d.name, d.slug, d.county, d.locality, d.category,
+	d.short_description, COUNT(bli.id) AS save_count,
+	COALESCE(med.media, '[]'::json) AS media
+FROM destinations d
+LEFT JOIN bucket_list_items bli ON bli.destination_id = d.id
+LEFT JOIN LATERAL (
+	SELECT COALESCE(json_agg(json_build_object(
+		'objectKey', ma.object_key,
+		'thumbnailKey', ma.thumbnail_key,
+		'type', ma.type,
+		'altText', ma.alt_text
+	) ORDER BY ma.display_order) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
+	FROM media_assets ma
+	WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text
+) med ON true
+WHERE d.status = 'published'
+GROUP BY d.id, med.media
+ORDER BY save_count DESC, d.updated_at DESC
+LIMIT $1`
+
+const popularNearbyQuery = `SELECT d.id, d.name, d.slug, d.county, d.locality, d.category,
+	d.short_description, 0 AS save_count,
+	COALESCE(med.media, '[]'::json) AS media
+FROM destinations d
+LEFT JOIN LATERAL (
+	SELECT COALESCE(json_agg(json_build_object(
+		'objectKey', ma.object_key,
+		'thumbnailKey', ma.thumbnail_key,
+		'type', ma.type,
+		'altText', ma.alt_text
+	) ORDER BY ma.display_order) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
+	FROM media_assets ma
+	WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text
+) med ON true
+WHERE d.google_place_id IS NOT NULL AND d.status = 'published'
+ORDER BY d.updated_at DESC
+LIMIT 10`
+
 func (h *PlacesHandler) Popular(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	populars, err := h.queries().GetPopularDestinations(ctx, 10)
+	rows, err := h.pool.Query(ctx, popularQuery, 10)
 	if err != nil {
 		handler.WriteServerError(w, r, "DB_ERROR", "failed to fetch popular destinations", err)
 		return
+	}
+	defer rows.Close()
+
+	var populars []popularDestination
+	for rows.Next() {
+		var d popularDestination
+		var mediaJSON []byte
+		if err := rows.Scan(&d.ID, &d.Name, &d.Slug, &d.County, &d.Locality, &d.Category,
+			&d.ShortDescription, &d.SaveCount, &mediaJSON); err != nil {
+			continue
+		}
+		if mediaJSON != nil {
+			d.Media = json.RawMessage(mediaJSON)
+		} else {
+			d.Media = json.RawMessage(`[]`)
+		}
+		populars = append(populars, d)
 	}
 
 	if len(populars) >= 3 {
@@ -298,31 +374,34 @@ func (h *PlacesHandler) Popular(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(placeIDs) > 0 {
-		rows, err := h.pool.Query(ctx,
-			`SELECT d.*, 0 AS save_count FROM destinations d WHERE d.google_place_id IS NOT NULL AND d.status = 'published' ORDER BY d.updated_at DESC LIMIT 10`)
+		nearbyRows, err := h.pool.Query(ctx, popularNearbyQuery)
 		if err != nil {
 			slog.Warn("places: nearby destination lookup failed", "error", err)
 		} else {
-			defer rows.Close()
-			var nearbyDestinations []gen.GetPopularDestinationsRow
-			for rows.Next() {
-				var d gen.GetPopularDestinationsRow
-				if err := h.scanPopularRow(&d, rows); err != nil {
-					continue
-				}
-				nearbyDestinations = append(nearbyDestinations, d)
-			}
+			defer nearbyRows.Close()
 			seen := make(map[string]bool)
 			for _, d := range populars {
 				if d.ID.Valid {
 					seen[fmt.Sprintf("%v", d.ID)] = true
 				}
 			}
-			for _, d := range nearbyDestinations {
-				if d.ID.Valid && !seen[fmt.Sprintf("%v", d.ID)] {
-					populars = append(populars, d)
-					seen[fmt.Sprintf("%v", d.ID)] = true
+			for nearbyRows.Next() {
+				var d popularDestination
+				var mediaJSON []byte
+				if err := nearbyRows.Scan(&d.ID, &d.Name, &d.Slug, &d.County, &d.Locality, &d.Category,
+					&d.ShortDescription, &d.SaveCount, &mediaJSON); err != nil {
+					continue
 				}
+				if !d.ID.Valid || seen[fmt.Sprintf("%v", d.ID)] {
+					continue
+				}
+			if mediaJSON != nil {
+				d.Media = json.RawMessage(mediaJSON)
+				} else {
+					d.Media = json.RawMessage(`[]`)
+				}
+				populars = append(populars, d)
+				seen[fmt.Sprintf("%v", d.ID)] = true
 			}
 			if len(populars) > 10 {
 				populars = populars[:10]
@@ -333,68 +412,29 @@ func (h *PlacesHandler) Popular(w http.ResponseWriter, r *http.Request) {
 	h.writePopularResponse(w, populars)
 }
 
-func (h *PlacesHandler) scanPopularRow(d *gen.GetPopularDestinationsRow, rows interface{ Scan(...interface{}) error }) error {
-	return rows.Scan(
-		&d.ID,
-		&d.Name,
-		&d.Slug,
-		&d.County,
-		&d.Locality,
-		&d.Category,
-		&d.Status,
-		&d.Location,
-		&d.MapLabel,
-		&d.AccessRoute,
-		&d.DistanceReference,
-		&d.ShortDescription,
-		&d.FullDescription,
-		&d.Significance,
-		&d.History,
-		&d.ThingsToDo,
-		&d.SuitableAudiences,
-		&d.Duration,
-		&d.Difficulty,
-		&d.Seasonality,
-		&d.IndicativeFees,
-		&d.OpeningInfo,
-		&d.TransportNotes,
-		&d.Accessibility,
-		&d.Facilities,
-		&d.SafetyNotes,
-		&d.Source,
-		&d.ContentOwner,
-		&d.VerificationStatus,
-		&d.LastUpdated,
-		&d.ReviewDate,
-		&d.CreatedBy,
-		&d.CreatedAt,
-		&d.UpdatedAt,
-		&d.GooglePlaceID,
-		&d.SaveCount,
-	)
-}
-
-func (h *PlacesHandler) writePopularResponse(w http.ResponseWriter, destinations []gen.GetPopularDestinationsRow) {
+func (h *PlacesHandler) writePopularResponse(w http.ResponseWriter, destinations []popularDestination) {
 	type popularItem struct {
-		ID              pgtype.UUID      `json:"id"`
-		Name            string           `json:"name"`
-		Slug            string           `json:"slug"`
-		County          string           `json:"county"`
-		Locality        *string          `json:"locality"`
-		Category        string           `json:"category"`
-		ShortDescription *string         `json:"short_description"`
+		ID               pgtype.UUID      `json:"id"`
+		Name             string           `json:"name"`
+		Slug             string           `json:"slug"`
+		County           string           `json:"county"`
+		Locality         *string          `json:"locality,omitempty"`
+		Category         string           `json:"category"`
+		ShortDescription *string          `json:"shortDescription,omitempty"`
+		Media            json.RawMessage  `json:"media"`
 	}
 
 	items := make([]popularItem, 0, len(destinations))
 	for _, d := range destinations {
 		items = append(items, popularItem{
-			ID:              d.ID,
-			Name:            d.Name,
-			Slug:            d.Slug,
-			County:          d.County,
-			Locality:        d.Locality,
-			Category:        d.Category,
+			ID:               d.ID,
+			Name:             d.Name,
+			Slug:             d.Slug,
+			County:           d.County,
+			Locality:         d.Locality,
+			Category:         d.Category,
 			ShortDescription: d.ShortDescription,
+			Media:            d.Media,
 		})
 	}
 
