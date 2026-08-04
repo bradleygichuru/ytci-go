@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -411,32 +412,63 @@ WHERE d.google_place_id = ANY($1) AND d.status IN ('published', 'draft')
 ORDER BY array_position($1, d.google_place_id)
 LIMIT 10`
 
+const popularFallbackQuery = `SELECT d.id, d.name, d.slug, d.county, d.locality, d.category,
+	d.short_description, 0 AS save_count,
+	COALESCE(med.media, '[]'::json) AS media
+FROM destinations d
+LEFT JOIN LATERAL (
+	SELECT COALESCE(json_agg(json_build_object(
+		'objectKey', ma.object_key,
+		'thumbnailKey', ma.thumbnail_key,
+		'type', ma.type,
+		'altText', ma.alt_text
+	) ORDER BY ma.display_order) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
+	FROM media_assets ma
+	WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text
+) med ON true
+WHERE d.google_place_id IS NOT NULL AND d.status IN ('published', 'draft')
+ORDER BY d.updated_at DESC
+LIMIT 10`
+
 func (h *PlacesHandler) Popular(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+
+	// Parse user's location (default to Nairobi)
+	lat := -1.29
+	lng := 36.82
+	if latStr := r.URL.Query().Get("lat"); latStr != "" {
+		if p, err := strconv.ParseFloat(latStr, 64); err == nil {
+			lat = p
+		}
+	}
+	if lngStr := r.URL.Query().Get("lng"); lngStr != "" {
+		if p, err := strconv.ParseFloat(lngStr, 64); err == nil {
+			lng = p
+		}
+	}
 
 	populars := []popularDestination{}
 
 	// Step 1: Check cache (within 24h TTL)
-	nearbyPlaces, found, err := h.cache.GetNearbyResults(ctx)
+	nearbyPlaces, found, err := h.cache.GetNearbyResults(ctx, lat, lng)
 	if err != nil {
 		slog.Warn("places: nearby cache read failed", "error", err)
 	}
 
 	// Step 2: If cache miss, check stale cache (up to 7 days)
 	if !found {
-		nearbyPlaces, found, err = h.cache.GetNearbyResultsStale(ctx)
+		nearbyPlaces, found, err = h.cache.GetNearbyResultsStale(ctx, lat, lng)
 		if err != nil {
 			slog.Warn("places: stale cache read failed", "error", err)
 		}
 		if found {
-			// Background revalidation when using stale cache
 			go func() {
-				freshResults, fErr := h.client.NearbySearch(context.Background())
+				freshResults, fErr := h.client.NearbySearch(context.Background(), lat, lng)
 				if fErr != nil {
 					slog.Warn("places: background revalidation failed", "error", fErr)
 					return
 				}
-				if fErr := h.cache.SetNearbyResults(context.Background(), freshResults); fErr != nil {
+				if fErr := h.cache.SetNearbyResults(context.Background(), lat, lng, freshResults); fErr != nil {
 					slog.Warn("places: background cache write failed", "error", fErr)
 				}
 			}()
@@ -445,18 +477,18 @@ func (h *PlacesHandler) Popular(w http.ResponseWriter, r *http.Request) {
 
 	// Step 3: If still no results, call Google API
 	if !found {
-		nearbyPlaces, err = h.client.NearbySearch(ctx)
+		nearbyPlaces, err = h.client.NearbySearch(ctx, lat, lng)
 		if err != nil {
-			slog.Warn("places: nearby search failed, returning empty", "error", err)
-			h.writePopularResponse(w, populars)
+			slog.Warn("places: nearby search failed, using fallback", "error", err)
+			h.fallbackPopular(ctx, w)
 			return
 		}
-		if err := h.cache.SetNearbyResults(ctx, nearbyPlaces); err != nil {
+		if err := h.cache.SetNearbyResults(ctx, lat, lng, nearbyPlaces); err != nil {
 			slog.Warn("places: nearby cache write failed", "error", err)
 		}
 	}
 
-	// Step 4: Match Nearby results against destinations, ordered by Nearby ranking
+	// Step 4: Match Nearby results against destinations
 	placeIDs := make([]string, 0, len(nearbyPlaces))
 	for _, p := range nearbyPlaces {
 		placeIDs = append(placeIDs, p.PlaceID)
@@ -491,6 +523,41 @@ func (h *PlacesHandler) Popular(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if len(populars) == 0 {
+		h.fallbackPopular(ctx, w)
+		return
+	}
+
+	h.writePopularResponse(w, populars)
+}
+
+func (h *PlacesHandler) fallbackPopular(ctx context.Context, w http.ResponseWriter) {
+	rows, err := h.pool.Query(ctx, popularFallbackQuery)
+	if err != nil {
+		slog.Warn("places: fallback query failed", "error", err)
+		h.writePopularResponse(w, []popularDestination{})
+		return
+	}
+	defer rows.Close()
+
+	populars := []popularDestination{}
+	for rows.Next() {
+		var d popularDestination
+		var mediaJSON []byte
+		if err := rows.Scan(&d.ID, &d.Name, &d.Slug, &d.County, &d.Locality, &d.Category,
+			&d.ShortDescription, &d.SaveCount, &mediaJSON); err != nil {
+			continue
+		}
+		if !d.ID.Valid {
+			continue
+		}
+		if mediaJSON != nil {
+			d.Media = json.RawMessage(mediaJSON)
+		} else {
+			d.Media = json.RawMessage(`[]`)
+		}
+		populars = append(populars, d)
+	}
 	h.writePopularResponse(w, populars)
 }
 

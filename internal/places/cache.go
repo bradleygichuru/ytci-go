@@ -101,9 +101,10 @@ func (c *Cache) SetTextSearchResults(ctx context.Context, query string, results 
 	return c.setSearchResults(ctx, "text_search:"+query, results, 30*time.Minute)
 }
 
-func (c *Cache) GetNearbyResults(ctx context.Context) ([]NearbyPlace, bool, error) {
+func (c *Cache) GetNearbyResults(ctx context.Context, lat, lng float64) ([]NearbyPlace, bool, error) {
+	key := fmt.Sprintf("nearby:%.2f:%.2f", lat, lng)
 	var results []NearbyPlace
-	found, err := c.getSearchResults(ctx, "nearby:kenya:popular", &results)
+	found, err := c.getSearchResults(ctx, key, &results)
 	if err != nil {
 		return nil, false, err
 	}
@@ -113,12 +114,14 @@ func (c *Cache) GetNearbyResults(ctx context.Context) ([]NearbyPlace, bool, erro
 	return nil, false, nil
 }
 
-func (c *Cache) SetNearbyResults(ctx context.Context, results []NearbyPlace) error {
-	return c.setSearchResults(ctx, "nearby:kenya:popular", results, 24*time.Hour)
+func (c *Cache) SetNearbyResults(ctx context.Context, lat, lng float64, results []NearbyPlace) error {
+	key := fmt.Sprintf("nearby:%.2f:%.2f", lat, lng)
+	return c.setSearchResults(ctx, key, results, 24*time.Hour)
 }
 
-func (c *Cache) GetNearbyResultsStale(ctx context.Context) ([]NearbyPlace, bool, error) {
-	queryHash := hashQuery("nearby:kenya:popular")
+func (c *Cache) GetNearbyResultsStale(ctx context.Context, lat, lng float64) ([]NearbyPlace, bool, error) {
+	key := fmt.Sprintf("nearby:%.2f:%.2f", lat, lng)
+	queryHash := hashQuery(key)
 	row, err := c.queries().GetGooglePlacesSearchCacheStale(ctx, queryHash)
 	if err != nil {
 		return nil, false, nil

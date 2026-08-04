@@ -142,7 +142,7 @@ func TestNearbySearch(t *testing.T) {
 
 	c := &Client{apiKey: "test-key", http: ts.Client(), baseURL: ts.URL + "/"}
 
-	results, err := c.NearbySearch(context.Background())
+	results, err := c.NearbySearch(context.Background(), 0, 0)
 	require.NoError(t, err)
 	require.Len(t, results, 2)
 

@@ -8,13 +8,13 @@ import (
 
 const nearbySearchFieldMask = "places.id,places.displayName,places.formattedAddress"
 
-func (c *Client) NearbySearch(ctx context.Context) ([]NearbyPlace, error) {
+func (c *Client) NearbySearch(ctx context.Context, lat, lng float64) ([]NearbyPlace, error) {
 	req := NearbySearchRequest{
 		MaxResultCount: 20,
 		LocationRestriction: &LocationRestriction{
 			Circle: &Circle{
-			Center: &LatLng{Latitude: 0.0236, Longitude: 36.8888},
-			Radius: 50000,
+				Center: &LatLng{Latitude: lat, Longitude: lng},
+				Radius: 10000,
 			},
 		},
 	}
