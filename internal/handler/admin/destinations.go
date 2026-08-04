@@ -401,6 +401,22 @@ func (h *DestinationsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to update destination", err)
 		return
 	}
+
+	// Invalidate caches on status change so popular listing reflects the update
+	if req.Status != nil {
+		var googlePlaceID *string
+		_ = h.pool.QueryRow(r.Context(),
+			`SELECT google_place_id FROM destinations WHERE id = $1`, destID).Scan(&googlePlaceID)
+		// Clear all Nearby Search caches so newly-published destinations appear in popular
+		_, _ = h.pool.Exec(r.Context(),
+			`DELETE FROM google_places_search_cache WHERE query_hash LIKE 'nearby:%'`)
+		// Clear Place Details cache so mobile re-fetches fresh data
+		if googlePlaceID != nil {
+			_, _ = h.pool.Exec(r.Context(),
+				`DELETE FROM google_places_cache WHERE place_id = $1`, *googlePlaceID)
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
 }
@@ -414,12 +430,28 @@ func (h *DestinationsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 
+	// Fetch google_place_id before deleting (needed for cache invalidation)
+	var googlePlaceID *string
+	_ = tx.QueryRow(r.Context(),
+		`SELECT google_place_id FROM destinations WHERE id = $1`, destID).Scan(&googlePlaceID)
+
 	_, err = tx.Exec(r.Context(),
 		`DELETE FROM media_assets WHERE entity_type = 'destination' AND entity_id = $1`, destID)
 	if err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to delete destination media", err)
 		return
 	}
+
+	// Invalidate Place Details cache for this destination
+	if googlePlaceID != nil {
+		_, _ = tx.Exec(r.Context(),
+			`DELETE FROM google_places_cache WHERE place_id = $1`, *googlePlaceID)
+	}
+
+	// Invalidate all Nearby Search caches so re-added destinations show up in popular
+	_, _ = tx.Exec(r.Context(),
+		`DELETE FROM google_places_search_cache WHERE query_hash LIKE 'nearby:%'`)
+
 	_, err = tx.Exec(r.Context(),
 		`DELETE FROM destinations WHERE id = $1`, destID)
 	if err != nil {
@@ -768,7 +800,7 @@ func (h *DestinationsHandler) GetMobile(w http.ResponseWriter, r *http.Request) 
 	if source != nil && *source == "google_places" && googlePlaceID != nil {
 		var placeData []byte
 		err := h.pool.QueryRow(r.Context(),
-			`SELECT data FROM google_places_cache WHERE place_id = $1`, *googlePlaceID).Scan(&placeData)
+			`SELECT data FROM google_places_cache WHERE place_id = $1 AND cached_at > now() - interval '30 days'`, *googlePlaceID).Scan(&placeData)
 		if err == nil && len(placeData) > 0 {
 			raw := json.RawMessage(placeData)
 			dest.PlaceDetails = &raw

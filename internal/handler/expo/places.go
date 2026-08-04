@@ -207,8 +207,8 @@ func (h *PlacesHandler) GetPlaceDetails(w http.ResponseWriter, r *http.Request) 
 	}
 	ctx := r.Context()
 
-	// Check cache first
-	cached, found, err := h.cache.GetPlace(ctx, placeID)
+	// Check cache first (enforce 30-day freshness per Google ToS)
+	cached, found, err := h.cache.GetPlaceFresh(ctx, placeID)
 	if err == nil && found && cached.Data != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(cached.Data)
@@ -428,7 +428,9 @@ LEFT JOIN LATERAL (
 	FROM media_assets ma
 	WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text
 ) med ON true
-WHERE d.google_place_id IS NOT NULL AND d.status IN ('published', 'draft')
+WHERE d.google_place_id IS NOT NULL
+  AND d.status IN ('published', 'draft')
+  AND ST_DWithin(d.location::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
 ORDER BY d.updated_at DESC
 LIMIT 10`
 
@@ -498,7 +500,7 @@ func (h *PlacesHandler) Popular(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
-			h.fallbackPopular(ctx, w)
+			h.fallbackPopular(ctx, w, lat, lng)
 			return
 		}
 		if err := h.cache.SetNearbyResults(ctx, lat, lng, nearbyPlaces); err != nil {
@@ -510,7 +512,7 @@ func (h *PlacesHandler) Popular(w http.ResponseWriter, r *http.Request) {
 	populars := h.matchNearbyPlaces(ctx, nearbyPlaces)
 
 	if len(populars) == 0 {
-		h.fallbackPopular(ctx, w)
+		h.fallbackPopular(ctx, w, lat, lng)
 		return
 	}
 
@@ -561,34 +563,43 @@ func (h *PlacesHandler) matchNearbyPlaces(ctx context.Context, nearbyPlaces []pl
 	return populars
 }
 
-func (h *PlacesHandler) fallbackPopular(ctx context.Context, w http.ResponseWriter) {
-	rows, err := h.pool.Query(ctx, popularFallbackQuery)
-	if err != nil {
-		slog.Warn("places: fallback query failed", "error", err)
-		h.writePopularResponse(w, []popularDestination{})
-		return
-	}
-	defer rows.Close()
+func (h *PlacesHandler) fallbackPopular(ctx context.Context, w http.ResponseWriter, lat, lng float64) {
+	// Progressive radius: 20km → 100km in 10km steps
+	for radius := 20000; radius <= 100000; radius += 10000 {
+		rows, err := h.pool.Query(ctx, popularFallbackQuery, lng, lat, radius)
+		if err != nil {
+			slog.Warn("places: fallback query failed", "radius", radius, "error", err)
+			continue
+		}
 
-	populars := []popularDestination{}
-	for rows.Next() {
-		var d popularDestination
-		var mediaJSON []byte
-		if err := rows.Scan(&d.ID, &d.Name, &d.Slug, &d.County, &d.Locality, &d.Category,
-			&d.ShortDescription, &d.SaveCount, &mediaJSON); err != nil {
-			continue
+		populars := []popularDestination{}
+		for rows.Next() {
+			var d popularDestination
+			var mediaJSON []byte
+			if err := rows.Scan(&d.ID, &d.Name, &d.Slug, &d.County, &d.Locality, &d.Category,
+				&d.ShortDescription, &d.SaveCount, &mediaJSON); err != nil {
+				continue
+			}
+			if !d.ID.Valid {
+				continue
+			}
+			if mediaJSON != nil {
+				d.Media = json.RawMessage(mediaJSON)
+			} else {
+				d.Media = json.RawMessage(`[]`)
+			}
+			populars = append(populars, d)
 		}
-		if !d.ID.Valid {
-			continue
+		rows.Close()
+
+		if len(populars) > 0 {
+			h.writePopularResponse(w, populars)
+			return
 		}
-		if mediaJSON != nil {
-			d.Media = json.RawMessage(mediaJSON)
-		} else {
-			d.Media = json.RawMessage(`[]`)
-		}
-		populars = append(populars, d)
 	}
-	h.writePopularResponse(w, populars)
+
+	// No results within 100km — return empty
+	h.writePopularResponse(w, []popularDestination{})
 }
 
 func (h *PlacesHandler) writePopularResponse(w http.ResponseWriter, destinations []popularDestination) {
