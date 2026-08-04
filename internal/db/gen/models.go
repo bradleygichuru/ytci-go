@@ -8,6 +8,16 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AnalyticsEvent struct {
+	ID         pgtype.UUID      `json:"id"`
+	UserID     string           `json:"user_id"`
+	Event      string           `json:"event"`
+	Properties []byte           `json:"properties"`
+	Platform   *string          `json:"platform"`
+	AppVersion *string          `json:"app_version"`
+	CreatedAt  pgtype.Timestamp `json:"created_at"`
+}
+
 type AppOpen struct {
 	ID         pgtype.UUID      `json:"id"`
 	UserID     pgtype.UUID      `json:"user_id"`
@@ -50,6 +60,7 @@ type Campaign struct {
 	CreatedBy     pgtype.UUID      `json:"created_by"`
 	CreatedAt     pgtype.Timestamp `json:"created_at"`
 	UpdatedAt     pgtype.Timestamp `json:"updated_at"`
+	Description   *string          `json:"description"`
 }
 
 type Challenge struct {
@@ -199,6 +210,7 @@ type Destination struct {
 	CreatedBy          pgtype.UUID      `json:"created_by"`
 	CreatedAt          pgtype.Timestamp `json:"created_at"`
 	UpdatedAt          pgtype.Timestamp `json:"updated_at"`
+	GooglePlaceID      *string          `json:"google_place_id"`
 }
 
 type Event struct {
@@ -248,6 +260,24 @@ type EventSafe struct {
 	UserID    pgtype.UUID      `json:"user_id"`
 	EventID   pgtype.UUID      `json:"event_id"`
 	CreatedAt pgtype.Timestamp `json:"created_at"`
+}
+
+type GooglePlacesCache struct {
+	PlaceID          string             `json:"place_id"`
+	Name             *string            `json:"name"`
+	FormattedAddress *string            `json:"formatted_address"`
+	Lat              *float64           `json:"lat"`
+	Lng              *float64           `json:"lng"`
+	Types            []string           `json:"types"`
+	Data             []byte             `json:"data"`
+	CachedAt         pgtype.Timestamptz `json:"cached_at"`
+}
+
+type GooglePlacesSearchCache struct {
+	QueryHash string             `json:"query_hash"`
+	Response  []byte             `json:"response"`
+	CachedAt  pgtype.Timestamptz `json:"cached_at"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
 }
 
 type Itinerary struct {

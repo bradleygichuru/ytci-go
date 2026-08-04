@@ -26,7 +26,7 @@ INSERT INTO destinations (
     $16, $17, $18, $19, $20,
     $21, $22, $23, $24, $25, $26,
     $27, $28, $29, $30
-) RETURNING id, name, slug, county, locality, category, status, location, map_label, access_route, distance_reference, short_description, full_description, significance, history, things_to_do, suitable_audiences, duration, difficulty, seasonality, indicative_fees, opening_info, transport_notes, accessibility, facilities, safety_notes, source, content_owner, verification_status, last_updated, review_date, created_by, created_at, updated_at
+) RETURNING id, name, slug, county, locality, category, status, location, map_label, access_route, distance_reference, short_description, full_description, significance, history, things_to_do, suitable_audiences, duration, difficulty, seasonality, indicative_fees, opening_info, transport_notes, accessibility, facilities, safety_notes, source, content_owner, verification_status, last_updated, review_date, created_by, created_at, updated_at, google_place_id
 `
 
 type CreateDestinationParams struct {
@@ -131,12 +131,13 @@ func (q *Queries) CreateDestination(ctx context.Context, arg *CreateDestinationP
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.GooglePlaceID,
 	)
 	return i, err
 }
 
 const findNearbyDestinations = `-- name: FindNearbyDestinations :many
-SELECT id, name, slug, county, locality, category, status, location, map_label, access_route, distance_reference, short_description, full_description, significance, history, things_to_do, suitable_audiences, duration, difficulty, seasonality, indicative_fees, opening_info, transport_notes, accessibility, facilities, safety_notes, source, content_owner, verification_status, last_updated, review_date, created_by, created_at, updated_at, ST_Distance(location::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) AS distance_meters
+SELECT id, name, slug, county, locality, category, status, location, map_label, access_route, distance_reference, short_description, full_description, significance, history, things_to_do, suitable_audiences, duration, difficulty, seasonality, indicative_fees, opening_info, transport_notes, accessibility, facilities, safety_notes, source, content_owner, verification_status, last_updated, review_date, created_by, created_at, updated_at, google_place_id, ST_Distance(location::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) AS distance_meters
 FROM destinations
 WHERE location IS NOT NULL
   AND status = 'published'
@@ -187,6 +188,7 @@ type FindNearbyDestinationsRow struct {
 	CreatedBy          pgtype.UUID      `json:"created_by"`
 	CreatedAt          pgtype.Timestamp `json:"created_at"`
 	UpdatedAt          pgtype.Timestamp `json:"updated_at"`
+	GooglePlaceID      *string          `json:"google_place_id"`
 	DistanceMeters     interface{}      `json:"distance_meters"`
 }
 
@@ -239,6 +241,7 @@ func (q *Queries) FindNearbyDestinations(ctx context.Context, arg *FindNearbyDes
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.GooglePlaceID,
 			&i.DistanceMeters,
 		); err != nil {
 			return nil, err
@@ -252,7 +255,7 @@ func (q *Queries) FindNearbyDestinations(ctx context.Context, arg *FindNearbyDes
 }
 
 const getDestinationByID = `-- name: GetDestinationByID :one
-SELECT id, name, slug, county, locality, category, status, location, map_label, access_route, distance_reference, short_description, full_description, significance, history, things_to_do, suitable_audiences, duration, difficulty, seasonality, indicative_fees, opening_info, transport_notes, accessibility, facilities, safety_notes, source, content_owner, verification_status, last_updated, review_date, created_by, created_at, updated_at FROM destinations WHERE id = $1 LIMIT 1
+SELECT id, name, slug, county, locality, category, status, location, map_label, access_route, distance_reference, short_description, full_description, significance, history, things_to_do, suitable_audiences, duration, difficulty, seasonality, indicative_fees, opening_info, transport_notes, accessibility, facilities, safety_notes, source, content_owner, verification_status, last_updated, review_date, created_by, created_at, updated_at, google_place_id FROM destinations WHERE id = $1 LIMIT 1
 `
 
 func (q *Queries) GetDestinationByID(ctx context.Context, id pgtype.UUID) (Destination, error) {
@@ -293,12 +296,13 @@ func (q *Queries) GetDestinationByID(ctx context.Context, id pgtype.UUID) (Desti
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.GooglePlaceID,
 	)
 	return i, err
 }
 
 const getDestinationBySlug = `-- name: GetDestinationBySlug :one
-SELECT id, name, slug, county, locality, category, status, location, map_label, access_route, distance_reference, short_description, full_description, significance, history, things_to_do, suitable_audiences, duration, difficulty, seasonality, indicative_fees, opening_info, transport_notes, accessibility, facilities, safety_notes, source, content_owner, verification_status, last_updated, review_date, created_by, created_at, updated_at FROM destinations WHERE slug = $1 LIMIT 1
+SELECT id, name, slug, county, locality, category, status, location, map_label, access_route, distance_reference, short_description, full_description, significance, history, things_to_do, suitable_audiences, duration, difficulty, seasonality, indicative_fees, opening_info, transport_notes, accessibility, facilities, safety_notes, source, content_owner, verification_status, last_updated, review_date, created_by, created_at, updated_at, google_place_id FROM destinations WHERE slug = $1 LIMIT 1
 `
 
 func (q *Queries) GetDestinationBySlug(ctx context.Context, slug string) (Destination, error) {
@@ -339,12 +343,13 @@ func (q *Queries) GetDestinationBySlug(ctx context.Context, slug string) (Destin
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.GooglePlaceID,
 	)
 	return i, err
 }
 
 const listDestinations = `-- name: ListDestinations :many
-SELECT id, name, slug, county, locality, category, status, location, map_label, access_route, distance_reference, short_description, full_description, significance, history, things_to_do, suitable_audiences, duration, difficulty, seasonality, indicative_fees, opening_info, transport_notes, accessibility, facilities, safety_notes, source, content_owner, verification_status, last_updated, review_date, created_by, created_at, updated_at FROM destinations
+SELECT id, name, slug, county, locality, category, status, location, map_label, access_route, distance_reference, short_description, full_description, significance, history, things_to_do, suitable_audiences, duration, difficulty, seasonality, indicative_fees, opening_info, transport_notes, accessibility, facilities, safety_notes, source, content_owner, verification_status, last_updated, review_date, created_by, created_at, updated_at, google_place_id FROM destinations
 ORDER BY created_at DESC
 LIMIT $1
 `
@@ -393,6 +398,7 @@ func (q *Queries) ListDestinations(ctx context.Context, limit int32) ([]Destinat
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.GooglePlaceID,
 		); err != nil {
 			return nil, err
 		}
@@ -405,7 +411,7 @@ func (q *Queries) ListDestinations(ctx context.Context, limit int32) ([]Destinat
 }
 
 const listDestinationsAfter = `-- name: ListDestinationsAfter :many
-SELECT id, name, slug, county, locality, category, status, location, map_label, access_route, distance_reference, short_description, full_description, significance, history, things_to_do, suitable_audiences, duration, difficulty, seasonality, indicative_fees, opening_info, transport_notes, accessibility, facilities, safety_notes, source, content_owner, verification_status, last_updated, review_date, created_by, created_at, updated_at FROM destinations
+SELECT id, name, slug, county, locality, category, status, location, map_label, access_route, distance_reference, short_description, full_description, significance, history, things_to_do, suitable_audiences, duration, difficulty, seasonality, indicative_fees, opening_info, transport_notes, accessibility, facilities, safety_notes, source, content_owner, verification_status, last_updated, review_date, created_by, created_at, updated_at, google_place_id FROM destinations
 WHERE created_at < $1 OR (created_at = $1 AND id < $2)
 ORDER BY created_at DESC, id DESC
 LIMIT $3
@@ -461,6 +467,7 @@ func (q *Queries) ListDestinationsAfter(ctx context.Context, arg *ListDestinatio
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.GooglePlaceID,
 		); err != nil {
 			return nil, err
 		}
@@ -478,7 +485,7 @@ UPDATE destinations SET
     short_description = COALESCE(NULLIF($3, ''), short_description),
     status = COALESCE(NULLIF($4, ''), status),
     updated_at = now()
-WHERE id = $1 RETURNING id, name, slug, county, locality, category, status, location, map_label, access_route, distance_reference, short_description, full_description, significance, history, things_to_do, suitable_audiences, duration, difficulty, seasonality, indicative_fees, opening_info, transport_notes, accessibility, facilities, safety_notes, source, content_owner, verification_status, last_updated, review_date, created_by, created_at, updated_at
+WHERE id = $1 RETURNING id, name, slug, county, locality, category, status, location, map_label, access_route, distance_reference, short_description, full_description, significance, history, things_to_do, suitable_audiences, duration, difficulty, seasonality, indicative_fees, opening_info, transport_notes, accessibility, facilities, safety_notes, source, content_owner, verification_status, last_updated, review_date, created_by, created_at, updated_at, google_place_id
 `
 
 type UpdateDestinationParams struct {
@@ -531,6 +538,7 @@ func (q *Queries) UpdateDestination(ctx context.Context, arg *UpdateDestinationP
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.GooglePlaceID,
 	)
 	return i, err
 }

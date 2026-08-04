@@ -40,7 +40,7 @@ func (q *Queries) AddBucketItem(ctx context.Context, arg *AddBucketItemParams) (
 const createCampaign = `-- name: CreateCampaign :one
 INSERT INTO campaigns (title, banner_url, type, status, start_date, end_date, target_url, created_by)
 VALUES ($1, $2, $3, 'draft', $4, $5, $6, $7)
-RETURNING id, title, banner_url, type, status, start_date, end_date, target_url, destination_id, audience, created_by, created_at, updated_at
+RETURNING id, title, banner_url, type, status, start_date, end_date, target_url, destination_id, audience, created_by, created_at, updated_at, description
 `
 
 type CreateCampaignParams struct {
@@ -78,6 +78,7 @@ func (q *Queries) CreateCampaign(ctx context.Context, arg *CreateCampaignParams)
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Description,
 	)
 	return i, err
 }
@@ -444,7 +445,7 @@ func (q *Queries) RemoveBucketItem(ctx context.Context, arg *RemoveBucketItemPar
 }
 
 const updateCampaignStatus = `-- name: UpdateCampaignStatus :one
-UPDATE campaigns SET status = $2, updated_at = now() WHERE id = $1 RETURNING id, title, banner_url, type, status, start_date, end_date, target_url, destination_id, audience, created_by, created_at, updated_at
+UPDATE campaigns SET status = $2, updated_at = now() WHERE id = $1 RETURNING id, title, banner_url, type, status, start_date, end_date, target_url, destination_id, audience, created_by, created_at, updated_at, description
 `
 
 type UpdateCampaignStatusParams struct {
@@ -469,6 +470,7 @@ func (q *Queries) UpdateCampaignStatus(ctx context.Context, arg *UpdateCampaignS
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Description,
 	)
 	return i, err
 }
