@@ -5,12 +5,14 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -447,8 +449,6 @@ func (h *PlacesHandler) Popular(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	populars := []popularDestination{}
-
 	// Step 1: Check cache (within 24h TTL)
 	nearbyPlaces, found, err := h.cache.GetNearbyResults(ctx, lat, lng)
 	if err != nil {
@@ -475,11 +475,29 @@ func (h *PlacesHandler) Popular(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Step 3: If still no results, call Google API
+	// Step 3: If still no results, call Google API with 15-second timeout
 	if !found {
-		nearbyPlaces, err = h.client.NearbySearch(ctx, lat, lng)
+		apiCtx, apiCancel := context.WithTimeout(ctx, 15*time.Second)
+		nearbyPlaces, err = h.client.NearbySearch(apiCtx, lat, lng)
+		apiCancel()
+
 		if err != nil {
-			slog.Warn("places: nearby search failed, using fallback", "error", err)
+			if errors.Is(err, context.DeadlineExceeded) {
+				slog.Warn("places: nearby search timed out after 15s")
+			} else {
+				slog.Warn("places: nearby search failed", "error", err)
+			}
+
+			// Try stale cache first, then fallback
+			stalePlaces, staleFound, _ := h.cache.GetNearbyResultsStale(ctx, lat, lng)
+			if staleFound {
+				populars := h.matchNearbyPlaces(ctx, stalePlaces)
+				if len(populars) > 0 {
+					h.writePopularResponse(w, populars)
+					return
+				}
+			}
+
 			h.fallbackPopular(ctx, w)
 			return
 		}
@@ -489,39 +507,7 @@ func (h *PlacesHandler) Popular(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Step 4: Match Nearby results against destinations
-	placeIDs := make([]string, 0, len(nearbyPlaces))
-	for _, p := range nearbyPlaces {
-		placeIDs = append(placeIDs, p.PlaceID)
-	}
-
-	if len(placeIDs) > 0 {
-		nearbyRows, err := h.pool.Query(ctx, popularNearbyQuery, placeIDs)
-		if err != nil {
-			slog.Warn("places: nearby destination lookup failed", "error", err)
-		} else {
-			defer nearbyRows.Close()
-			for nearbyRows.Next() {
-				var d popularDestination
-				var mediaJSON []byte
-				if err := nearbyRows.Scan(&d.ID, &d.Name, &d.Slug, &d.County, &d.Locality, &d.Category,
-					&d.ShortDescription, &d.SaveCount, &mediaJSON); err != nil {
-					continue
-				}
-				if !d.ID.Valid {
-					continue
-				}
-				if mediaJSON != nil {
-					d.Media = json.RawMessage(mediaJSON)
-				} else {
-					d.Media = json.RawMessage(`[]`)
-				}
-				populars = append(populars, d)
-			}
-			if len(populars) > 10 {
-				populars = populars[:10]
-			}
-		}
-	}
+	populars := h.matchNearbyPlaces(ctx, nearbyPlaces)
 
 	if len(populars) == 0 {
 		h.fallbackPopular(ctx, w)
@@ -529,6 +515,50 @@ func (h *PlacesHandler) Popular(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.writePopularResponse(w, populars)
+}
+
+func (h *PlacesHandler) matchNearbyPlaces(ctx context.Context, nearbyPlaces []places.NearbyPlace) []popularDestination {
+	populars := []popularDestination{}
+
+	placeIDs := make([]string, 0, len(nearbyPlaces))
+	for _, p := range nearbyPlaces {
+		placeIDs = append(placeIDs, p.PlaceID)
+	}
+
+	if len(placeIDs) == 0 {
+		return populars
+	}
+
+	nearbyRows, err := h.pool.Query(ctx, popularNearbyQuery, placeIDs)
+	if err != nil {
+		slog.Warn("places: nearby destination lookup failed", "error", err)
+		return populars
+	}
+	defer nearbyRows.Close()
+
+	for nearbyRows.Next() {
+		var d popularDestination
+		var mediaJSON []byte
+		if err := nearbyRows.Scan(&d.ID, &d.Name, &d.Slug, &d.County, &d.Locality, &d.Category,
+			&d.ShortDescription, &d.SaveCount, &mediaJSON); err != nil {
+			continue
+		}
+		if !d.ID.Valid {
+			continue
+		}
+		if mediaJSON != nil {
+			d.Media = json.RawMessage(mediaJSON)
+		} else {
+			d.Media = json.RawMessage(`[]`)
+		}
+		populars = append(populars, d)
+	}
+
+	if len(populars) > 10 {
+		populars = populars[:10]
+	}
+
+	return populars
 }
 
 func (h *PlacesHandler) fallbackPopular(ctx context.Context, w http.ResponseWriter) {
