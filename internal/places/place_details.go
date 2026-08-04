@@ -41,7 +41,7 @@ type placeDetailsResponse struct {
 	Rating                 float64               `json:"rating,omitempty"`
 	UserRatingCount        int32                 `json:"userRatingCount,omitempty"`
 	CurrentOpeningHours    *OpeningHours         `json:"currentOpeningHours,omitempty"`
-	PrimaryTypeDisplayName string                `json:"primaryTypeDisplayName,omitempty"`
+	PrimaryTypeDisplayName displayName          `json:"primaryTypeDisplayName,omitempty"`
 }
 
 func (c *Client) PlaceDetails(ctx context.Context, placeID, sessionToken string) (*PlaceDetails, error) {
@@ -70,7 +70,7 @@ func (c *Client) PlaceDetails(ctx context.Context, placeID, sessionToken string)
 		WebsiteURI:           resp.WebsiteURI,
 		Rating:               resp.Rating,
 		UserRatingCount:      resp.UserRatingCount,
-		PrimaryTypeDisplayName: resp.PrimaryTypeDisplayName,
+		PrimaryTypeDisplayName: resp.PrimaryTypeDisplayName.Text,
 	}
 	if resp.Location != nil {
 		result.Location = &LatLng{
