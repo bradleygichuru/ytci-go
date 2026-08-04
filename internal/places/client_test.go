@@ -16,7 +16,7 @@ func TestAutocomplete(t *testing.T) {
 		assert.Equal(t, "POST", r.Method)
 		assert.Contains(t, r.URL.Path, "autocomplete")
 		assert.Equal(t, "test-key", r.Header.Get("X-Goog-Api-Key"))
-		assert.Contains(t, r.Header.Get("X-Goog-FieldMask"), "places.id")
+		assert.Contains(t, r.Header.Get("X-Goog-FieldMask"), "suggestions.placePrediction.placeId")
 
 		resp := autocompleteResponse{
 			Suggestions: []autocompleteSuggestion{

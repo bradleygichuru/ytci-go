@@ -284,10 +284,10 @@ type mobilePopularMedia struct {
 }
 
 const popularQuery = `SELECT d.id, d.name, d.slug, d.county, d.locality, d.category,
-	d.short_description, COUNT(bli.id) AS save_count,
+	d.short_description,
+	(SELECT COUNT(*) FROM bucket_list_items bli WHERE bli.destination_id = d.id) AS save_count,
 	COALESCE(med.media, '[]'::json) AS media
 FROM destinations d
-LEFT JOIN bucket_list_items bli ON bli.destination_id = d.id
 LEFT JOIN LATERAL (
 	SELECT COALESCE(json_agg(json_build_object(
 		'objectKey', ma.object_key,
@@ -299,7 +299,6 @@ LEFT JOIN LATERAL (
 	WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text
 ) med ON true
 WHERE d.status = 'published'
-GROUP BY d.id, med.media
 ORDER BY save_count DESC, d.updated_at DESC
 LIMIT $1`
 

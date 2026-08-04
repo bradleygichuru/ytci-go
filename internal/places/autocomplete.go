@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const autocompleteFieldMask = "places.id,places.displayName,places.formattedAddress,places.location,places.types"
+const autocompleteFieldMask = "suggestions.placePrediction.placeId,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat,suggestions.placePrediction.types"
 
 type autocompleteRequest struct {
 	Input           string             `json:"input"`
