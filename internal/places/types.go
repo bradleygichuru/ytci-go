@@ -55,17 +55,37 @@ type SubDestination struct {
 }
 
 type PlaceDetails struct {
-	PlaceID             string                `json:"placeId"`
-	DisplayName         string                `json:"displayName"`
-	FormattedAddress    string                `json:"formattedAddress"`
-	Location            *LatLng               `json:"location,omitempty"`
-	Types               []string              `json:"types,omitempty"`
-	GoogleMapsURI       string                `json:"googleMapsUri,omitempty"`
-	NationalPhoneNumber string                `json:"nationalPhoneNumber,omitempty"`
-	WebsiteURI          string                `json:"websiteUri,omitempty"`
+	PlaceID              string                `json:"placeId"`
+	DisplayName          string                `json:"displayName"`
+	FormattedAddress     string                `json:"formattedAddress"`
+	Location             *LatLng               `json:"location,omitempty"`
+	Types                []string              `json:"types,omitempty"`
+	GoogleMapsURI        string                `json:"googleMapsUri,omitempty"`
+	NationalPhoneNumber  string                `json:"nationalPhoneNumber,omitempty"`
+	WebsiteURI           string                `json:"websiteUri,omitempty"`
 	AccessibilityOptions *AccessibilityOptions `json:"accessibilityOptions,omitempty"`
-	ContainingPlaces    []ContainingPlace     `json:"containingPlaces,omitempty"`
-	SubDestinations     []SubDestination      `json:"subDestinations,omitempty"`
+	ContainingPlaces     []ContainingPlace     `json:"containingPlaces,omitempty"`
+	SubDestinations      []SubDestination      `json:"subDestinations,omitempty"`
+	Rating               float64               `json:"rating,omitempty"`
+	UserRatingCount      int32                 `json:"userRatingCount,omitempty"`
+	CurrentOpeningHours  *OpeningHours         `json:"currentOpeningHours,omitempty"`
+	PrimaryTypeDisplayName string              `json:"primaryTypeDisplayName,omitempty"`
+}
+
+type OpeningHours struct {
+	OpenNow            bool                `json:"openNow,omitempty"`
+	Periods            []OpeningPeriod     `json:"periods,omitempty"`
+	WeekdayDescriptions []string           `json:"weekdayDescriptions,omitempty"`
+}
+
+type OpeningPeriod struct {
+	Open  OpeningPeriodPoint `json:"open"`
+	Close OpeningPeriodPoint `json:"close,omitempty"`
+}
+
+type OpeningPeriodPoint struct {
+	Day  int    `json:"day"`
+	Time string `json:"time"`
 }
 
 type NearbySearchRequest struct {
