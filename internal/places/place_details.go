@@ -7,17 +7,37 @@ import (
 	"net/url"
 )
 
-const placeDetailsFieldMask = "id,displayName,formattedAddress,location,types,googleMapsUri,nationalPhoneNumber,websiteUri"
+const placeDetailsFieldMask = "id,displayName,formattedAddress,location,types,googleMapsUri,nationalPhoneNumber,websiteUri,accessibilityOptions,containingPlaces,subDestinations"
+
+type accessibilityOptions struct {
+	WheelchairAccessibleParking  *bool `json:"wheelchairAccessibleParking,omitempty"`
+	WheelchairAccessibleEntrance *bool `json:"wheelchairAccessibleEntrance,omitempty"`
+	WheelchairAccessibleRestroom *bool `json:"wheelchairAccessibleRestroom,omitempty"`
+	WheelchairAccessibleSeating  *bool `json:"wheelchairAccessibleSeating,omitempty"`
+}
+
+type containingPlace struct {
+	Name string `json:"name"`
+	ID   string `json:"id"`
+}
+
+type subDestination struct {
+	Name string `json:"name"`
+	ID   string `json:"id"`
+}
 
 type placeDetailsResponse struct {
-	ID                  string       `json:"id"`
-	DisplayName         displayName  `json:"displayName"`
-	FormattedAddress    string       `json:"formattedAddress"`
-	Location            *rawLocation `json:"location,omitempty"`
-	Types               []string     `json:"types,omitempty"`
-	GoogleMapsURI       string       `json:"googleMapsUri,omitempty"`
-	NationalPhoneNumber string       `json:"nationalPhoneNumber,omitempty"`
-	WebsiteURI          string       `json:"websiteUri,omitempty"`
+	ID                   string                `json:"id"`
+	DisplayName          displayName           `json:"displayName"`
+	FormattedAddress     string                `json:"formattedAddress"`
+	Location             *rawLocation          `json:"location,omitempty"`
+	Types                []string              `json:"types,omitempty"`
+	GoogleMapsURI        string                `json:"googleMapsUri,omitempty"`
+	NationalPhoneNumber  string                `json:"nationalPhoneNumber,omitempty"`
+	WebsiteURI           string                `json:"websiteUri,omitempty"`
+	AccessibilityOptions *accessibilityOptions `json:"accessibilityOptions,omitempty"`
+	ContainingPlaces     []containingPlace     `json:"containingPlaces,omitempty"`
+	SubDestinations      []subDestination      `json:"subDestinations,omitempty"`
 }
 
 func (c *Client) PlaceDetails(ctx context.Context, placeID, sessionToken string) (*PlaceDetails, error) {
@@ -49,6 +69,26 @@ func (c *Client) PlaceDetails(ctx context.Context, placeID, sessionToken string)
 		result.Location = &LatLng{
 			Latitude:  resp.Location.Latitude,
 			Longitude: resp.Location.Longitude,
+		}
+	}
+	if resp.AccessibilityOptions != nil {
+		result.AccessibilityOptions = &AccessibilityOptions{
+			WheelchairAccessibleParking:  resp.AccessibilityOptions.WheelchairAccessibleParking,
+			WheelchairAccessibleEntrance: resp.AccessibilityOptions.WheelchairAccessibleEntrance,
+			WheelchairAccessibleRestroom: resp.AccessibilityOptions.WheelchairAccessibleRestroom,
+			WheelchairAccessibleSeating:  resp.AccessibilityOptions.WheelchairAccessibleSeating,
+		}
+	}
+	if len(resp.ContainingPlaces) > 0 {
+		result.ContainingPlaces = make([]ContainingPlace, len(resp.ContainingPlaces))
+		for i, cp := range resp.ContainingPlaces {
+			result.ContainingPlaces[i] = ContainingPlace{Name: cp.Name, ID: cp.ID}
+		}
+	}
+	if len(resp.SubDestinations) > 0 {
+		result.SubDestinations = make([]SubDestination, len(resp.SubDestinations))
+		for i, sd := range resp.SubDestinations {
+			result.SubDestinations[i] = SubDestination{Name: sd.Name, ID: sd.ID}
 		}
 	}
 

@@ -37,15 +37,35 @@ type TextSearchResult struct {
 	UserRatingCount  int32   `json:"userRatingCount,omitempty"`
 }
 
+type AccessibilityOptions struct {
+	WheelchairAccessibleParking  *bool `json:"wheelchairAccessibleParking,omitempty"`
+	WheelchairAccessibleEntrance *bool `json:"wheelchairAccessibleEntrance,omitempty"`
+	WheelchairAccessibleRestroom *bool `json:"wheelchairAccessibleRestroom,omitempty"`
+	WheelchairAccessibleSeating  *bool `json:"wheelchairAccessibleSeating,omitempty"`
+}
+
+type ContainingPlace struct {
+	Name string `json:"name"`
+	ID   string `json:"id"`
+}
+
+type SubDestination struct {
+	Name string `json:"name"`
+	ID   string `json:"id"`
+}
+
 type PlaceDetails struct {
-	PlaceID          string   `json:"placeId"`
-	DisplayName      string   `json:"displayName"`
-	FormattedAddress string   `json:"formattedAddress"`
-	Location         *LatLng  `json:"location,omitempty"`
-	Types            []string `json:"types,omitempty"`
-	GoogleMapsURI    string   `json:"googleMapsUri,omitempty"`
-	NationalPhoneNumber string `json:"nationalPhoneNumber,omitempty"`
-	WebsiteURI       string   `json:"websiteUri,omitempty"`
+	PlaceID             string                `json:"placeId"`
+	DisplayName         string                `json:"displayName"`
+	FormattedAddress    string                `json:"formattedAddress"`
+	Location            *LatLng               `json:"location,omitempty"`
+	Types               []string              `json:"types,omitempty"`
+	GoogleMapsURI       string                `json:"googleMapsUri,omitempty"`
+	NationalPhoneNumber string                `json:"nationalPhoneNumber,omitempty"`
+	WebsiteURI          string                `json:"websiteUri,omitempty"`
+	AccessibilityOptions *AccessibilityOptions `json:"accessibilityOptions,omitempty"`
+	ContainingPlaces    []ContainingPlace     `json:"containingPlaces,omitempty"`
+	SubDestinations     []SubDestination      `json:"subDestinations,omitempty"`
 }
 
 type NearbySearchRequest struct {
@@ -131,4 +151,22 @@ func TypeChip(types []string) string {
 		return fmt.Sprintf("📍 %s", types[0])
 	}
 	return "📍 Place"
+}
+
+func AllTypeChips(types []string) []string {
+	seen := make(map[string]bool)
+	chips := make([]string, 0, len(types))
+	for _, t := range types {
+		if seen[t] {
+			continue
+		}
+		seen[t] = true
+		if label, ok := typeLabelMap[t]; ok {
+			chips = append(chips, label)
+		}
+	}
+	if len(chips) == 0 && len(types) > 0 {
+		chips = append(chips, fmt.Sprintf("📍 %s", types[0]))
+	}
+	return chips
 }

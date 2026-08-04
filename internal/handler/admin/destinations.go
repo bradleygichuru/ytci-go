@@ -17,6 +17,7 @@ import (
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 	"github.com/bradleygichuru/ytci-go/internal/model"
 	"github.com/bradleygichuru/ytci-go/internal/pagination"
+	"github.com/bradleygichuru/ytci-go/internal/places"
 	"github.com/bradleygichuru/ytci-go/internal/r2"
 )
 
@@ -609,10 +610,14 @@ func (h *DestinationsHandler) ListMobile(w http.ResponseWriter, r *http.Request)
 		AccessRoute       *string        `json:"accessRoute,omitempty"`
 		DistanceReference *string        `json:"distanceReference,omitempty"`
 		Media             []mobileMedia  `json:"media"`
-		Lng               interface{}    `json:"lng"`
-		Lat               interface{}    `json:"lat"`
-		CreatedAt         pgtype.Timestamp `json:"createdAt"`
-		UpdatedAt         pgtype.Timestamp `json:"updatedAt"`
+		Lng               interface{}       `json:"lng"`
+		Lat               interface{}       `json:"lat"`
+		Source            *string           `json:"source,omitempty"`
+		GooglePlaceID     *string           `json:"googlePlaceId,omitempty"`
+		TypeChips         []string          `json:"typeChips,omitempty"`
+		PlaceDetails      *json.RawMessage  `json:"placeDetails,omitempty"`
+		CreatedAt         pgtype.Timestamp  `json:"createdAt"`
+		UpdatedAt         pgtype.Timestamp  `json:"updatedAt"`
 	}
 
 	var items []mobileDestination
@@ -668,7 +673,7 @@ func (h *DestinationsHandler) GetMobile(w http.ResponseWriter, r *http.Request) 
 			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
 			'[]'
 		) AS media,
-		d.created_at, d.updated_at
+		d.source, d.google_place_id, d.created_at, d.updated_at
 		FROM destinations d WHERE d.slug = $1`
 
 	type mobileMedia struct {
@@ -706,21 +711,26 @@ func (h *DestinationsHandler) GetMobile(w http.ResponseWriter, r *http.Request) 
 		AccessRoute       *string        `json:"accessRoute,omitempty"`
 		DistanceReference *string        `json:"distanceReference,omitempty"`
 		Media             []mobileMedia  `json:"media"`
-		Lng               interface{}    `json:"lng"`
-		Lat               interface{}    `json:"lat"`
-		CreatedAt         pgtype.Timestamp `json:"createdAt"`
-		UpdatedAt         pgtype.Timestamp `json:"updatedAt"`
+		Lng               interface{}       `json:"lng"`
+		Lat               interface{}       `json:"lat"`
+		Source            *string           `json:"source,omitempty"`
+		GooglePlaceID     *string           `json:"googlePlaceId,omitempty"`
+		TypeChips         []string          `json:"typeChips,omitempty"`
+		PlaceDetails      *json.RawMessage  `json:"placeDetails,omitempty"`
+		CreatedAt         pgtype.Timestamp  `json:"createdAt"`
+		UpdatedAt         pgtype.Timestamp  `json:"updatedAt"`
 	}
 
 	var dest mobileDestination
 	var mediaJSON []byte
+	var source, googlePlaceID *string
 	err := h.pool.QueryRow(r.Context(), q, slug).Scan(&dest.ID, &dest.Name, &dest.Slug, &dest.County, &dest.Locality, &dest.Category,
 		&dest.ShortDescription, &dest.FullDescription, &dest.Significance, &dest.History,
 		&dest.ThingsToDo, &dest.SuitableAudiences, &dest.Duration, &dest.Difficulty,
 		&dest.Seasonality, &dest.IndicativeFees, &dest.OpeningInfo, &dest.TransportNotes,
 		&dest.Accessibility, &dest.Facilities, &dest.SafetyNotes, &dest.MapLabel,
 		&dest.AccessRoute, &dest.DistanceReference,
-		&dest.Lng, &dest.Lat, &mediaJSON, &dest.CreatedAt, &dest.UpdatedAt)
+		&dest.Lng, &dest.Lat, &mediaJSON, &source, &googlePlaceID, &dest.CreatedAt, &dest.UpdatedAt)
 	if err != nil {
 		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "destination not found")
 		return
@@ -735,6 +745,27 @@ func (h *DestinationsHandler) GetMobile(w http.ResponseWriter, r *http.Request) 
 	if dest.Media == nil {
 		dest.Media = []mobileMedia{}
 	}
+	dest.Source = source
+	dest.GooglePlaceID = googlePlaceID
+
+	if source != nil && *source == "google_places" && googlePlaceID != nil {
+		var placeData []byte
+		err := h.pool.QueryRow(r.Context(),
+			`SELECT data FROM google_places_cache WHERE place_id = $1`, *googlePlaceID).Scan(&placeData)
+		if err == nil && len(placeData) > 0 {
+			raw := json.RawMessage(placeData)
+			dest.PlaceDetails = &raw
+
+			var pd struct{ Types []string `json:"types"` }
+			if json.Unmarshal(placeData, &pd) == nil && len(pd.Types) > 0 {
+				dest.TypeChips = places.AllTypeChips(pd.Types)
+				if dest.TypeChips == nil {
+					dest.TypeChips = []string{}
+				}
+			}
+		}
+	}
+
 	slog.Debug("GetMobile media", "slug", slug, "media_json", string(mediaJSON), "parsed_count", len(dest.Media))
 
 	w.Header().Set("Content-Type", "application/json")
@@ -816,8 +847,12 @@ func (h *DestinationsHandler) NearbyMobile(w http.ResponseWriter, r *http.Reques
 		DistanceMeters    float64           `json:"distanceMeters"`
 		Lng               interface{}       `json:"lng"`
 		Lat               interface{}       `json:"lat"`
-		CreatedAt         pgtype.Timestamp  `json:"createdAt"`
-		UpdatedAt         pgtype.Timestamp  `json:"updatedAt"`
+		Source            *string          `json:"source,omitempty"`
+		GooglePlaceID     *string          `json:"googlePlaceId,omitempty"`
+		TypeChips         []string         `json:"typeChips,omitempty"`
+		PlaceDetails      *json.RawMessage `json:"placeDetails,omitempty"`
+		CreatedAt         pgtype.Timestamp `json:"createdAt"`
+		UpdatedAt         pgtype.Timestamp `json:"updatedAt"`
 	}
 
 	rows, err := h.pool.Query(r.Context(), q, lng, lat, radiusMeters, 20)
