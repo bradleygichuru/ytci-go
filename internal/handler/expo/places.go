@@ -186,6 +186,12 @@ func (h *PlacesHandler) Resolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if error is "no rows found" vs other error
+	if !strings.Contains(err.Error(), "no rows") {
+		handler.WriteServerError(w, r, "DB_ERROR", "failed to check existing destination", err)
+		return
+	}
+
 	details, err := h.client.PlaceDetails(ctx, req.PlaceID, req.SessionToken)
 	if err != nil {
 		handler.WriteServerError(w, r, "PLACES_ERROR", "failed to fetch place details", err)
@@ -198,6 +204,16 @@ func (h *PlacesHandler) Resolve(w http.ResponseWriter, r *http.Request) {
 
 	dest, err := h.createDraftDestination(ctx, details)
 	if err != nil {
+		// Check if error is duplicate key violation (SQLSTATE 23505)
+		if strings.Contains(err.Error(), "SQLSTATE 23505") || strings.Contains(err.Error(), "duplicate key") {
+			// Destination already exists, fetch and return it
+			existing, fetchErr := h.queries().GetDestinationByGooglePlaceID(ctx, &req.PlaceID)
+			if fetchErr == nil {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]string{"slug": existing.Slug})
+				return
+			}
+		}
 		handler.WriteServerError(w, r, "CREATE_ERROR", "failed to create draft destination", err)
 		return
 	}
