@@ -142,6 +142,7 @@ func mountAdminRoutes(sub chi.Router, h *handlers, r2client r2.Store, jwks *midd
 		aR.Post("/destinations", h.dest.Create)
 		aR.Patch("/destinations/{id}", h.dest.Update)
 		aR.Delete("/destinations/{id}", h.dest.Delete)
+		aR.Post("/destinations/cache/invalidate", h.dest.InvalidatePlacesCache)
 		aR.Get("/events", h.events.List)
 		aR.Get("/events/{id}", h.events.Get)
 		aR.Post("/events", h.events.Create)
@@ -231,6 +232,7 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 		m.Get("/stories/{id}", h.mStories.StoryDetail)
 		m.Get("/places/autocomplete", h.places.Autocomplete)
 		m.Get("/places/search", h.places.Search)
+		m.Get("/places/location", h.places.GetLocation)
 		m.Get("/destinations/popular", h.places.Popular)
 
 		m.Group(func(aR chi.Router) {

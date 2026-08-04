@@ -922,3 +922,22 @@ func (h *DestinationsHandler) Nearby(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(results)
 }
+
+func (h *DestinationsHandler) InvalidatePlacesCache(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	_, err := h.pool.Exec(ctx, "DELETE FROM google_places_cache")
+	if err != nil {
+		handler.WriteServerError(w, r, "CACHE_ERROR", "failed to clear places cache", err)
+		return
+	}
+
+	_, err = h.pool.Exec(ctx, "DELETE FROM google_places_search_cache")
+	if err != nil {
+		handler.WriteServerError(w, r, "CACHE_ERROR", "failed to clear search cache", err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "all places cache cleared"})
+}

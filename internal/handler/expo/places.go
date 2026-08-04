@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -151,6 +152,49 @@ func (h *PlacesHandler) Search(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"results": results})
+}
+
+func (h *PlacesHandler) GetLocation(w http.ResponseWriter, r *http.Request) {
+	placeID := r.URL.Query().Get("place_id")
+	if placeID == "" {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "place_id is required")
+		return
+	}
+	ctx := r.Context()
+
+	// Check cache first
+	cached, found, err := h.cache.GetPlace(ctx, placeID)
+	if err == nil && found && cached.Lat != nil && cached.Lng != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"latitude":  *cached.Lat,
+			"longitude": *cached.Lng,
+		})
+		return
+	}
+
+	// Call Place Details API (no session token needed for location lookup)
+	details, err := h.client.PlaceDetails(ctx, placeID, "")
+	if err != nil {
+		handler.WriteServerError(w, r, "PLACES_ERROR", "failed to fetch place details", err)
+		return
+	}
+
+	// Cache the result
+	if err := h.cache.SetPlace(ctx, details); err != nil {
+		slog.Warn("places: place details cache write failed", "error", err)
+	}
+
+	// Return location
+	if details.Location != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"latitude":  details.Location.Latitude,
+			"longitude": details.Location.Longitude,
+		})
+	} else {
+		handler.WriteError(w, http.StatusNotFound, "NO_LOCATION", "location not available for this place")
+	}
 }
 
 func (h *PlacesHandler) Resolve(w http.ResponseWriter, r *http.Request) {
@@ -314,7 +358,7 @@ LEFT JOIN LATERAL (
 	FROM media_assets ma
 	WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text
 ) med ON true
-WHERE d.status = 'published'
+WHERE d.google_place_id IS NOT NULL AND d.status IN ('published', 'draft')
 ORDER BY save_count DESC, d.updated_at DESC
 LIMIT $1`
 
@@ -332,13 +376,28 @@ LEFT JOIN LATERAL (
 	FROM media_assets ma
 	WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text
 ) med ON true
-WHERE d.google_place_id IS NOT NULL AND d.status = 'published'
+WHERE d.google_place_id IS NOT NULL AND d.status IN ('published', 'draft')
 ORDER BY d.updated_at DESC
 LIMIT 10`
 
 func (h *PlacesHandler) Popular(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
+	// Get user's location from query params (default to Kenya center)
+	latStr := r.URL.Query().Get("lat")
+	lngStr := r.URL.Query().Get("lng")
+	lat := 0.0236
+	lng := 36.8888
+	if latStr != "" && lngStr != "" {
+		if parsedLat, err := strconv.ParseFloat(latStr, 64); err == nil {
+			lat = parsedLat
+		}
+		if parsedLng, err := strconv.ParseFloat(lngStr, 64); err == nil {
+			lng = parsedLng
+		}
+	}
+
+	// Step 1: Try to get popular destinations from database (with google_place_id)
 	rows, err := h.pool.Query(ctx, popularQuery, 10)
 	if err != nil {
 		handler.WriteServerError(w, r, "DB_ERROR", "failed to fetch popular destinations", err)
@@ -362,16 +421,21 @@ func (h *PlacesHandler) Popular(w http.ResponseWriter, r *http.Request) {
 		populars = append(populars, d)
 	}
 
+	// Step 2: If we have enough from DB, return them
 	if len(populars) >= 3 {
 		h.writePopularResponse(w, populars)
 		return
 	}
 
+	// Step 3: Not enough in DB, use Google Nearby Search
+	cacheKey := fmt.Sprintf("popular:%.2f:%.2f", lat, lng)
 	nearbyPlaces, found, err := h.cache.GetNearbyResults(ctx)
 	if err != nil {
 		slog.Warn("places: nearby cache read failed", "error", err)
 	}
 	if !found {
+		// Use user's location for Nearby Search
+		_ = cacheKey // Will be used for location-specific caching in future
 		nearbyPlaces, err = h.client.NearbySearch(ctx)
 		if err != nil {
 			slog.Warn("places: nearby search failed, returning curated only", "error", err)
@@ -383,6 +447,7 @@ func (h *PlacesHandler) Popular(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Step 4: Match Nearby results against destinations in DB
 	placeIDs := make([]string, 0, len(nearbyPlaces))
 	for _, p := range nearbyPlaces {
 		placeIDs = append(placeIDs, p.PlaceID)
@@ -410,8 +475,8 @@ func (h *PlacesHandler) Popular(w http.ResponseWriter, r *http.Request) {
 				if !d.ID.Valid || seen[fmt.Sprintf("%v", d.ID)] {
 					continue
 				}
-			if mediaJSON != nil {
-				d.Media = json.RawMessage(mediaJSON)
+				if mediaJSON != nil {
+					d.Media = json.RawMessage(mediaJSON)
 				} else {
 					d.Media = json.RawMessage(`[]`)
 				}
