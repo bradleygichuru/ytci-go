@@ -296,20 +296,64 @@ func (q *Queries) GetPopularDestinations(ctx context.Context, limit int32) ([]Ge
 }
 
 const listPublishedDestinationsWithoutPlaceID = `-- name: ListPublishedDestinationsWithoutPlaceID :many
-SELECT id, name, slug, county, locality, category, status, location, map_label, access_route, distance_reference, short_description, full_description, significance, history, things_to_do, suitable_audiences, duration, difficulty, seasonality, indicative_fees, opening_info, transport_notes, accessibility, facilities, safety_notes, source, content_owner, verification_status, last_updated, review_date, created_by, created_at, updated_at, google_place_id FROM destinations
+SELECT id, name, slug, county, locality, category, status, location,
+       map_label, access_route, distance_reference,
+       short_description, full_description, significance, history,
+       things_to_do, suitable_audiences, duration, difficulty, seasonality,
+       indicative_fees, opening_info, transport_notes, accessibility, facilities, safety_notes,
+       source, content_owner, verification_status,
+       last_updated, review_date, created_at, updated_at, google_place_id
+FROM destinations
 WHERE status = 'published' AND google_place_id IS NULL
 ORDER BY name
 `
 
-func (q *Queries) ListPublishedDestinationsWithoutPlaceID(ctx context.Context) ([]Destination, error) {
+type ListPublishedDestinationsWithoutPlaceIDRow struct {
+	ID                 pgtype.UUID      `json:"id"`
+	Name               string           `json:"name"`
+	Slug               string           `json:"slug"`
+	County             string           `json:"county"`
+	Locality           *string          `json:"locality"`
+	Category           string           `json:"category"`
+	Status             string           `json:"status"`
+	Location           interface{}      `json:"location"`
+	MapLabel           *string          `json:"map_label"`
+	AccessRoute        *string          `json:"access_route"`
+	DistanceReference  *string          `json:"distance_reference"`
+	ShortDescription   *string          `json:"short_description"`
+	FullDescription    *string          `json:"full_description"`
+	Significance       *string          `json:"significance"`
+	History            *string          `json:"history"`
+	ThingsToDo         *string          `json:"things_to_do"`
+	SuitableAudiences  *string          `json:"suitable_audiences"`
+	Duration           *string          `json:"duration"`
+	Difficulty         *string          `json:"difficulty"`
+	Seasonality        *string          `json:"seasonality"`
+	IndicativeFees     *string          `json:"indicative_fees"`
+	OpeningInfo        *string          `json:"opening_info"`
+	TransportNotes     *string          `json:"transport_notes"`
+	Accessibility      *string          `json:"accessibility"`
+	Facilities         *string          `json:"facilities"`
+	SafetyNotes        *string          `json:"safety_notes"`
+	Source             *string          `json:"source"`
+	ContentOwner       *string          `json:"content_owner"`
+	VerificationStatus *string          `json:"verification_status"`
+	LastUpdated        pgtype.Timestamp `json:"last_updated"`
+	ReviewDate         pgtype.Timestamp `json:"review_date"`
+	CreatedAt          pgtype.Timestamp `json:"created_at"`
+	UpdatedAt          pgtype.Timestamp `json:"updated_at"`
+	GooglePlaceID      *string          `json:"google_place_id"`
+}
+
+func (q *Queries) ListPublishedDestinationsWithoutPlaceID(ctx context.Context) ([]ListPublishedDestinationsWithoutPlaceIDRow, error) {
 	rows, err := q.db.Query(ctx, listPublishedDestinationsWithoutPlaceID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Destination
+	var items []ListPublishedDestinationsWithoutPlaceIDRow
 	for rows.Next() {
-		var i Destination
+		var i ListPublishedDestinationsWithoutPlaceIDRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
@@ -342,7 +386,6 @@ func (q *Queries) ListPublishedDestinationsWithoutPlaceID(ctx context.Context) (
 			&i.VerificationStatus,
 			&i.LastUpdated,
 			&i.ReviewDate,
-			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.GooglePlaceID,

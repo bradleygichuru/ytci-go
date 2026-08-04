@@ -49,7 +49,14 @@ ORDER BY save_count DESC, d.updated_at DESC
 LIMIT $1;
 
 -- name: ListPublishedDestinationsWithoutPlaceID :many
-SELECT * FROM destinations
+SELECT id, name, slug, county, locality, category, status, location,
+       map_label, access_route, distance_reference,
+       short_description, full_description, significance, history,
+       things_to_do, suitable_audiences, duration, difficulty, seasonality,
+       indicative_fees, opening_info, transport_notes, accessibility, facilities, safety_notes,
+       source, content_owner, verification_status,
+       last_updated, review_date, created_at, updated_at, google_place_id
+FROM destinations
 WHERE status = 'published' AND google_place_id IS NULL
 ORDER BY name;
 
