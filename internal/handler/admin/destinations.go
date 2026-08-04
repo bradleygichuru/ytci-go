@@ -407,14 +407,31 @@ func (h *DestinationsHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 func (h *DestinationsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	destID := r.PathValue("id")
-	_, err := h.pool.Exec(r.Context(),
-		`UPDATE destinations SET status = 'archived', updated_at = now() WHERE id = $1`, destID)
+	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
-		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to archive destination", err)
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to begin transaction", err)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "archived"})
+	defer tx.Rollback(r.Context())
+
+	_, err = tx.Exec(r.Context(),
+		`DELETE FROM media_assets WHERE entity_type = 'destination' AND entity_id = $1`, destID)
+	if err != nil {
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to delete destination media", err)
+		return
+	}
+	_, err = tx.Exec(r.Context(),
+		`DELETE FROM destinations WHERE id = $1`, destID)
+	if err != nil {
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to delete destination", err)
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to commit transaction", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *DestinationsHandler) linkMedia(ctx context.Context, destID, mediaID string) error {
