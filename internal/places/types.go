@@ -91,6 +91,8 @@ type OpeningPeriodPoint struct {
 type NearbySearchRequest struct {
 	LocationRestriction *LocationRestriction `json:"locationRestriction"`
 	MaxResultCount      int                  `json:"maxResultCount"`
+	IncludedTypes       []string             `json:"includedTypes,omitempty"`
+	ExcludedTypes       []string             `json:"excludedTypes,omitempty"`
 }
 
 type LocationRestriction struct {

@@ -522,9 +522,12 @@ func (h *PlacesHandler) Popular(w http.ResponseWriter, r *http.Request) {
 func (h *PlacesHandler) matchNearbyPlaces(ctx context.Context, nearbyPlaces []places.NearbyPlace) []popularDestination {
 	populars := []popularDestination{}
 
+	// Post-filter: only keep tourist-relevant places (safety net for API-level filter)
 	placeIDs := make([]string, 0, len(nearbyPlaces))
 	for _, p := range nearbyPlaces {
-		placeIDs = append(placeIDs, p.PlaceID)
+		if places.IsTouristPlace(p.Types) {
+			placeIDs = append(placeIDs, p.PlaceID)
+		}
 	}
 
 	if len(placeIDs) == 0 {
@@ -568,6 +571,9 @@ func (h *PlacesHandler) matchNearbyPlaces(ctx context.Context, nearbyPlaces []pl
 	// Auto-create drafts for unmatched Google Place IDs
 	for _, np := range nearbyPlaces {
 		if matched[np.PlaceID] {
+			continue
+		}
+		if !places.IsTouristPlace(np.Types) {
 			continue
 		}
 		if len(populars) >= 10 {
