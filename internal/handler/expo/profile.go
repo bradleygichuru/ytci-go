@@ -38,12 +38,19 @@ func (h *ProfileHandler) Get(w http.ResponseWriter, r *http.Request) {
 		 JOIN destinations d ON d.id = b.destination_id
 		 WHERE b.user_id = $1 AND b.visited = true`, userID).Scan(&countyCount)
 
+	var languages, preferences *string
+	h.pool.QueryRow(r.Context(),
+		`SELECT languages, preferences FROM user_profiles WHERE user_id = $1`,
+		userID).Scan(&languages, &preferences)
+
 	resp := map[string]any{
 		"countiesVisited":     countyCount,
 		"storiesSubmitted":    stories,
 		"challengesCompleted": 0,
 		"coursesEnrolled":     enrollments,
 		"conservationActions": conservation,
+		"languages":           languages,
+		"preferences":         preferences,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
