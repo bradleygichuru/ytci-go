@@ -260,7 +260,7 @@ func (h *PlacesHandler) Resolve(w http.ResponseWriter, r *http.Request) {
 	existing, err := h.queries().GetDestinationByGooglePlaceID(ctx, &req.PlaceID)
 	if err == nil {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"slug": existing.Slug})
+		json.NewEncoder(w).Encode(map[string]interface{}{"slug": existing.Slug, "id": existing.ID})
 		return
 	}
 
@@ -290,7 +290,7 @@ func (h *PlacesHandler) Resolve(w http.ResponseWriter, r *http.Request) {
 			existing, fetchErr := h.queries().GetDestinationByGooglePlaceID(ctx, &req.PlaceID)
 			if fetchErr == nil {
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(map[string]string{"slug": existing.Slug})
+				json.NewEncoder(w).Encode(map[string]interface{}{"slug": existing.Slug, "id": existing.ID})
 				return
 			}
 		}
@@ -300,7 +300,7 @@ func (h *PlacesHandler) Resolve(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"slug": dest.Slug})
+	json.NewEncoder(w).Encode(map[string]interface{}{"slug": dest.Slug, "id": dest.ID})
 }
 
 func (h *PlacesHandler) createDraftDestination(ctx context.Context, details *places.PlaceDetails) (gen.Destination, error) {
