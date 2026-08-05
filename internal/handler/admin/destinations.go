@@ -593,8 +593,11 @@ func (h *DestinationsHandler) ListMobile(w http.ResponseWriter, r *http.Request)
 			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
 			'[]'
 		) AS media,
+		gpc.hero_image_url, gpc.hero_image_source, gpc.hero_image_attribution,
 		d.created_at, d.updated_at
-		FROM destinations d WHERE d.status = 'published'`
+		FROM destinations d
+		LEFT JOIN google_places_cache gpc ON gpc.place_id = d.google_place_id
+		WHERE d.status = 'published'`
 
 	args := []any{}
 	argIdx := 1
@@ -664,10 +667,13 @@ func (h *DestinationsHandler) ListMobile(w http.ResponseWriter, r *http.Request)
 		Lat               interface{}       `json:"lat"`
 		Source            *string           `json:"source,omitempty"`
 		GooglePlaceID     *string           `json:"googlePlaceId,omitempty"`
-		TypeChips         []string          `json:"typeChips,omitempty"`
-		PlaceDetails      *json.RawMessage  `json:"placeDetails,omitempty"`
-		CreatedAt         pgtype.Timestamp  `json:"createdAt"`
-		UpdatedAt         pgtype.Timestamp  `json:"updatedAt"`
+		TypeChips            []string          `json:"typeChips,omitempty"`
+		PlaceDetails         *json.RawMessage  `json:"placeDetails,omitempty"`
+		HeroImageUrl         *string           `json:"heroImageUrl,omitempty"`
+		HeroImageSource      *string           `json:"heroImageSource,omitempty"`
+		HeroImageAttribution *string           `json:"heroImageAttribution,omitempty"`
+		CreatedAt            pgtype.Timestamp  `json:"createdAt"`
+		UpdatedAt            pgtype.Timestamp  `json:"updatedAt"`
 	}
 
 	var items []mobileDestination
@@ -680,7 +686,8 @@ func (h *DestinationsHandler) ListMobile(w http.ResponseWriter, r *http.Request)
 			&i.Seasonality, &i.IndicativeFees, &i.OpeningInfo, &i.TransportNotes,
 			&i.Accessibility, &i.Facilities, &i.SafetyNotes, &i.MapLabel,
 			&i.AccessRoute, &i.DistanceReference,
-			&i.Lng, &i.Lat, &mediaJSON, &i.CreatedAt, &i.UpdatedAt)
+			&i.Lng, &i.Lat, &mediaJSON, &i.HeroImageUrl, &i.HeroImageSource, &i.HeroImageAttribution,
+			&i.CreatedAt, &i.UpdatedAt)
 		if mediaJSON != nil {
 			mediaJSON = h.presignMedia(mediaJSON, true)
 			if err := json.Unmarshal(mediaJSON, &i.Media); err != nil {
@@ -865,9 +872,11 @@ func (h *DestinationsHandler) NearbyMobile(w http.ResponseWriter, r *http.Reques
 			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
 			'[]'
 		) AS media,
+		gpc.hero_image_url, gpc.hero_image_source, gpc.hero_image_attribution,
 		ST_Distance(d.location, ST_MakePoint($1, $2)::geography) AS distance_meters,
 		d.created_at, d.updated_at
 		FROM destinations d
+		LEFT JOIN google_places_cache gpc ON gpc.place_id = d.google_place_id
 		WHERE d.status = 'published'
 		AND ST_DWithin(d.location, ST_MakePoint($1, $2)::geography, $3)
 		ORDER BY distance_meters ASC
@@ -913,10 +922,13 @@ func (h *DestinationsHandler) NearbyMobile(w http.ResponseWriter, r *http.Reques
 		Lat               interface{}       `json:"lat"`
 		Source            *string          `json:"source,omitempty"`
 		GooglePlaceID     *string          `json:"googlePlaceId,omitempty"`
-		TypeChips         []string         `json:"typeChips,omitempty"`
-		PlaceDetails      *json.RawMessage `json:"placeDetails,omitempty"`
-		CreatedAt         pgtype.Timestamp `json:"createdAt"`
-		UpdatedAt         pgtype.Timestamp `json:"updatedAt"`
+		TypeChips            []string            `json:"typeChips,omitempty"`
+		PlaceDetails         *json.RawMessage    `json:"placeDetails,omitempty"`
+		HeroImageUrl         *string             `json:"heroImageUrl,omitempty"`
+		HeroImageSource      *string             `json:"heroImageSource,omitempty"`
+		HeroImageAttribution *string             `json:"heroImageAttribution,omitempty"`
+		CreatedAt            pgtype.Timestamp    `json:"createdAt"`
+		UpdatedAt            pgtype.Timestamp    `json:"updatedAt"`
 	}
 
 	rows, err := h.pool.Query(r.Context(), q, lng, lat, radiusMeters, 20)
@@ -938,7 +950,8 @@ func (h *DestinationsHandler) NearbyMobile(w http.ResponseWriter, r *http.Reques
 			&i.Seasonality, &i.IndicativeFees, &i.OpeningInfo, &i.TransportNotes,
 			&i.Accessibility, &i.Facilities, &i.SafetyNotes, &i.MapLabel,
 			&i.AccessRoute, &i.DistanceReference,
-			&i.Lng, &i.Lat, &mediaJSON, &i.DistanceMeters, &i.CreatedAt, &i.UpdatedAt)
+			&i.Lng, &i.Lat, &mediaJSON, &i.HeroImageUrl, &i.HeroImageSource, &i.HeroImageAttribution,
+			&i.DistanceMeters, &i.CreatedAt, &i.UpdatedAt)
 		if mediaJSON != nil {
 			mediaJSON = h.presignMedia(mediaJSON, true)
 			if err := json.Unmarshal(mediaJSON, &i.Media); err != nil {

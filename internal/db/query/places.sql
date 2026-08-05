@@ -72,9 +72,12 @@ UPDATE destinations SET google_place_id = $2, updated_at = now()
 WHERE id = $1;
 
 -- name: UpdateGooglePlacesHeroImage :exec
-UPDATE google_places_cache
-SET hero_image_url = $2, hero_image_source = $3, hero_image_attribution = $4
-WHERE place_id = $1;
+INSERT INTO google_places_cache (place_id, hero_image_url, hero_image_source, hero_image_attribution)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (place_id) DO UPDATE SET
+    hero_image_url = EXCLUDED.hero_image_url,
+    hero_image_source = EXCLUDED.hero_image_source,
+    hero_image_attribution = EXCLUDED.hero_image_attribution;
 
 -- name: GetGooglePlacesHeroImage :one
 SELECT hero_image_url, hero_image_source, hero_image_attribution
