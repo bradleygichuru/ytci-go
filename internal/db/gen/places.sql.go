@@ -132,7 +132,7 @@ func (q *Queries) GetDestinationByGooglePlaceID(ctx context.Context, googlePlace
 }
 
 const getGooglePlacesCache = `-- name: GetGooglePlacesCache :one
-SELECT place_id, name, formatted_address, lat, lng, types, data, cached_at FROM google_places_cache WHERE place_id = $1
+SELECT place_id, name, formatted_address, lat, lng, types, data, cached_at, hero_image_url, hero_image_source, hero_image_attribution FROM google_places_cache WHERE place_id = $1
 `
 
 func (q *Queries) GetGooglePlacesCache(ctx context.Context, placeID string) (GooglePlacesCache, error) {
@@ -147,12 +147,15 @@ func (q *Queries) GetGooglePlacesCache(ctx context.Context, placeID string) (Goo
 		&i.Types,
 		&i.Data,
 		&i.CachedAt,
+		&i.HeroImageUrl,
+		&i.HeroImageSource,
+		&i.HeroImageAttribution,
 	)
 	return i, err
 }
 
 const getGooglePlacesCacheFresh = `-- name: GetGooglePlacesCacheFresh :one
-SELECT place_id, name, formatted_address, lat, lng, types, data, cached_at FROM google_places_cache
+SELECT place_id, name, formatted_address, lat, lng, types, data, cached_at, hero_image_url, hero_image_source, hero_image_attribution FROM google_places_cache
 WHERE place_id = $1 AND cached_at > now() - interval '30 days'
 `
 
@@ -168,7 +171,29 @@ func (q *Queries) GetGooglePlacesCacheFresh(ctx context.Context, placeID string)
 		&i.Types,
 		&i.Data,
 		&i.CachedAt,
+		&i.HeroImageUrl,
+		&i.HeroImageSource,
+		&i.HeroImageAttribution,
 	)
+	return i, err
+}
+
+const getGooglePlacesHeroImage = `-- name: GetGooglePlacesHeroImage :one
+SELECT hero_image_url, hero_image_source, hero_image_attribution
+FROM google_places_cache
+WHERE place_id = $1
+`
+
+type GetGooglePlacesHeroImageRow struct {
+	HeroImageUrl         *string `json:"hero_image_url"`
+	HeroImageSource      *string `json:"hero_image_source"`
+	HeroImageAttribution *string `json:"hero_image_attribution"`
+}
+
+func (q *Queries) GetGooglePlacesHeroImage(ctx context.Context, placeID string) (GetGooglePlacesHeroImageRow, error) {
+	row := q.db.QueryRow(ctx, getGooglePlacesHeroImage, placeID)
+	var i GetGooglePlacesHeroImageRow
+	err := row.Scan(&i.HeroImageUrl, &i.HeroImageSource, &i.HeroImageAttribution)
 	return i, err
 }
 
@@ -432,9 +457,32 @@ func (q *Queries) UpdateDestinationPlaceID(ctx context.Context, arg *UpdateDesti
 	return err
 }
 
+const updateGooglePlacesHeroImage = `-- name: UpdateGooglePlacesHeroImage :exec
+UPDATE google_places_cache
+SET hero_image_url = $2, hero_image_source = $3, hero_image_attribution = $4
+WHERE place_id = $1
+`
+
+type UpdateGooglePlacesHeroImageParams struct {
+	PlaceID              string  `json:"place_id"`
+	HeroImageUrl         *string `json:"hero_image_url"`
+	HeroImageSource      *string `json:"hero_image_source"`
+	HeroImageAttribution *string `json:"hero_image_attribution"`
+}
+
+func (q *Queries) UpdateGooglePlacesHeroImage(ctx context.Context, arg *UpdateGooglePlacesHeroImageParams) error {
+	_, err := q.db.Exec(ctx, updateGooglePlacesHeroImage,
+		arg.PlaceID,
+		arg.HeroImageUrl,
+		arg.HeroImageSource,
+		arg.HeroImageAttribution,
+	)
+	return err
+}
+
 const upsertGooglePlacesCache = `-- name: UpsertGooglePlacesCache :exec
-INSERT INTO google_places_cache (place_id, name, formatted_address, lat, lng, types, data, cached_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+INSERT INTO google_places_cache (place_id, name, formatted_address, lat, lng, types, data, cached_at, hero_image_url, hero_image_source, hero_image_attribution)
+VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10)
 ON CONFLICT (place_id) DO UPDATE SET
     name = EXCLUDED.name,
     formatted_address = EXCLUDED.formatted_address,
@@ -442,17 +490,23 @@ ON CONFLICT (place_id) DO UPDATE SET
     lng = EXCLUDED.lng,
     types = EXCLUDED.types,
     data = EXCLUDED.data,
-    cached_at = now()
+    cached_at = now(),
+    hero_image_url = EXCLUDED.hero_image_url,
+    hero_image_source = EXCLUDED.hero_image_source,
+    hero_image_attribution = EXCLUDED.hero_image_attribution
 `
 
 type UpsertGooglePlacesCacheParams struct {
-	PlaceID          string   `json:"place_id"`
-	Name             *string  `json:"name"`
-	FormattedAddress *string  `json:"formatted_address"`
-	Lat              *float64 `json:"lat"`
-	Lng              *float64 `json:"lng"`
-	Types            []string `json:"types"`
-	Data             []byte   `json:"data"`
+	PlaceID              string   `json:"place_id"`
+	Name                 *string  `json:"name"`
+	FormattedAddress     *string  `json:"formatted_address"`
+	Lat                  *float64 `json:"lat"`
+	Lng                  *float64 `json:"lng"`
+	Types                []string `json:"types"`
+	Data                 []byte   `json:"data"`
+	HeroImageUrl         *string  `json:"hero_image_url"`
+	HeroImageSource      *string  `json:"hero_image_source"`
+	HeroImageAttribution *string  `json:"hero_image_attribution"`
 }
 
 func (q *Queries) UpsertGooglePlacesCache(ctx context.Context, arg *UpsertGooglePlacesCacheParams) error {
@@ -464,6 +518,9 @@ func (q *Queries) UpsertGooglePlacesCache(ctx context.Context, arg *UpsertGoogle
 		arg.Lng,
 		arg.Types,
 		arg.Data,
+		arg.HeroImageUrl,
+		arg.HeroImageSource,
+		arg.HeroImageAttribution,
 	)
 	return err
 }

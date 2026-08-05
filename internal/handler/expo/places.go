@@ -34,11 +34,11 @@ type PlacesHandler struct {
 	cache     *places.Cache
 }
 
-func NewPlacesHandler(pool *pgxpool.Pool, apiKey string) *PlacesHandler {
+func NewPlacesHandler(pool *pgxpool.Pool, apiKey string, cache *places.Cache) *PlacesHandler {
 	return &PlacesHandler{
 		pool:   pool,
 		client: places.NewClient(apiKey),
-		cache:  places.NewCache(pool),
+		cache:  cache,
 	}
 }
 
@@ -280,6 +280,8 @@ func (h *PlacesHandler) Resolve(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("places: place details cache write failed", "error", err)
 	}
 
+	go h.cache.EnsureHeroImage(context.Background(), req.PlaceID, details.DisplayName)
+
 	dest, err := h.createDraftDestination(ctx, details)
 	if err != nil {
 		// Check if error is duplicate key violation (SQLSTATE 23505)
@@ -366,6 +368,9 @@ type popularDestination struct {
 	ShortDescription   *string          `json:"shortDescription,omitempty"`
 	Media              json.RawMessage  `json:"media"`
 	SaveCount          int64            `json:"-"`
+	HeroImageUrl       *string          `json:"heroImageUrl,omitempty"`
+	HeroImageSource    *string          `json:"heroImageSource,omitempty"`
+	HeroImageAttribution *string        `json:"heroImageAttribution,omitempty"`
 }
 
 type mobilePopularMedia struct {
@@ -398,7 +403,8 @@ LIMIT $1`
 
 const popularNearbyQuery = `SELECT d.id, d.name, d.slug, d.county, d.locality, d.category,
 	d.short_description, 0 AS save_count,
-	COALESCE(med.media, '[]'::json) AS media
+	COALESCE(med.media, '[]'::json) AS media,
+	gpc.hero_image_url, gpc.hero_image_source, gpc.hero_image_attribution
 FROM destinations d
 LEFT JOIN LATERAL (
 	SELECT COALESCE(json_agg(json_build_object(
@@ -410,13 +416,15 @@ LEFT JOIN LATERAL (
 	FROM media_assets ma
 	WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text
 ) med ON true
+LEFT JOIN google_places_cache gpc ON gpc.place_id = d.google_place_id
 WHERE d.google_place_id = ANY($1) AND d.status IN ('published', 'draft')
 ORDER BY array_position($1, d.google_place_id)
 LIMIT 10`
 
 const popularFallbackQuery = `SELECT d.id, d.name, d.slug, d.county, d.locality, d.category,
 	d.short_description, 0 AS save_count,
-	COALESCE(med.media, '[]'::json) AS media
+	COALESCE(med.media, '[]'::json) AS media,
+	gpc.hero_image_url, gpc.hero_image_source, gpc.hero_image_attribution
 FROM destinations d
 LEFT JOIN LATERAL (
 	SELECT COALESCE(json_agg(json_build_object(
@@ -428,6 +436,7 @@ LEFT JOIN LATERAL (
 	FROM media_assets ma
 	WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text
 ) med ON true
+LEFT JOIN google_places_cache gpc ON gpc.place_id = d.google_place_id
 WHERE d.google_place_id IS NOT NULL
   AND d.status IN ('published', 'draft')
   AND ST_DWithin(d.location::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
@@ -516,7 +525,33 @@ func (h *PlacesHandler) Popular(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.fireHeroFetches(ctx, populars)
 	h.writePopularResponse(w, populars)
+}
+
+func (h *PlacesHandler) fireHeroFetches(ctx context.Context, populars []popularDestination) {
+	fetched := 0
+	for _, d := range populars {
+		if fetched >= 2 {
+			break
+		}
+		if d.HeroImageUrl != nil && *d.HeroImageUrl != "" {
+			continue
+		}
+		if d.HeroImageSource != nil && *d.HeroImageSource == "wikipedia_not_found" {
+			continue
+		}
+		var gpid string
+		_ = h.pool.QueryRow(ctx,
+			`SELECT google_place_id FROM destinations WHERE id = $1`, d.ID).Scan(&gpid)
+		if gpid == "" {
+			continue
+		}
+		fetched++
+		placeID := gpid
+		placeName := d.Name
+		go h.cache.EnsureHeroImage(context.Background(), placeID, placeName)
+	}
 }
 
 func (h *PlacesHandler) matchNearbyPlaces(ctx context.Context, nearbyPlaces []places.NearbyPlace) []popularDestination {
@@ -545,7 +580,8 @@ func (h *PlacesHandler) matchNearbyPlaces(ctx context.Context, nearbyPlaces []pl
 		var d popularDestination
 		var mediaJSON []byte
 		if err := nearbyRows.Scan(&d.ID, &d.Name, &d.Slug, &d.County, &d.Locality, &d.Category,
-			&d.ShortDescription, &d.SaveCount, &mediaJSON); err != nil {
+			&d.ShortDescription, &d.SaveCount, &mediaJSON,
+			&d.HeroImageUrl, &d.HeroImageSource, &d.HeroImageAttribution); err != nil {
 			continue
 		}
 		if !d.ID.Valid {
@@ -687,7 +723,8 @@ func (h *PlacesHandler) fallbackPopular(ctx context.Context, w http.ResponseWrit
 			var d popularDestination
 			var mediaJSON []byte
 			if err := rows.Scan(&d.ID, &d.Name, &d.Slug, &d.County, &d.Locality, &d.Category,
-				&d.ShortDescription, &d.SaveCount, &mediaJSON); err != nil {
+				&d.ShortDescription, &d.SaveCount, &mediaJSON,
+				&d.HeroImageUrl, &d.HeroImageSource, &d.HeroImageAttribution); err != nil {
 				continue
 			}
 			if !d.ID.Valid {
@@ -714,27 +751,33 @@ func (h *PlacesHandler) fallbackPopular(ctx context.Context, w http.ResponseWrit
 
 func (h *PlacesHandler) writePopularResponse(w http.ResponseWriter, destinations []popularDestination) {
 	type popularItem struct {
-		ID               pgtype.UUID      `json:"id"`
-		Name             string           `json:"name"`
-		Slug             string           `json:"slug"`
-		County           string           `json:"county"`
-		Locality         *string          `json:"locality,omitempty"`
-		Category         string           `json:"category"`
-		ShortDescription *string          `json:"shortDescription,omitempty"`
-		Media            json.RawMessage  `json:"media"`
+		ID                   pgtype.UUID      `json:"id"`
+		Name                 string           `json:"name"`
+		Slug                 string           `json:"slug"`
+		County               string           `json:"county"`
+		Locality             *string          `json:"locality,omitempty"`
+		Category             string           `json:"category"`
+		ShortDescription     *string          `json:"shortDescription,omitempty"`
+		Media                json.RawMessage  `json:"media"`
+		HeroImageUrl         *string          `json:"heroImageUrl,omitempty"`
+		HeroImageSource      *string          `json:"heroImageSource,omitempty"`
+		HeroImageAttribution *string          `json:"heroImageAttribution,omitempty"`
 	}
 
 	items := make([]popularItem, 0, len(destinations))
 	for _, d := range destinations {
 		items = append(items, popularItem{
-			ID:               d.ID,
-			Name:             d.Name,
-			Slug:             d.Slug,
-			County:           d.County,
-			Locality:         d.Locality,
-			Category:         d.Category,
-			ShortDescription: d.ShortDescription,
-			Media:            d.Media,
+			ID:                   d.ID,
+			Name:                 d.Name,
+			Slug:                 d.Slug,
+			County:               d.County,
+			Locality:             d.Locality,
+			Category:             d.Category,
+			ShortDescription:     d.ShortDescription,
+			Media:                d.Media,
+			HeroImageUrl:         d.HeroImageUrl,
+			HeroImageSource:      d.HeroImageSource,
+			HeroImageAttribution: d.HeroImageAttribution,
 		})
 	}
 

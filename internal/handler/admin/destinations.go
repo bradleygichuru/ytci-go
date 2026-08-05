@@ -22,12 +22,13 @@ import (
 )
 
 type DestinationsHandler struct {
-	pool *pgxpool.Pool
-	r2   r2.Store
+	pool  *pgxpool.Pool
+	r2    r2.Store
+	cache *places.Cache
 }
 
-func NewDestinationsHandler(pool *pgxpool.Pool, r2client r2.Store) *DestinationsHandler {
-	return &DestinationsHandler{pool: pool, r2: r2client}
+func NewDestinationsHandler(pool *pgxpool.Pool, r2client r2.Store, cache *places.Cache) *DestinationsHandler {
+	return &DestinationsHandler{pool: pool, r2: r2client, cache: cache}
 }
 
 func (h *DestinationsHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -722,8 +723,11 @@ func (h *DestinationsHandler) GetMobile(w http.ResponseWriter, r *http.Request) 
 			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
 			'[]'
 		) AS media,
-		d.source, d.google_place_id, d.created_at, d.updated_at
-		FROM destinations d WHERE d.slug = $1`
+		d.source, d.google_place_id, d.created_at, d.updated_at,
+		gpc.hero_image_url, gpc.hero_image_source, gpc.hero_image_attribution
+		FROM destinations d
+		LEFT JOIN google_places_cache gpc ON gpc.place_id = d.google_place_id
+		WHERE d.slug = $1`
 
 	type mobileMedia struct {
 		ObjectKey    string `json:"objectKey"`
@@ -766,6 +770,9 @@ func (h *DestinationsHandler) GetMobile(w http.ResponseWriter, r *http.Request) 
 		GooglePlaceID     *string           `json:"googlePlaceId,omitempty"`
 		TypeChips         []string          `json:"typeChips,omitempty"`
 		PlaceDetails      *json.RawMessage  `json:"placeDetails,omitempty"`
+		HeroImageUrl      *string           `json:"heroImageUrl,omitempty"`
+		HeroImageSource   *string           `json:"heroImageSource,omitempty"`
+		HeroImageAttribution *string        `json:"heroImageAttribution,omitempty"`
 		CreatedAt         pgtype.Timestamp  `json:"createdAt"`
 		UpdatedAt         pgtype.Timestamp  `json:"updatedAt"`
 	}
@@ -779,7 +786,8 @@ func (h *DestinationsHandler) GetMobile(w http.ResponseWriter, r *http.Request) 
 		&dest.Seasonality, &dest.IndicativeFees, &dest.OpeningInfo, &dest.TransportNotes,
 		&dest.Accessibility, &dest.Facilities, &dest.SafetyNotes, &dest.MapLabel,
 		&dest.AccessRoute, &dest.DistanceReference,
-		&dest.Lng, &dest.Lat, &mediaJSON, &source, &googlePlaceID, &dest.CreatedAt, &dest.UpdatedAt)
+		&dest.Lng, &dest.Lat, &mediaJSON, &source, &googlePlaceID, &dest.CreatedAt, &dest.UpdatedAt,
+		&dest.HeroImageUrl, &dest.HeroImageSource, &dest.HeroImageAttribution)
 	if err != nil {
 		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "destination not found")
 		return
@@ -812,6 +820,13 @@ func (h *DestinationsHandler) GetMobile(w http.ResponseWriter, r *http.Request) 
 					dest.TypeChips = []string{}
 				}
 			}
+		}
+	}
+
+	if source != nil && *source == "google_places" && googlePlaceID != nil {
+		if (dest.HeroImageUrl == nil || *dest.HeroImageUrl == "") &&
+			(dest.HeroImageSource == nil || *dest.HeroImageSource == "") {
+			go h.cache.EnsureHeroImage(context.Background(), *googlePlaceID, dest.Name)
 		}
 	}
 

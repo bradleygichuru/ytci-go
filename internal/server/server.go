@@ -15,6 +15,7 @@ import (
 	"github.com/bradleygichuru/ytci-go/internal/handler/admin"
 	"github.com/bradleygichuru/ytci-go/internal/handler/expo"
 	"github.com/bradleygichuru/ytci-go/internal/middleware"
+	"github.com/bradleygichuru/ytci-go/internal/places"
 	"github.com/bradleygichuru/ytci-go/internal/push"
 	"github.com/bradleygichuru/ytci-go/internal/r2"
 )
@@ -98,8 +99,9 @@ type handlers struct {
 }
 
 func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Client, cfg *config.Config) *handlers {
+	placesCache := places.NewCache(pool)
 	h := &handlers{
-		dest:      admin.NewDestinationsHandler(pool, r2client),
+		dest:      admin.NewDestinationsHandler(pool, r2client, placesCache),
 		events:    admin.NewEventsHandler(pool, r2client),
 		stories:   admin.NewStoriesHandler(pool, r2client),
 		course:    admin.NewCourseHandler(pool),
@@ -123,7 +125,7 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 		adminComments: admin.NewAdminCommentHandler(pool),
 		account:   expo.NewAccountHandler(pool, r2client),
 		mobileCourses: expo.NewCourseHandler(pool, r2client),
-		places:    expo.NewPlacesHandler(pool, cfg.GooglePlacesAPIKey),
+		places:    expo.NewPlacesHandler(pool, cfg.GooglePlacesAPIKey, placesCache),
 	}
 	if pushClient != nil {
 		h.pushAdmin = admin.NewPushHandler(pool, pushClient)

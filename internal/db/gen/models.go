@@ -263,14 +263,17 @@ type EventSafe struct {
 }
 
 type GooglePlacesCache struct {
-	PlaceID          string             `json:"place_id"`
-	Name             *string            `json:"name"`
-	FormattedAddress *string            `json:"formatted_address"`
-	Lat              *float64           `json:"lat"`
-	Lng              *float64           `json:"lng"`
-	Types            []string           `json:"types"`
-	Data             []byte             `json:"data"`
-	CachedAt         pgtype.Timestamptz `json:"cached_at"`
+	PlaceID              string             `json:"place_id"`
+	Name                 *string            `json:"name"`
+	FormattedAddress     *string            `json:"formatted_address"`
+	Lat                  *float64           `json:"lat"`
+	Lng                  *float64           `json:"lng"`
+	Types                []string           `json:"types"`
+	Data                 []byte             `json:"data"`
+	CachedAt             pgtype.Timestamptz `json:"cached_at"`
+	HeroImageUrl         *string            `json:"hero_image_url"`
+	HeroImageSource      *string            `json:"hero_image_source"`
+	HeroImageAttribution *string            `json:"hero_image_attribution"`
 }
 
 type GooglePlacesSearchCache struct {

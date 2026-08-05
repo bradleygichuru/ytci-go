@@ -5,20 +5,27 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bradleygichuru/ytci-go/internal/db/gen"
+	"github.com/bradleygichuru/ytci-go/internal/wikipedia"
 )
 
 type Cache struct {
-	pool *pgxpool.Pool
+	pool      *pgxpool.Pool
+	wikiClient *wikipedia.Client
 }
 
 func NewCache(pool *pgxpool.Pool) *Cache {
-	return &Cache{pool: pool}
+	return &Cache{pool: pool, wikiClient: wikipedia.NewClient()}
+}
+
+func (c *Cache) SetWikiClient(wc *wikipedia.Client) {
+	c.wikiClient = wc
 }
 
 func (c *Cache) queries() *gen.Queries {
@@ -160,6 +167,42 @@ func (c *Cache) setSearchResults(ctx context.Context, key string, data interface
 	}
 
 	return c.queries().UpsertGooglePlacesSearchCache(ctx, params)
+}
+
+func (c *Cache) UpdateHeroImage(ctx context.Context, placeID string, url, source, attribution *string) error {
+	return c.queries().UpdateGooglePlacesHeroImage(ctx, &gen.UpdateGooglePlacesHeroImageParams{
+		PlaceID:              placeID,
+		HeroImageUrl:         url,
+		HeroImageSource:      source,
+		HeroImageAttribution: attribution,
+	})
+}
+
+func (c *Cache) EnsureHeroImage(ctx context.Context, placeID, placeName string) {
+	cached, found, err := c.GetPlace(ctx, placeID)
+	if err == nil && found {
+		if cached.HeroImageSource != nil && *cached.HeroImageSource == "wikipedia_not_found" {
+			return
+		}
+		if cached.HeroImageUrl != nil && *cached.HeroImageUrl != "" {
+			return
+		}
+	}
+
+	hero, err := c.wikiClient.FetchHeroImage(ctx, placeName)
+	if err != nil {
+		slog.Warn("wikipedia: fetch failed", "place_id", placeID, "error", err)
+		return
+	}
+	if hero.Source == "wikipedia_not_found" {
+		src := "wikipedia_not_found"
+		_ = c.UpdateHeroImage(ctx, placeID, nil, &src, nil)
+		return
+	}
+	url := hero.URL
+	src := hero.Source
+	attr := hero.Attribution
+	_ = c.UpdateHeroImage(ctx, placeID, &url, &src, &attr)
 }
 
 func (c *Cache) SessionTokenValid(ctx context.Context, token string) (bool, error) {

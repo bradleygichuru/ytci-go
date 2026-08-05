@@ -1,6 +1,6 @@
 -- name: UpsertGooglePlacesCache :exec
-INSERT INTO google_places_cache (place_id, name, formatted_address, lat, lng, types, data, cached_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+INSERT INTO google_places_cache (place_id, name, formatted_address, lat, lng, types, data, cached_at, hero_image_url, hero_image_source, hero_image_attribution)
+VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10)
 ON CONFLICT (place_id) DO UPDATE SET
     name = EXCLUDED.name,
     formatted_address = EXCLUDED.formatted_address,
@@ -8,7 +8,10 @@ ON CONFLICT (place_id) DO UPDATE SET
     lng = EXCLUDED.lng,
     types = EXCLUDED.types,
     data = EXCLUDED.data,
-    cached_at = now();
+    cached_at = now(),
+    hero_image_url = EXCLUDED.hero_image_url,
+    hero_image_source = EXCLUDED.hero_image_source,
+    hero_image_attribution = EXCLUDED.hero_image_attribution;
 
 -- name: GetGooglePlacesCache :one
 SELECT * FROM google_places_cache WHERE place_id = $1;
@@ -67,3 +70,13 @@ ORDER BY name;
 -- name: UpdateDestinationPlaceID :exec
 UPDATE destinations SET google_place_id = $2, updated_at = now()
 WHERE id = $1;
+
+-- name: UpdateGooglePlacesHeroImage :exec
+UPDATE google_places_cache
+SET hero_image_url = $2, hero_image_source = $3, hero_image_attribution = $4
+WHERE place_id = $1;
+
+-- name: GetGooglePlacesHeroImage :one
+SELECT hero_image_url, hero_image_source, hero_image_attribution
+FROM google_places_cache
+WHERE place_id = $1;
