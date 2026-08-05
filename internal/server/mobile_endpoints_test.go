@@ -304,8 +304,8 @@ func TestPublicEventDetail(t *testing.T) {
 
 	var eventID string
 	err := pool.QueryRow(ctx, `
-		INSERT INTO events (id, title, organizer, county, event_date, type, status)
-		VALUES (gen_random_uuid(), 'Public Festival', 'Org', 'Nairobi', now()::date, 'cultural', 'scheduled')
+		INSERT INTO events (id, title, organizer, county, event_date, type, status, location_lat, location_lng)
+		VALUES (gen_random_uuid(), 'Public Festival', 'Org', 'Nairobi', now()::date, 'cultural', 'scheduled', -1.2921, 36.8219)
 		RETURNING id
 	`).Scan(&eventID)
 	require.NoError(t, err)
@@ -331,6 +331,8 @@ func TestPublicEventDetail(t *testing.T) {
 	assert.Nil(t, detail["attendees"])
 	assert.Nil(t, detail["isAttending"])
 	assert.Nil(t, detail["isSaved"])
+	assert.NotNil(t, detail["locationLat"], "coordinates must be returned for events with lat/lng")
+	assert.NotNil(t, detail["locationLng"], "coordinates must be returned for events with lat/lng")
 
 	// Cancelled event not visible via public
 	_, err = pool.Exec(ctx, `UPDATE events SET status = 'cancelled' WHERE id = $1`, eventID)
@@ -346,6 +348,43 @@ func TestPublicEventDetail(t *testing.T) {
 	require.NoError(t, err)
 	defer resp3.Body.Close()
 	assert.Equal(t, http.StatusNotFound, resp3.StatusCode)
+}
+
+func TestMobileEventDetailCoordinates(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	ctx := context.Background()
+	pool := db.SetupTestDB(t)
+	defer pool.Close()
+
+	setupAuthTables(t, ctx, pool)
+
+	cfg := &config.Config{Port: "8080", DatabaseURL: "ignored", AdminJWKSURL: "http://test.invalid/jwks", CORSOrigins: "*"}
+	r := server.New(cfg, pool)
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	var eventID string
+	err := pool.QueryRow(ctx, `
+		INSERT INTO events (id, title, organizer, county, event_date, type, status, location_lat, location_lng)
+		VALUES (gen_random_uuid(), 'Coord Event', 'Org', 'Nairobi', now()::date, 'cultural', 'scheduled', -1.2921, 36.8219)
+		RETURNING id
+	`).Scan(&eventID)
+	require.NoError(t, err)
+
+	// Guest — no auth, mobile endpoint
+	resp, err := http.Get(ts.URL + "/v1/mobile/events/" + eventID)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var detail map[string]any
+	err = json.NewDecoder(resp.Body).Decode(&detail)
+	require.NoError(t, err)
+	assert.Equal(t, "Coord Event", detail["title"])
+	assert.NotNil(t, detail["locationLat"], "coordinates must be returned — the ::text cast bug is fixed")
+	assert.NotNil(t, detail["locationLng"], "coordinates must be returned — the ::text cast bug is fixed")
 }
 
 func TestSavedEvents(t *testing.T) {

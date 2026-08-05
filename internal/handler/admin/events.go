@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -173,14 +174,18 @@ func (h *EventsHandler) GetMobile(w http.ResponseWriter, r *http.Request) {
 	err := h.pool.QueryRow(r.Context(),
 		`SELECT id::text, title, organizer, county, venue, event_date::text, end_date::text,
 		        type, description, contact_email, contact_phone, image_url, created_at::text,
-		        start_time, end_time, entry_fee, location_lat::text, location_lng::text, organizer_avatar_url
+		        start_time, end_time, entry_fee, location_lat, location_lng, organizer_avatar_url
 		 FROM events WHERE id = $1`, eventID).Scan(
 		&id, &title, &organizer, &county, &venue, &eventDate, &endDate,
 		&etype, &description, &contactEmail, &contactPhone, &imageURL, &createdAt,
 		&startTime, &endTimeRaw, &entryFee, &locationLat, &locationLng, &organizerAvatarURL,
 	)
 	if err != nil {
-		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "event not found")
+		if err == pgx.ErrNoRows {
+			handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "event not found")
+			return
+		}
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to fetch event", err)
 		return
 	}
 
@@ -287,14 +292,18 @@ func (h *EventsHandler) GetPublic(w http.ResponseWriter, r *http.Request) {
 	err := h.pool.QueryRow(r.Context(),
 		`SELECT id::text, title, organizer, county, venue, event_date::text, end_date::text,
 		        type, description, contact_email, contact_phone, image_url, created_at::text,
-		        start_time, end_time, entry_fee, location_lat::text, location_lng::text, organizer_avatar_url
+		        start_time, end_time, entry_fee, location_lat, location_lng, organizer_avatar_url
 		 FROM events WHERE id = $1 AND status = 'scheduled'`, eventID).Scan(
 		&id, &title, &organizer, &county, &venue, &eventDate, &endDate,
 		&etype, &description, &contactEmail, &contactPhone, &imageURL, &createdAt,
 		&startTime, &endTimeRaw, &entryFee, &locationLat, &locationLng, &organizerAvatarURL,
 	)
 	if err != nil {
-		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "event not found")
+		if err == pgx.ErrNoRows {
+			handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "event not found")
+			return
+		}
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to fetch event", err)
 		return
 	}
 
