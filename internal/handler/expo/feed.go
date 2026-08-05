@@ -10,7 +10,6 @@ import (
 )
 
 type FeedItem struct {
-	TrendingDestinations  []json.RawMessage `json:"trendingDestinations"`
 	UpcomingEvents        []json.RawMessage `json:"upcomingEvents"`
 	FeaturedStories       []json.RawMessage `json:"featuredStories"`
 	ActiveCampaigns       []json.RawMessage `json:"activeCampaigns"`
@@ -32,41 +31,7 @@ func (h *FeedHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 	var wg sync.WaitGroup
 	ctx := r.Context()
 
-	wg.Add(7)
-	go func() {
-		defer wg.Done()
-		rows, err := h.pool.Query(ctx,
-			`SELECT COALESCE(json_agg(sub), '[]'::json) FROM (
-				SELECT d.id, d.name, d.slug, d.short_description, d.county, d.updated_at,
-					COALESCE(med.media, '[]'::json) AS media
-				FROM destinations d
-				LEFT JOIN LATERAL (
-					SELECT COALESCE(json_agg(json_build_object(
-						'objectKey', ma.object_key,
-						'thumbnailKey', ma.thumbnail_key,
-						'type', ma.type,
-						'altText', ma.alt_text
-					) ORDER BY ma.display_order) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
-					FROM media_assets ma
-					WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text
-				) med ON true
-				WHERE d.status = 'published'
-				ORDER BY d.updated_at DESC LIMIT 5
-			) sub`)
-		if err == nil {
-			if rows.Next() {
-				rows.Scan(&feed.TrendingDestinations)
-			}
-			rows.Close()
-		} else {
-			slog.Warn("feed: trending destinations", "error", err)
-			feed.TrendingDestinations = []json.RawMessage{}
-		}
-		if feed.TrendingDestinations == nil {
-			feed.TrendingDestinations = []json.RawMessage{}
-		}
-	}()
-
+	wg.Add(6)
 	go func() {
 		defer wg.Done()
 		rows, err := h.pool.Query(ctx,
