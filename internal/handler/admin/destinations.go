@@ -407,9 +407,9 @@ func (h *DestinationsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		var googlePlaceID *string
 		_ = h.pool.QueryRow(r.Context(),
 			`SELECT google_place_id FROM destinations WHERE id = $1`, destID).Scan(&googlePlaceID)
-		// Clear all Nearby Search caches so newly-published destinations appear in popular
+		// Clear all search cache so newly-published destinations appear in popular
 		_, _ = h.pool.Exec(r.Context(),
-			`DELETE FROM google_places_search_cache WHERE query_hash LIKE 'nearby:%'`)
+			`DELETE FROM google_places_search_cache`)
 		// Clear Place Details cache so mobile re-fetches fresh data
 		if googlePlaceID != nil {
 			_, _ = h.pool.Exec(r.Context(),
@@ -448,9 +448,9 @@ func (h *DestinationsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 			`DELETE FROM google_places_cache WHERE place_id = $1`, *googlePlaceID)
 	}
 
-	// Invalidate all Nearby Search caches so re-added destinations show up in popular
+	// Invalidate all search caches so re-added destinations show up in popular
 	_, _ = tx.Exec(r.Context(),
-		`DELETE FROM google_places_search_cache WHERE query_hash LIKE 'nearby:%'`)
+		`DELETE FROM google_places_search_cache`)
 
 	_, err = tx.Exec(r.Context(),
 		`DELETE FROM destinations WHERE id = $1`, destID)

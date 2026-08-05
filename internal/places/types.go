@@ -107,9 +107,11 @@ type NearbySearchResult struct {
 }
 
 type NearbyPlace struct {
-	PlaceID          string `json:"id"`
+	PlaceID          string      `json:"id"`
 	DisplayName      DisplayName `json:"displayName"`
-	FormattedAddress string `json:"formattedAddress"`
+	FormattedAddress string      `json:"formattedAddress"`
+	Location         *LatLng     `json:"location,omitempty"`
+	Types            []string    `json:"types,omitempty"`
 }
 
 type DisplayName struct {

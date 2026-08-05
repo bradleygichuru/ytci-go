@@ -536,8 +536,8 @@ func (h *PlacesHandler) matchNearbyPlaces(ctx context.Context, nearbyPlaces []pl
 		slog.Warn("places: nearby destination lookup failed", "error", err)
 		return populars
 	}
-	defer nearbyRows.Close()
 
+	matched := make(map[string]bool, len(placeIDs))
 	for nearbyRows.Next() {
 		var d popularDestination
 		var mediaJSON []byte
@@ -554,6 +554,31 @@ func (h *PlacesHandler) matchNearbyPlaces(ctx context.Context, nearbyPlaces []pl
 			d.Media = json.RawMessage(`[]`)
 		}
 		populars = append(populars, d)
+
+		// Track matched place IDs by re-querying the google_place_id
+		var gpid string
+		_ = h.pool.QueryRow(ctx,
+			`SELECT google_place_id FROM destinations WHERE id = $1`, d.ID).Scan(&gpid)
+		if gpid != "" {
+			matched[gpid] = true
+		}
+	}
+	nearbyRows.Close()
+
+	// Auto-create drafts for unmatched Google Place IDs
+	for _, np := range nearbyPlaces {
+		if matched[np.PlaceID] {
+			continue
+		}
+		if len(populars) >= 10 {
+			break
+		}
+		dest, err := h.autoCreateDraftFromNearby(ctx, np)
+		if err != nil {
+			slog.Warn("places: auto-create draft failed", "place_id", np.PlaceID, "error", err)
+			continue
+		}
+		populars = append(populars, dest)
 	}
 
 	if len(populars) > 10 {
@@ -561,6 +586,85 @@ func (h *PlacesHandler) matchNearbyPlaces(ctx context.Context, nearbyPlaces []pl
 	}
 
 	return populars
+}
+
+func (h *PlacesHandler) autoCreateDraftFromNearby(ctx context.Context, np places.NearbyPlace) (popularDestination, error) {
+	slug := slugify(np.DisplayName.Text)
+	county := defaultCounty
+
+	if np.FormattedAddress != "" {
+		parts := strings.Split(np.FormattedAddress, ",")
+		if len(parts) >= 2 {
+			county = strings.TrimSpace(parts[len(parts)-2])
+		}
+	}
+
+	category := defaultCategory
+	if len(np.Types) > 0 {
+		for _, t := range np.Types {
+			if t == "lodging" || t == "hotel" {
+				continue
+			}
+			category = t
+			break
+		}
+	}
+
+	params := &gen.CreateGooglePlacesDraftParams{
+		Name:          np.DisplayName.Text,
+		Slug:          slug,
+		County:        county,
+		Category:      category,
+		GooglePlaceID: &np.PlaceID,
+	}
+	if np.FormattedAddress != "" {
+		params.ShortDescription = &np.FormattedAddress
+	}
+	if np.Location != nil {
+		params.StMakepoint = np.Location.Longitude
+		params.StMakepoint_2 = np.Location.Latitude
+	}
+
+	dest, err := h.queries().CreateGooglePlacesDraft(ctx, params)
+	if err != nil {
+		// Duplicate slug — retry with suffix
+		if strings.Contains(err.Error(), "duplicate key") && strings.Contains(err.Error(), "slug") {
+			params.Slug = slug + fmt.Sprintf("-%d", time.Now().Unix()%10000)
+			dest, err = h.queries().CreateGooglePlacesDraft(ctx, params)
+			if err != nil {
+				return popularDestination{}, fmt.Errorf("create draft (slug retry): %w", err)
+			}
+		} else if strings.Contains(err.Error(), "duplicate key") {
+			// Duplicate google_place_id — fetch existing
+			var existing popularDestination
+			var mediaJSON []byte
+			rowErr := h.pool.QueryRow(ctx, popularNearbyQuery, []string{np.PlaceID}).Scan(
+				&existing.ID, &existing.Name, &existing.Slug, &existing.County, &existing.Locality,
+				&existing.Category, &existing.ShortDescription, &existing.SaveCount, &mediaJSON)
+			if rowErr != nil {
+				return popularDestination{}, fmt.Errorf("create draft (duplicate fetch): %w", err)
+			}
+			if mediaJSON != nil {
+				existing.Media = json.RawMessage(mediaJSON)
+			} else {
+				existing.Media = json.RawMessage(`[]`)
+			}
+			return existing, nil
+		}
+		return popularDestination{}, fmt.Errorf("create draft: %w", err)
+	}
+
+	return popularDestination{
+		ID:               dest.ID,
+		Name:             dest.Name,
+		Slug:             dest.Slug,
+		County:           dest.County,
+		Locality:         dest.Locality,
+		Category:         dest.Category,
+		ShortDescription: dest.ShortDescription,
+		SaveCount:        0,
+		Media:            json.RawMessage(`[]`),
+	}, nil
 }
 
 func (h *PlacesHandler) fallbackPopular(ctx context.Context, w http.ResponseWriter, lat, lng float64) {

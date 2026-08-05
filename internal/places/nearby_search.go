@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const nearbySearchFieldMask = "places.id,places.displayName,places.formattedAddress"
+const nearbySearchFieldMask = "places.id,places.displayName,places.formattedAddress,places.location,places.types"
 
 func (c *Client) NearbySearch(ctx context.Context, lat, lng float64) ([]NearbyPlace, error) {
 	req := NearbySearchRequest{
