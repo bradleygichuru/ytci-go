@@ -94,7 +94,6 @@ type handlers struct {
 	adminComments *admin.AdminCommentHandler
 	account   *expo.AccountHandler
 	mobileCourses *expo.CourseHandler
-	companion *expo.CompanionHandler
 	places    *expo.PlacesHandler
 }
 
@@ -124,7 +123,6 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 		adminComments: admin.NewAdminCommentHandler(pool),
 		account:   expo.NewAccountHandler(pool, r2client),
 		mobileCourses: expo.NewCourseHandler(pool, r2client),
-		companion: expo.NewCompanionHandler(pool),
 		places:    expo.NewPlacesHandler(pool, cfg.GooglePlacesAPIKey),
 	}
 	if pushClient != nil {
@@ -317,7 +315,7 @@ func mountPublicRoutes(pub chi.Router, h *handlers, r2client r2.Store) {
 	pub.Get("/courses", h.course.ListMobile)
 	pub.Get("/challenges", h.challenge.ListMobile)
 	pub.Get("/conservation", h.conserv.ListMobile)
-	pub.Get("/companion", h.companion.GetCompanion)
+	pub.Get("/companion", expo.GetCompanion)
 
 	pub.Get("/stories/{id}/comments", h.comments.ListComments)
 
