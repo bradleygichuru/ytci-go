@@ -287,6 +287,67 @@ func TestMyStories(t *testing.T) {
 	assert.Len(t, stories.Items, 1)
 }
 
+func TestPublicEventDetail(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	ctx := context.Background()
+	pool := db.SetupTestDB(t)
+	defer pool.Close()
+
+	setupAuthTables(t, ctx, pool)
+
+	cfg := &config.Config{Port: "8080", DatabaseURL: "ignored", AdminJWKSURL: "http://test.invalid/jwks", CORSOrigins: "*"}
+	r := server.New(cfg, pool)
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	var eventID string
+	err := pool.QueryRow(ctx, `
+		INSERT INTO events (id, title, organizer, county, event_date, type, status)
+		VALUES (gen_random_uuid(), 'Public Festival', 'Org', 'Nairobi', now()::date, 'cultural', 'scheduled')
+		RETURNING id
+	`).Scan(&eventID)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `
+		INSERT INTO event_highlights (event_id, label, icon, display_order)
+		VALUES ($1, 'Live Music', 'musical-notes', 1)
+	`, eventID)
+	require.NoError(t, err)
+
+	// Guest — no auth required
+	resp, err := http.Get(ts.URL + "/v1/public/events/" + eventID)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var detail map[string]any
+	err = json.NewDecoder(resp.Body).Decode(&detail)
+	require.NoError(t, err)
+	assert.Equal(t, "Public Festival", detail["title"])
+	assert.NotNil(t, detail["highlights"])
+	assert.NotNil(t, detail["attendeeCount"])
+	assert.Nil(t, detail["attendees"])
+	assert.Nil(t, detail["isAttending"])
+	assert.Nil(t, detail["isSaved"])
+
+	// Cancelled event not visible via public
+	_, err = pool.Exec(ctx, `UPDATE events SET status = 'cancelled' WHERE id = $1`, eventID)
+	require.NoError(t, err)
+
+	resp2, err := http.Get(ts.URL + "/v1/public/events/" + eventID)
+	require.NoError(t, err)
+	defer resp2.Body.Close()
+	assert.Equal(t, http.StatusNotFound, resp2.StatusCode)
+
+	// Non-existent event
+	resp3, err := http.Get(ts.URL + "/v1/public/events/00000000-0000-0000-0000-000000000000")
+	require.NoError(t, err)
+	defer resp3.Body.Close()
+	assert.Equal(t, http.StatusNotFound, resp3.StatusCode)
+}
+
 func TestSavedEvents(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")

@@ -275,6 +275,85 @@ func (h *EventsHandler) GetMobile(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+func (h *EventsHandler) GetPublic(w http.ResponseWriter, r *http.Request) {
+	eventID := r.PathValue("id")
+
+	var (
+		id, title, organizer, county, eventDate, etype, createdAt string
+		endDate, description, contactEmail, contactPhone, imageURL *string
+		venue, endTimeRaw, startTime, entryFee, organizerAvatarURL *string
+		locationLat, locationLng                                   *float64
+	)
+	err := h.pool.QueryRow(r.Context(),
+		`SELECT id::text, title, organizer, county, venue, event_date::text, end_date::text,
+		        type, description, contact_email, contact_phone, image_url, created_at::text,
+		        start_time, end_time, entry_fee, location_lat::text, location_lng::text, organizer_avatar_url
+		 FROM events WHERE id = $1 AND status = 'scheduled'`, eventID).Scan(
+		&id, &title, &organizer, &county, &venue, &eventDate, &endDate,
+		&etype, &description, &contactEmail, &contactPhone, &imageURL, &createdAt,
+		&startTime, &endTimeRaw, &entryFee, &locationLat, &locationLng, &organizerAvatarURL,
+	)
+	if err != nil {
+		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "event not found")
+		return
+	}
+
+	presigned := h.presignImageURL(r.Context(), strVal(imageURL))
+
+	hlRows, err := h.pool.Query(r.Context(),
+		`SELECT label, icon FROM event_highlights WHERE event_id = $1 ORDER BY display_order`, eventID)
+	if err != nil {
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to fetch highlights", err)
+		return
+	}
+	defer hlRows.Close()
+
+	type highlight struct {
+		Label string  `json:"label"`
+		Icon  *string `json:"icon,omitempty"`
+	}
+	var highlights []highlight
+	for hlRows.Next() {
+		var h highlight
+		hlRows.Scan(&h.Label, &h.Icon)
+		highlights = append(highlights, h)
+	}
+
+	var joinedCount, interestedCount int32
+	h.pool.QueryRow(r.Context(),
+		`SELECT count(*) FILTER (WHERE status = 'joined'),
+		        count(*) FILTER (WHERE status = 'interested')
+		 FROM event_attendees WHERE event_id = $1`, eventID).Scan(&joinedCount, &interestedCount)
+
+	resp := map[string]any{
+		"id":                 id,
+		"title":              title,
+		"organizer":          organizer,
+		"county":             county,
+		"venue":              venue,
+		"eventDate":          eventDate,
+		"endDate":            endDate,
+		"type":               etype,
+		"description":        description,
+		"contactEmail":       contactEmail,
+		"contactPhone":       contactPhone,
+		"imageUrl":           presigned,
+		"imageUrlKey":        imageURL,
+		"createdAt":          createdAt,
+		"startTime":          startTime,
+		"endTime":            endTimeRaw,
+		"entryFee":           entryFee,
+		"locationLat":        locationLat,
+		"locationLng":        locationLng,
+		"organizerAvatarUrl": organizerAvatarURL,
+		"highlights":         highlights,
+		"attendeeCount":      joinedCount + interestedCount,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
 func (h *EventsHandler) List(w http.ResponseWriter, r *http.Request) {
 	pr := pagination.ParseRequest(r)
 	limit := int32(pr.Limit) + 1

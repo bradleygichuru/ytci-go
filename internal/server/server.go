@@ -313,6 +313,7 @@ func mountPublicRoutes(pub chi.Router, h *handlers, r2client r2.Store) {
 	pub.Get("/destinations/{slug}", h.dest.GetMobile)
 	pub.Get("/destinations/nearby", h.dest.NearbyMobile)
 	pub.Get("/events", h.events.ListMobile)
+	pub.Get("/events/{id}", h.events.GetPublic)
 	pub.Get("/stories", h.mStories.ListEnriched)
 	pub.Get("/courses", h.course.ListMobile)
 	pub.Get("/challenges", h.challenge.ListMobile)
