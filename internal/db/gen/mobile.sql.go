@@ -406,7 +406,7 @@ func (q *Queries) ListMyChallenges(ctx context.Context, userID pgtype.UUID) ([]L
 const listPublicConservation = `-- name: ListPublicConservation :many
 SELECT id, title, organizer, description, event_date,
        impact_metric, impact_target, current_participants, participant_limit,
-       status, location_label,
+       status, location_label, progress_driver,
        ST_X(location::geometry) AS lng, ST_Y(location::geometry) AS lat,
        created_at
 FROM conservation_activities
@@ -427,6 +427,7 @@ type ListPublicConservationRow struct {
 	ParticipantLimit    *int32           `json:"participant_limit"`
 	Status              string           `json:"status"`
 	LocationLabel       *string          `json:"location_label"`
+	ProgressDriver      string           `json:"progress_driver"`
 	Lng                 interface{}      `json:"lng"`
 	Lat                 interface{}      `json:"lat"`
 	CreatedAt           pgtype.Timestamp `json:"created_at"`
@@ -453,6 +454,7 @@ func (q *Queries) ListPublicConservation(ctx context.Context, limit int32) ([]Li
 			&i.ParticipantLimit,
 			&i.Status,
 			&i.LocationLabel,
+			&i.ProgressDriver,
 			&i.Lng,
 			&i.Lat,
 			&i.CreatedAt,

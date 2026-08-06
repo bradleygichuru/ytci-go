@@ -190,6 +190,8 @@ CREATE TABLE conservation_activities (
     event_date DATE,
     impact_metric TEXT,
     impact_target INTEGER,
+    measurement_unit TEXT,
+    progress_driver TEXT NOT NULL DEFAULT 'trees' CHECK (progress_driver IN ('trees', 'hours', 'area')),
     participant_limit INTEGER,
     current_participants INTEGER DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'full', 'completed', 'cancelled')),

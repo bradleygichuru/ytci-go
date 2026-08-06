@@ -61,7 +61,7 @@ LIMIT $1;
 -- name: ListPublicConservation :many
 SELECT id, title, organizer, description, event_date,
        impact_metric, impact_target, current_participants, participant_limit,
-       status, location_label,
+       status, location_label, progress_driver,
        ST_X(location::geometry) AS lng, ST_Y(location::geometry) AS lat,
        created_at
 FROM conservation_activities

@@ -39,7 +39,7 @@ func (h *ConservationAdminHandler) List(w http.ResponseWriter, r *http.Request) 
 	rows, err := h.pool.Query(r.Context(),
 		`SELECT id, title, organizer, event_date::text, status, current_participants,
 			ST_X(location::geometry) AS lng, ST_Y(location::geometry) AS lat,
-			impact_metric, impact_target, impact_actual, measurement_unit,
+			impact_metric, impact_target, impact_actual, measurement_unit, progress_driver,
 			badge_name, badge_icon_url
 		 FROM conservation_activities
 		 WHERE privacy_level = 'public' ORDER BY created_at DESC LIMIT 50`)
@@ -62,6 +62,7 @@ func (h *ConservationAdminHandler) List(w http.ResponseWriter, r *http.Request) 
 		ImpactTarget        *int    `json:"impactTarget,omitempty"`
 		ImpactActual        *int    `json:"impactActual,omitempty"`
 		MeasurementUnit     *string `json:"measurementUnit,omitempty"`
+		ProgressDriver      string  `json:"progressDriver"`
 		BadgeName           *string `json:"badgeName,omitempty"`
 		BadgeIconURL        *string `json:"badgeIconUrl,omitempty"`
 	}
@@ -70,7 +71,7 @@ func (h *ConservationAdminHandler) List(w http.ResponseWriter, r *http.Request) 
 		var i item
 		rows.Scan(&i.ID, &i.Title, &i.Organizer, &i.EventDate, &i.Status, &i.CurrentParticipants,
 			&i.Lng, &i.Lat, &i.ImpactMetric, &i.ImpactTarget, &i.ImpactActual, &i.MeasurementUnit,
-			&i.BadgeName, &i.BadgeIconURL)
+			&i.ProgressDriver, &i.BadgeName, &i.BadgeIconURL)
 		items = append(items, i)
 	}
 	if items == nil {
@@ -94,6 +95,7 @@ func (h *ConservationAdminHandler) Create(w http.ResponseWriter, r *http.Request
 		ImpactTarget     *int     `json:"impactTarget,omitempty"`
 		ImpactActual     *int     `json:"impactActual,omitempty"`
 		MeasurementUnit  *string  `json:"measurementUnit,omitempty"`
+		ProgressDriver   string   `json:"progressDriver,omitempty"`
 		ParticipantLimit *int     `json:"participantLimit,omitempty"`
 		BadgeName        *string  `json:"badgeName,omitempty"`
 		BadgeIconURL     *string  `json:"badgeIconUrl,omitempty"`
@@ -110,11 +112,13 @@ func (h *ConservationAdminHandler) Create(w http.ResponseWriter, r *http.Request
 
 	var id string
 	err := h.pool.QueryRow(r.Context(),
-		`INSERT INTO conservation_activities (title, organizer, description, location, location_label, privacy_level, event_date, impact_metric, impact_target, impact_actual, measurement_unit, participant_limit, badge_name, badge_icon_url, created_by)
-		 VALUES ($1, $2, $3, ST_SetSRID(ST_MakePoint($4, $5), 4326), $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id`,
+		`INSERT INTO conservation_activities (title, organizer, description, location, location_label, privacy_level, event_date, impact_metric, impact_target, impact_actual, measurement_unit, progress_driver, participant_limit, badge_name, badge_icon_url, created_by)
+		 VALUES ($1, $2, $3, ST_SetSRID(ST_MakePoint($4, $5), 4326), $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id`,
 		req.Title, req.Organizer, req.Description, valOrNilFloat(req.Lng), valOrNilFloat(req.Lat),
 		req.LocationLabel, privacyLevel, req.EventDate, req.ImpactMetric,
-		req.ImpactTarget, req.ImpactActual, req.MeasurementUnit, req.ParticipantLimit,
+		req.ImpactTarget, req.ImpactActual, req.MeasurementUnit,
+		progressDriverOrDefault(req.ProgressDriver),
+		req.ParticipantLimit,
 		req.BadgeName, req.BadgeIconURL, middleware.UserID(r.Context()),
 	).Scan(&id)
 	if err != nil {
@@ -141,6 +145,7 @@ func (h *ConservationAdminHandler) Update(w http.ResponseWriter, r *http.Request
 		ImpactTarget     *int    `json:"impactTarget,omitempty"`
 		ImpactActual     *int    `json:"impactActual,omitempty"`
 		MeasurementUnit  *string `json:"measurementUnit,omitempty"`
+		ProgressDriver   *string `json:"progressDriver,omitempty"`
 		ParticipantLimit *int    `json:"participantLimit,omitempty"`
 		BadgeName        *string `json:"badgeName,omitempty"`
 		BadgeIconURL     *string `json:"badgeIconUrl,omitempty"`
@@ -163,15 +168,16 @@ func (h *ConservationAdminHandler) Update(w http.ResponseWriter, r *http.Request
 		 impact_target = COALESCE($10::int, impact_target),
 		 impact_actual = COALESCE($11::int, impact_actual),
 		 measurement_unit = COALESCE($12::text, measurement_unit),
-		 participant_limit = COALESCE($13::int, participant_limit),
-		 badge_name = COALESCE($14::text, badge_name),
-		 badge_icon_url = COALESCE($15::text, badge_icon_url),
+		 progress_driver = COALESCE($13::text, progress_driver),
+		 participant_limit = COALESCE($14::int, participant_limit),
+		 badge_name = COALESCE($15::text, badge_name),
+		 badge_icon_url = COALESCE($16::text, badge_icon_url),
 		 updated_at = now()
 		 WHERE id = $1`,
 		activityID, valOrEmpty(req.Title), valOrEmpty(req.Organizer), req.Description,
 		req.LocationLabel, valOrEmpty(req.PrivacyLevel), req.EventDate, valOrEmpty(req.Status),
 		req.ImpactMetric, req.ImpactTarget, req.ImpactActual, req.MeasurementUnit,
-		req.ParticipantLimit, req.BadgeName, req.BadgeIconURL)
+		req.ProgressDriver, req.ParticipantLimit, req.BadgeName, req.BadgeIconURL)
 	if err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to update activity", err)
 		return
@@ -277,7 +283,7 @@ func (h *ConservationAdminHandler) ReviewEvidence(w http.ResponseWriter, r *http
 func (h *ConservationAdminHandler) ConservationDetail(w http.ResponseWriter, r *http.Request) {
 	activityID := r.PathValue("id")
 
-	var id, title, organizer, privacyLevel, status, createdAt string
+	var id, title, organizer, privacyLevel, status, createdAt, progressDriver string
 	var description, locationLabel, eventDate, impactMetric, measurementUnit *string
 	var impactTarget, impactActual, participantLimit, currentParticipants *int
 	var lng, lat *float64
@@ -287,13 +293,14 @@ func (h *ConservationAdminHandler) ConservationDetail(w http.ResponseWriter, r *
 		`SELECT id, title, organizer, description,
 			ST_X(location::geometry) AS lng, ST_Y(location::geometry) AS lat,
 			location_label, privacy_level, event_date::text,
-			impact_metric, impact_target, impact_actual, measurement_unit,
+			impact_metric, impact_target, impact_actual, measurement_unit, progress_driver,
 			participant_limit, current_participants,
 			status, created_at::text, badge_name, badge_icon_url
 		 FROM conservation_activities
 		 WHERE id = $1 AND privacy_level = 'public'`, activityID,
 	).Scan(&id, &title, &organizer, &description, &lng, &lat, &locationLabel, &privacyLevel,
 		&eventDate, &impactMetric, &impactTarget, &impactActual, &measurementUnit,
+		&progressDriver,
 		&participantLimit, &currentParticipants,
 		&status, &createdAt, &badgeName, &badgeIconURL)
 	if err == pgx.ErrNoRows {
@@ -319,6 +326,7 @@ func (h *ConservationAdminHandler) ConservationDetail(w http.ResponseWriter, r *
 		"impactTarget":        impactTarget,
 		"impactActual":        impactActual,
 		"measurementUnit":     measurementUnit,
+		"progressDriver":      progressDriver,
 		"participantLimit":    participantLimit,
 		"currentParticipants": currentParticipants,
 		"status":              status,
@@ -358,4 +366,11 @@ func valOrNilFloat(f *float64) interface{} {
 		return nil
 	}
 	return *f
+}
+
+func progressDriverOrDefault(s string) string {
+	if s == "" {
+		return "trees"
+	}
+	return s
 }

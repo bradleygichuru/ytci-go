@@ -158,7 +158,7 @@ func (h *FeedHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 		rows, err := h.pool.Query(ctx,
 			`SELECT COALESCE(json_agg(sub), '[]'::json) FROM (
 				SELECT id, title, organizer, event_date, impact_metric,
-					current_participants, location_label
+					current_participants, location_label, progress_driver
 				FROM conservation_activities
 				WHERE status = 'open' AND privacy_level = 'public'
 				ORDER BY created_at DESC LIMIT 5
