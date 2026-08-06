@@ -112,6 +112,8 @@ type ConservationActivity struct {
 	EventDate           pgtype.Date      `json:"event_date"`
 	ImpactMetric        *string          `json:"impact_metric"`
 	ImpactTarget        *int32           `json:"impact_target"`
+	MeasurementUnit     *string          `json:"measurement_unit"`
+	ProgressDriver      string           `json:"progress_driver"`
 	ParticipantLimit    *int32           `json:"participant_limit"`
 	CurrentParticipants *int32           `json:"current_participants"`
 	Status              string           `json:"status"`
@@ -496,4 +498,5 @@ type UserProfile struct {
 	CreatedAt            pgtype.Timestamp `json:"created_at"`
 	UpdatedAt            pgtype.Timestamp `json:"updated_at"`
 	DisplayName          *string          `json:"display_name"`
+	OnboardingCompleted  bool             `json:"onboarding_completed"`
 }

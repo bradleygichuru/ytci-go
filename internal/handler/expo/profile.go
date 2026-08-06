@@ -38,10 +38,18 @@ func (h *ProfileHandler) Get(w http.ResponseWriter, r *http.Request) {
 		 JOIN destinations d ON d.id = b.destination_id
 		 WHERE b.user_id = $1 AND b.visited = true`, userID).Scan(&countyCount)
 
-	var languages, preferences *string
-	h.pool.QueryRow(r.Context(),
-		`SELECT languages, preferences FROM user_profiles WHERE user_id = $1`,
-		userID).Scan(&languages, &preferences)
+	var languages, preferences, ageRange *string
+	var onboardingCompleted bool
+	err := h.pool.QueryRow(r.Context(),
+		`SELECT languages, preferences, age_range, onboarding_completed FROM user_profiles WHERE user_id = $1`,
+		userID).Scan(&languages, &preferences, &ageRange, &onboardingCompleted)
+	if err == pgx.ErrNoRows {
+		err = nil
+	}
+	if err != nil {
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to get profile", err)
+		return
+	}
 
 	resp := map[string]any{
 		"countiesVisited":     countyCount,
@@ -51,6 +59,8 @@ func (h *ProfileHandler) Get(w http.ResponseWriter, r *http.Request) {
 		"conservationActions": conservation,
 		"languages":           languages,
 		"preferences":         preferences,
+		"ageRange":            ageRange,
+		"onboardingCompleted": onboardingCompleted,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -59,11 +69,12 @@ func (h *ProfileHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 func (h *ProfileHandler) Update(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		AgeRange    *string `json:"ageRange"`
-		County      *string `json:"county"`
-		Languages   *string `json:"languages"`
-		Preferences *string `json:"preferences"`
-		DisplayName *string `json:"displayName"`
+		AgeRange            *string `json:"ageRange"`
+		County              *string `json:"county"`
+		Languages           *string `json:"languages"`
+		Preferences         *string `json:"preferences"`
+		DisplayName         *string `json:"displayName"`
+		OnboardingCompleted *bool   `json:"onboardingCompleted"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
@@ -85,16 +96,17 @@ func (h *ProfileHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err := h.pool.Exec(r.Context(),
-		`INSERT INTO user_profiles (user_id, created_by, age_range, county, languages, preferences, display_name)
-		 VALUES ($1, $1, $2, $3, $4, $5, $6)
+		`INSERT INTO user_profiles (user_id, created_by, age_range, county, languages, preferences, display_name, onboarding_completed)
+		 VALUES ($1, $1, $2, $3, $4, $5, $6, COALESCE($7, false))
 		 ON CONFLICT (user_id) DO UPDATE SET
 		 age_range = COALESCE($2, user_profiles.age_range),
 		 county = COALESCE($3, user_profiles.county),
 		 languages = COALESCE($4, user_profiles.languages),
 		 preferences = COALESCE($5, user_profiles.preferences),
 		 display_name = COALESCE($6, user_profiles.display_name),
+		 onboarding_completed = COALESCE($7, user_profiles.onboarding_completed),
 		 updated_at = now()`,
-		userID, req.AgeRange, req.County, req.Languages, req.Preferences, displayName)
+		userID, req.AgeRange, req.County, req.Languages, req.Preferences, displayName, req.OnboardingCompleted)
 	if err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to update profile", err)
 		return
