@@ -321,8 +321,17 @@ func countMembers(ctx context.Context, q dbQuerier, itineraryID string) (members
 	return members, editors, err
 }
 
-func createInviteCap(role string, members, editors int) int {
-	remaining := maxItineraryParticipants - members
+func countActiveParticipants(ctx context.Context, q dbQuerier, itineraryID string) (int, error) {
+	var count int
+	err := q.QueryRow(ctx,
+		`SELECT COUNT(*)::int FROM trip_participants
+		 WHERE itinerary_id = $1 AND removed_at IS NULL`,
+		itineraryID).Scan(&count)
+	return count, err
+}
+
+func createInviteCap(role string, participants, editors int) int {
+	remaining := maxItineraryParticipants - participants
 	if role == roleEditor {
 		editorRemaining := maxItineraryEditors - editors
 		if editorRemaining < remaining {
@@ -355,11 +364,15 @@ func CreateInvite(ctx context.Context, q dbQuerier, itineraryID, createdBy, role
 		return "", "", errItineraryNotFound
 	}
 
-	members, editors, err := countMembers(ctx, q, itineraryID)
+	participants, err := countActiveParticipants(ctx, q, itineraryID)
 	if err != nil {
 		return "", "", err
 	}
-	capacity := createInviteCap(role, members, editors)
+	_, editors, err := countMembers(ctx, q, itineraryID)
+	if err != nil {
+		return "", "", err
+	}
+	capacity := createInviteCap(role, participants, editors)
 	if capacity <= 0 {
 		if role == roleEditor && editors >= maxItineraryEditors {
 			return "", "", errEditorLimit
@@ -470,15 +483,21 @@ func RedeemInvite(ctx context.Context, tx pgx.Tx, code, userID string) (itinerar
 		return "", "", err
 	}
 
-	members, editors, err := countMembers(ctx, tx, itineraryID)
+	participants, err := countActiveParticipants(ctx, tx, itineraryID)
 	if err != nil {
 		return "", "", err
 	}
-	if members >= maxItineraryParticipants {
+	if participants >= maxItineraryParticipants {
 		return "", "", errTripFull
 	}
-	if role == roleEditor && editors >= maxItineraryEditors {
-		return "", "", errEditorLimit
+	if role == roleEditor {
+		_, editors, err := countMembers(ctx, tx, itineraryID)
+		if err != nil {
+			return "", "", err
+		}
+		if editors >= maxItineraryEditors {
+			return "", "", errEditorLimit
+		}
 	}
 
 	var invitedBy any
@@ -490,6 +509,9 @@ func RedeemInvite(ctx context.Context, tx pgx.Tx, code, userID string) (itinerar
 		 VALUES ($1, $2, $3, $4)`,
 		itineraryID, userID, role, invitedBy,
 	); err != nil {
+		return "", "", err
+	}
+	if err := ensureMemberParticipant(ctx, tx, itineraryID, userID); err != nil {
 		return "", "", err
 	}
 	if _, err := tx.Exec(ctx,
@@ -541,6 +563,18 @@ type itineraryMember struct {
 	JoinedAt time.Time `json:"joinedAt"`
 }
 
+func ensureMemberParticipant(ctx context.Context, q dbQuerier, itineraryID, userID string) error {
+	_, err := q.Exec(ctx,
+		`INSERT INTO trip_participants (itinerary_id, user_id, display_name, kind)
+		 SELECT $1, $2, COALESCE(u.name, 'Member'), 'member'
+		 FROM users u WHERE u.id = $2
+		 ON CONFLICT (itinerary_id, user_id) DO UPDATE
+		 SET removed_at = NULL,
+		     display_name = COALESCE((SELECT name FROM users WHERE id = $2), trip_participants.display_name)`,
+		itineraryID, userID)
+	return err
+}
+
 func AddMember(ctx context.Context, q dbQuerier, itineraryID, userID, role, invitedBy string) error {
 	var invitedByArg any
 	if invitedBy != "" {
@@ -552,7 +586,10 @@ func AddMember(ctx context.Context, q dbQuerier, itineraryID, userID, role, invi
 		 ON CONFLICT (itinerary_id, user_id) DO NOTHING`,
 		itineraryID, userID, role, invitedByArg,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	return ensureMemberParticipant(ctx, q, itineraryID, userID)
 }
 
 func ListMembers(ctx context.Context, q dbQuerier, itineraryID string) ([]itineraryMember, error) {
@@ -635,6 +672,10 @@ func RemoveMember(ctx context.Context, q dbQuerier, itineraryID, userID, actorID
 	if err := bumpMembersVersion(ctx, q, itineraryID); err != nil {
 		return err
 	}
+	_, _ = q.Exec(ctx,
+		`UPDATE trip_participants SET removed_at = now()
+		 WHERE itinerary_id = $1 AND user_id = $2`,
+		itineraryID, userID)
 	return recordTripEvent(ctx, q, itineraryID, actorID, "members", "member_removed",
 		"member", userID, "Removed a member", map[string]any{"role": removedRole}, nil, "")
 }

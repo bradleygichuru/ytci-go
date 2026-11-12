@@ -16,6 +16,7 @@ type Store interface {
 	PresignedPutURL(ctx context.Context, key string, ttl time.Duration) (string, error)
 	PresignedGetURL(ctx context.Context, key string, ttl time.Duration) (string, error)
 	PutObject(ctx context.Context, key string, data io.Reader, contentType string) error
+	GetObject(ctx context.Context, key string) ([]byte, error)
 	DeleteObject(ctx context.Context, key string) error
 }
 
@@ -79,6 +80,22 @@ func (c *Client) PutObject(ctx context.Context, key string, data io.Reader, cont
 		return fmt.Errorf("put object: %w", err)
 	}
 	return nil
+}
+
+func (c *Client) GetObject(ctx context.Context, key string) ([]byte, error) {
+	out, err := c.s3Client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(c.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get object: %w", err)
+	}
+	defer out.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(out.Body, 20*1024*1024))
+	if err != nil {
+		return nil, fmt.Errorf("read object: %w", err)
+	}
+	return data, nil
 }
 
 func (c *Client) DeleteObject(ctx context.Context, key string) error {

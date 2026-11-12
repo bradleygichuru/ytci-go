@@ -15,6 +15,7 @@ import (
 	"github.com/bradleygichuru/ytci-go/internal/handler/admin"
 	"github.com/bradleygichuru/ytci-go/internal/handler/expo"
 	"github.com/bradleygichuru/ytci-go/internal/middleware"
+	"github.com/bradleygichuru/ytci-go/internal/ocr"
 	"github.com/bradleygichuru/ytci-go/internal/places"
 	"github.com/bradleygichuru/ytci-go/internal/push"
 	"github.com/bradleygichuru/ytci-go/internal/r2"
@@ -100,6 +101,7 @@ type handlers struct {
 	account   *expo.AccountHandler
 	mobileCourses *expo.CourseHandler
 	places    *expo.PlacesHandler
+	budget    *expo.BudgetHandler
 }
 
 func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Client, cfg *config.Config) *handlers {
@@ -130,6 +132,7 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 		account:   expo.NewAccountHandler(pool, r2client),
 		mobileCourses: expo.NewCourseHandler(pool, r2client),
 		places:    expo.NewPlacesHandler(pool, cfg.GooglePlacesAPIKey, placesCache),
+		budget:    expo.NewBudgetHandler(pool, r2client, ocr.NewClient(cfg.GoogleVisionAPIKey, cfg.GoogleVisionEndpoint)),
 	}
 	if pushClient != nil {
 		h.pushAdmin = admin.NewPushHandler(pool, pushClient)
@@ -258,6 +261,26 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 			aR.Post("/itineraries/{id}/duplicate", h.itin.Duplicate)
 			aR.Get("/itineraries/{id}/stops", h.itinStops.GetStops)
 			aR.Put("/itineraries/{id}/stops", h.itinStops.UpsertStops)
+			aR.Get("/itineraries/{id}/budget", h.budget.GetBudget)
+			aR.Put("/itineraries/{id}/budget", h.budget.UpdateBudget)
+			aR.Get("/itineraries/{id}/participants", h.budget.ListParticipants)
+			aR.Post("/itineraries/{id}/participants", h.budget.CreateParticipant)
+			aR.Delete("/itineraries/{id}/participants/{participantId}", h.budget.RemoveParticipant)
+			aR.Get("/itineraries/{id}/expenses", h.budget.ListExpenses)
+			aR.Post("/itineraries/{id}/expenses", h.budget.CreateExpense)
+			aR.Get("/itineraries/{id}/expenses/{expenseId}", h.budget.GetExpense)
+			aR.Patch("/itineraries/{id}/expenses/{expenseId}", h.budget.UpdateExpense)
+			aR.Delete("/itineraries/{id}/expenses/{expenseId}", h.budget.DeleteExpense)
+			aR.Post("/itineraries/{id}/expenses/{expenseId}/restore", h.budget.RestoreExpense)
+			aR.Get("/itineraries/{id}/settle-up", h.budget.GetSettleUp)
+			aR.Get("/itineraries/{id}/settlements", h.budget.ListSettlements)
+			aR.Post("/itineraries/{id}/settlements", h.budget.CreateSettlement)
+			aR.Delete("/itineraries/{id}/settlements/{settlementId}", h.budget.DeleteSettlement)
+			aR.Post("/itineraries/{id}/expenses/{expenseId}/receipt/presign", h.budget.PresignReceipt)
+			aR.Post("/itineraries/{id}/expenses/{expenseId}/receipt/complete", h.budget.CompleteReceipt)
+			aR.Get("/itineraries/{id}/expenses/{expenseId}/receipt", h.budget.GetReceipt)
+			aR.Patch("/itineraries/{id}/expenses/{expenseId}/receipt", h.budget.PatchReceipt)
+			aR.Delete("/itineraries/{id}/expenses/{expenseId}/receipt", h.budget.DeleteReceipt)
 			aR.Post("/push/register", h.pushReg.Register)
 
 			if r2client != nil {

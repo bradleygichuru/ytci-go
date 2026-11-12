@@ -20,6 +20,8 @@ type Config struct {
 	LogLevel         string `env:"LOG_LEVEL" envDefault:"info"`
 	JWKSCacheTTL         int    `env:"JWKS_CACHE_TTL_MINUTES" envDefault:"60"`
 	GooglePlacesAPIKey   string `env:"GOOGLE_PLACES_API_KEY,required"`
+	GoogleVisionAPIKey   string `env:"GOOGLE_VISION_API_KEY"`
+	GoogleVisionEndpoint string `env:"GOOGLE_VISION_ENDPOINT" envDefault:"https://eu-vision.googleapis.com"`
 }
 
 func Load() (*Config, error) {

@@ -38,6 +38,12 @@ func (m *mockR2Store) PresignedGetURL(ctx context.Context, key string, ttl time.
 func (m *mockR2Store) PutObject(ctx context.Context, key string, data io.Reader, contentType string) error {
 	return nil
 }
+func (m *mockR2Store) GetObject(ctx context.Context, key string) ([]byte, error) {
+	if m.getErr != nil {
+		return nil, m.getErr
+	}
+	return []byte("test-image"), nil
+}
 func (m *mockR2Store) DeleteObject(ctx context.Context, key string) error {
 	return m.deleteErr
 }
