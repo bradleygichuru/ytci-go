@@ -99,7 +99,7 @@ func TestAccountDeletion(t *testing.T) {
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 
-	userID := "test-user-001"
+	userID := "11111111-1111-1111-1111-111111111111"
 	sessionToken := "test-session-abc"
 
 	_, err = pool.Exec(ctx, `

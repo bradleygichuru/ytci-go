@@ -49,7 +49,11 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 
 	r.Get("/health", handler.Health)
 
-	h := mountHandlers(pool, r2client, pushClient, cfg)
+	var r2Store r2.Store
+	if r2client != nil {
+		r2Store = r2client
+	}
+	h := mountHandlers(pool, r2Store, pushClient, cfg)
 
 	publicLimiter := middleware.PublicRateLimiter()
 

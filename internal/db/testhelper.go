@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -42,7 +43,11 @@ func SetupTestDB(t *testing.T) *pgxpool.Pool {
 	}
 	t.Cleanup(pool.Close)
 
-	migrationPath := filepath.Join("..", "..", "testdata", "migrations")
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("failed to locate test helper source")
+	}
+	migrationPath := filepath.Join(filepath.Dir(filename), "..", "..", "testdata", "migrations")
 	entries, err := os.ReadDir(migrationPath)
 	if err != nil {
 		t.Fatalf("failed to read migrations dir: %v", err)
