@@ -112,6 +112,10 @@ func writeItineraryAccessError(w http.ResponseWriter, r *http.Request, err error
 }
 
 func writeVersionConflict(w http.ResponseWriter, currentVersion int) {
+	writeVersionConflictFor(w, "plan", currentVersion)
+}
+
+func writeVersionConflictFor(w http.ResponseWriter, scope string, currentVersion int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusConflict)
 	json.NewEncoder(w).Encode(map[string]any{
@@ -119,6 +123,7 @@ func writeVersionConflict(w http.ResponseWriter, currentVersion int) {
 			"code":    "VERSION_CONFLICT",
 			"message": "This trip changed while you were editing.",
 		},
+		"scope":          scope,
 		"currentVersion": currentVersion,
 	})
 }

@@ -216,7 +216,10 @@ func TestMemberRoleMatrixAndVersionConflict(t *testing.T) {
 	rec = httptest.NewRecorder()
 	h.SetMemberRole(rec, req)
 	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
-	assert.Equal(t, "VERSION_CONFLICT", collabResponse(t, rec)["error"].(map[string]any)["code"])
+	conflict := collabResponse(t, rec)
+	assert.Equal(t, "VERSION_CONFLICT", conflict["error"].(map[string]any)["code"])
+	assert.Equal(t, "members", conflict["scope"])
+	assert.EqualValues(t, membersVersion+1, conflict["currentVersion"])
 
 	// Viewer can leave, owner cannot.
 	req = collabRequest(t, http.MethodPost, "/v1/mobile/itineraries/"+itineraryID+"/leave", viewerID, nil)

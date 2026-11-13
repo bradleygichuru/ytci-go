@@ -126,7 +126,7 @@ func (h *CollaborationHandler) pushTripEditors(r *http.Request, itineraryID, exc
 
 func (h *CollaborationHandler) requireMembersVersion(w http.ResponseWriter, r *http.Request, access *itineraryAccess, expected int) bool {
 	if expected > 0 && expected != access.MembersVersion {
-		writeVersionConflict(w, access.MembersVersion)
+		writeVersionConflictFor(w, "members", access.MembersVersion)
 		return false
 	}
 	return true
@@ -147,7 +147,7 @@ func (h *CollaborationHandler) checkMembersVersionTx(w http.ResponseWriter, r *h
 		return false
 	}
 	if current != expected {
-		writeVersionConflict(w, current)
+		writeVersionConflictFor(w, "members", current)
 		return false
 	}
 	return true

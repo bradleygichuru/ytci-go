@@ -199,6 +199,7 @@ func writeBudgetVersionConflict(w http.ResponseWriter, current int) {
 			"code":    "VERSION_CONFLICT",
 			"message": "The budget changed while you were editing.",
 		},
+		"scope":          "budget",
 		"currentVersion": current,
 	})
 }
