@@ -724,9 +724,6 @@ func (h *MarketplaceAdminHandler) UpdateStay(w http.ResponseWriter, r *http.Requ
 	bookingURL := derefString(req.BookingURL, derefString(existing.BookingURL, ""))
 	directURL := derefString(req.DirectURL, derefString(existing.DirectURL, ""))
 	priceFromKES := req.PriceFromKES
-	if priceFromKES == nil {
-		priceFromKES = existing.PriceFromKES
-	}
 	contactEmail := derefString(req.ContactEmail, derefString(existing.ContactEmail, ""))
 
 	if err := validateStay(name, slug, tier, propertyType, shortDescription, county, status, displayOrder,
@@ -763,7 +760,7 @@ func (h *MarketplaceAdminHandler) UpdateStay(w http.ResponseWriter, r *http.Requ
 		name, slug, tier, propertyType, shortDescription,
 		derefNullableString(req.FullDescription, existing.FullDescription), county,
 		derefNullableString(req.Locality, existing.Locality), derefNullableString(req.Address, existing.Address),
-		derefFloat(req.LocationLat, existing.LocationLat), derefFloat(req.LocationLng, existing.LocationLng),
+		derefFloat(req.LocationLat, nil), derefFloat(req.LocationLng, nil),
 		priceFromKES, derefNullableString(req.PriceNote, existing.PriceNote),
 		derefNullableString(req.PriceCheckedAt, existing.PriceCheckedAt),
 		derefNullableString(req.DistanceNote, existing.DistanceNote),

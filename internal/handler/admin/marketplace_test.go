@@ -111,11 +111,27 @@ func TestMarketplaceAdminCRUD(t *testing.T) {
 		"isFeatured":       true,
 	})
 	require.Equal(t, http.StatusCreated, stayRR.Code, stayRR.Body.String())
+	var createdStay struct {
+		ID string `json:"id"`
+	}
+	require.NoError(t, json.NewDecoder(stayRR.Body).Decode(&createdStay))
+	require.NotEmpty(t, createdStay.ID)
 
 	var distanceNote, badgeLabel string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT distance_note, badge_label FROM accommodation_properties WHERE slug = 'mara-river-camp'`).Scan(&distanceNote, &badgeLabel))
 	assert.Equal(t, "10 min to the gate", distanceNote)
 	assert.Equal(t, "Verified partner", badgeLabel)
+
+	// Clearing the indicative price is allowed; the form sends the full object.
+	clearPriceReq := httptest.NewRequest("PATCH", "/v1/stays/"+createdStay.ID, bytes.NewBufferString(`{"priceFromKes":null}`))
+	clearPriceReq.SetPathValue("id", createdStay.ID)
+	clearPriceRR := httptest.NewRecorder()
+	h.UpdateStay(clearPriceRR, clearPriceReq)
+	assert.Equal(t, http.StatusOK, clearPriceRR.Code, clearPriceRR.Body.String())
+
+	var priceIsNull bool
+	require.NoError(t, pool.QueryRow(ctx, `SELECT price_from_kes IS NULL FROM accommodation_properties WHERE id = $1`, createdStay.ID).Scan(&priceIsNull))
+	assert.True(t, priceIsNull)
 
 	// First eSIM provider is featured.
 	esimRR := doJSON(t, h.CreateEsimProvider, "POST", "/v1/esim-providers", map[string]any{
