@@ -15,7 +15,7 @@ tracked in #212; this runbook records the procedure and the drill evidence.
 PITR is disaster recovery, not user undo. User-visible restore comes from the
 audit/revision layer (`POST /v1/mobile/itineraries/{id}/revisions/{id}/restore`).
 
-## Provisioning (owner-only, #212)
+## Provisioning at scale (owner-only, #212)
 
 1. Confirm the Render Postgres instance is on a paid compute plan. Free
    databases have no backups and expire.
@@ -38,6 +38,32 @@ audit/revision layer (`POST /v1/mobile/itineraries/{id}/revisions/{id}/restore`)
 Render Cron Job. It dumps the internal database URL and uploads the custom dump
 plus `.sha256` sidecar to `daily/YYYY/MM/DD/` in `ytci-pg-backups`. See its
 README for the environment group and bucket-lock setup.
+
+## Free-tier interim (current)
+
+Production is intentionally staying on free tiers until scale. That has one
+hard consequence: **Render Free Postgres has no PITR and no Render-managed
+backups**, and the database expires after 30 days. Treat the current
+environment as development/staging, not production.
+
+Interim backup path:
+
+- `.github/workflows/db-backup.yml` runs a daily `pg_dump` at 03:00 UTC from a
+  GitHub Actions runner and uploads the dump + `.sha256` to the free R2 bucket
+  `ytci-pg-backups` under `daily/YYYY/MM/DD/`.
+- GitHub Actions secrets required: `RENDER_DATABASE_URL`, `R2_ACCOUNT_ID`,
+  `R2_BACKUP_BUCKET`, `R2_BACKUP_ACCESS_KEY_ID`,
+  `R2_BACKUP_SECRET_ACCESS_KEY`.
+- R2 free tier covers 10 GB; add a lifecycle rule to expire `daily/` after
+  35 days. Bucket locks are optional on the free tier; enable them if the
+  account supports it.
+- RPO is ≤24 hours (not ≤10 minutes). Restore is full-database only. If more
+  than 24 hours of data would be unacceptable, the database must move to a paid
+  Render plan with PITR before that release.
+
+At scale, switch to the paid Render PITR + Render Cron Job path below. The
+`scripts/backup-cron/` image and the provisioning checklist are kept ready for
+that move.
 
 ## Logical backup
 
