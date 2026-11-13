@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -41,6 +42,7 @@ func (h *MarketplaceHandler) presign(ctx context.Context, key *string) *string {
 	}
 	u, err := h.r2.PresignedGetURL(ctx, *key, 15*time.Minute)
 	if err != nil {
+		slog.Warn("presign marketplace image", "key", *key, "error", err)
 		return nil
 	}
 	return &u
@@ -198,7 +200,7 @@ func (h *MarketplaceHandler) ListBusinesses(w http.ResponseWriter, r *http.Reque
 		items = append(items, b)
 	}
 
-	writePage(w, items, pr.Limit)
+	writePage(w, items, pr.Limit, marketplaceBusinessSummary.CursorValues)
 }
 
 func (h *MarketplaceHandler) GetBusiness(w http.ResponseWriter, r *http.Request) {
@@ -295,7 +297,7 @@ func (h *MarketplaceHandler) ListStays(w http.ResponseWriter, r *http.Request) {
 		items = append(items, a)
 	}
 
-	writePage(w, items, pr.Limit)
+	writePage(w, items, pr.Limit, accommodationSummary.CursorValues)
 }
 
 func (h *MarketplaceHandler) GetStay(w http.ResponseWriter, r *http.Request) {
@@ -440,22 +442,16 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	json.NewEncoder(w).Encode(v)
 }
 
-func writePage[T any](w http.ResponseWriter, items []T, limit int) {
+func writePage[T any](w http.ResponseWriter, items []T, limit int, cursor func(T) (string, string)) {
 	hasMore := len(items) > limit
 	if hasMore {
 		items = items[:limit]
 	}
 	resp := model.Paginated[T]{Items: items, HasMore: hasMore}
 	if hasMore && len(items) > 0 {
-		// Cursor values are encoded by callers that need pagination; the
-		// summary structs expose DisplayOrder and ID through an interface.
-		if last, ok := any(items[len(items)-1]).(interface {
-			CursorValues() (string, string)
-		}); ok {
-			sortValue, id := last.CursorValues()
-			cursor := pagination.EncodeCursor(sortValue, id)
-			resp.NextCursor = &cursor
-		}
+		sortValue, id := cursor(items[len(items)-1])
+		c := pagination.EncodeCursor(sortValue, id)
+		resp.NextCursor = &c
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

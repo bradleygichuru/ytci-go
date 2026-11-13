@@ -98,6 +98,8 @@ func TestMarketplaceAdminCRUD(t *testing.T) {
 		"shortDescription": "Tented camp on the Mara River.",
 		"county":           "Narok",
 		"priceFromKes":     12500,
+		"locationLat":      -1.5,
+		"locationLng":      35.2,
 		"priceCheckedAt":   "2026-11-12",
 		"distanceNote":     "10 min to the gate",
 		"cancellationNote": "Free to cancel until 48 hours before",
@@ -121,6 +123,19 @@ func TestMarketplaceAdminCRUD(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT distance_note, badge_label FROM accommodation_properties WHERE slug = 'mara-river-camp'`).Scan(&distanceNote, &badgeLabel))
 	assert.Equal(t, "10 min to the gate", distanceNote)
 	assert.Equal(t, "Verified partner", badgeLabel)
+
+	// A partial PATCH must preserve omitted price and coordinates.
+	partialReq := httptest.NewRequest("PATCH", "/v1/stays/"+createdStay.ID, bytes.NewBufferString(`{"badgeLabel":"YTC pick"}`))
+	partialReq.SetPathValue("id", createdStay.ID)
+	partialRR := httptest.NewRecorder()
+	h.UpdateStay(partialRR, partialReq)
+	assert.Equal(t, http.StatusOK, partialRR.Code, partialRR.Body.String())
+
+	var preservedPrice int
+	var preservedLat float64
+	require.NoError(t, pool.QueryRow(ctx, `SELECT price_from_kes, location_lat FROM accommodation_properties WHERE id = $1`, createdStay.ID).Scan(&preservedPrice, &preservedLat))
+	assert.Equal(t, 12500, preservedPrice)
+	assert.InDelta(t, -1.5, preservedLat, 0.0001)
 
 	// Clearing the indicative price is allowed; the form sends the full object.
 	clearPriceReq := httptest.NewRequest("PATCH", "/v1/stays/"+createdStay.ID, bytes.NewBufferString(`{"priceFromKes":null}`))

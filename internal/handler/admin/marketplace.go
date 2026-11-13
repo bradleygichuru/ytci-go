@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/mail"
 	"net/url"
@@ -35,6 +36,28 @@ func NewMarketplaceAdminHandler(pool *pgxpool.Pool, r2client r2.Store) *Marketpl
 	return &MarketplaceAdminHandler{pool: pool, r2: r2client}
 }
 
+// optional distinguishes an omitted JSON field from an explicit null.
+// This lets PATCH preserve omitted values while still allowing a client to
+// clear a nullable numeric field (price, latitude, longitude).
+type optional[T any] struct {
+	Set   bool
+	Value *T
+}
+
+func (o *optional[T]) UnmarshalJSON(data []byte) error {
+	o.Set = true
+	if string(data) == "null" {
+		o.Value = nil
+		return nil
+	}
+	var value T
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	o.Value = &value
+	return nil
+}
+
 var (
 	slugPattern   = regexp.MustCompile(`^[a-z0-9-]{2,80}$`)
 	uuidPattern   = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -56,6 +79,7 @@ func (h *MarketplaceAdminHandler) presign(ctx context.Context, key *string) *str
 	}
 	u, err := h.r2.PresignedGetURL(ctx, *key, 15*time.Minute)
 	if err != nil {
+		slog.Warn("presign marketplace image", "key", *key, "error", err)
 		return nil
 	}
 	return &u
@@ -74,6 +98,14 @@ func nullIfEmpty(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+func defaultIfEmpty(s, fallback string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return fallback
+	}
+	return s
 }
 
 func derefString(p *string, fallback string) string {
@@ -104,13 +136,6 @@ func derefInt(p *int, fallback int) int {
 	return *p
 }
 
-func derefFloat(p *float64, fallback *float64) *float64 {
-	if p == nil {
-		return fallback
-	}
-	return p
-}
-
 func validHTTPURL(s string) bool {
 	u, err := url.Parse(s)
 	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
@@ -127,29 +152,29 @@ func validOptionalEmail(s string) bool {
 // ── Partner businesses ──
 
 type businessRequest struct {
-	Name             *string  `json:"name"`
-	Slug             *string  `json:"slug"`
-	Category         *string  `json:"category"`
-	Tagline          *string  `json:"tagline"`
-	ShortDescription *string  `json:"shortDescription"`
-	FullDescription  *string  `json:"fullDescription"`
-	County           *string  `json:"county"`
-	Locality         *string  `json:"locality"`
-	ServiceArea      *string  `json:"serviceArea"`
-	Address          *string  `json:"address"`
-	LocationLat      *float64 `json:"locationLat"`
-	LocationLng      *float64 `json:"locationLng"`
-	ContactEmail     *string  `json:"contactEmail"`
-	ContactPhone     *string  `json:"contactPhone"`
-	RedirectURL      *string  `json:"redirectUrl"`
-	RedirectLabel    *string  `json:"redirectLabel"`
-	Disclosure       *string  `json:"disclosure"`
-	ImageURL         *string  `json:"imageUrl"`
-	ImageAlt         *string  `json:"imageAlt"`
-	ImageCredit      *string  `json:"imageCredit"`
-	Status           *string  `json:"status"`
-	IsFeatured       *bool    `json:"isFeatured"`
-	DisplayOrder     *int     `json:"displayOrder"`
+	Name             *string           `json:"name"`
+	Slug             *string           `json:"slug"`
+	Category         *string           `json:"category"`
+	Tagline          *string           `json:"tagline"`
+	ShortDescription *string           `json:"shortDescription"`
+	FullDescription  *string           `json:"fullDescription"`
+	County           *string           `json:"county"`
+	Locality         *string           `json:"locality"`
+	ServiceArea      *string           `json:"serviceArea"`
+	Address          *string           `json:"address"`
+	LocationLat      optional[float64] `json:"locationLat"`
+	LocationLng      optional[float64] `json:"locationLng"`
+	ContactEmail     *string           `json:"contactEmail"`
+	ContactPhone     *string           `json:"contactPhone"`
+	RedirectURL      *string           `json:"redirectUrl"`
+	RedirectLabel    *string           `json:"redirectLabel"`
+	Disclosure       *string           `json:"disclosure"`
+	ImageURL         *string           `json:"imageUrl"`
+	ImageAlt         *string           `json:"imageAlt"`
+	ImageCredit      *string           `json:"imageCredit"`
+	Status           *string           `json:"status"`
+	IsFeatured       *bool             `json:"isFeatured"`
+	DisplayOrder     *int              `json:"displayOrder"`
 }
 
 type adminBusiness struct {
@@ -203,10 +228,6 @@ const businessColumns = `id::text, name, slug, category, tagline, short_descript
 	display_order, created_at::text, updated_at::text`
 
 func (h *MarketplaceAdminHandler) ListBusinesses(w http.ResponseWriter, r *http.Request) {
-	h.listBusinesses(w, r)
-}
-
-func (h *MarketplaceAdminHandler) listBusinesses(w http.ResponseWriter, r *http.Request) {
 	pr := pagination.ParseRequest(r)
 	args := []any{}
 	where := []string{"1 = 1"}
@@ -296,6 +317,10 @@ func (h *MarketplaceAdminHandler) CreateBusiness(w http.ResponseWriter, r *http.
 		handler.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
 		return
 	}
+	if !validOptionalEmail(derefString(req.ContactEmail, "")) {
+		handler.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "contactEmail is not a valid email address")
+		return
+	}
 
 	var id string
 	err := h.pool.QueryRow(r.Context(), `
@@ -309,9 +334,9 @@ func (h *MarketplaceAdminHandler) CreateBusiness(w http.ResponseWriter, r *http.
 		name, slug, category, nullIfEmpty(derefString(req.Tagline, "")), shortDescription,
 		nullIfEmpty(derefString(req.FullDescription, "")), nullIfEmpty(derefString(req.County, "")),
 		nullIfEmpty(derefString(req.Locality, "")), nullIfEmpty(derefString(req.ServiceArea, "")),
-		nullIfEmpty(derefString(req.Address, "")), derefFloat(req.LocationLat, nil), derefFloat(req.LocationLng, nil),
+		nullIfEmpty(derefString(req.Address, "")), req.LocationLat.Value, req.LocationLng.Value,
 		nullIfEmpty(derefString(req.ContactEmail, "")), nullIfEmpty(derefString(req.ContactPhone, "")),
-		redirectURL, nullIfEmpty(derefString(req.RedirectLabel, "")), nullIfEmpty(derefString(req.Disclosure, "")),
+		redirectURL, defaultIfEmpty(derefString(req.RedirectLabel, ""), "Visit partner"), nullIfEmpty(derefString(req.Disclosure, "")),
 		nullIfEmpty(derefString(req.ImageURL, "")), nullIfEmpty(derefString(req.ImageAlt, "")),
 		nullIfEmpty(derefString(req.ImageCredit, "")), status, derefBool(req.IsFeatured, false), displayOrder,
 		nullableUserID(middleware.UserID(r.Context())),
@@ -359,9 +384,21 @@ func (h *MarketplaceAdminHandler) UpdateBusiness(w http.ResponseWriter, r *http.
 	redirectURL := derefString(req.RedirectURL, existing.RedirectURL)
 	status := derefString(req.Status, existing.Status)
 	displayOrder := derefInt(req.DisplayOrder, existing.DisplayOrder)
+	locationLat := existing.LocationLat
+	if req.LocationLat.Set {
+		locationLat = req.LocationLat.Value
+	}
+	locationLng := existing.LocationLng
+	if req.LocationLng.Set {
+		locationLng = req.LocationLng.Value
+	}
 
 	if err := validateBusiness(name, slug, category, shortDescription, redirectURL, status, displayOrder); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	if !validOptionalEmail(derefString(req.ContactEmail, "")) {
+		handler.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "contactEmail is not a valid email address")
 		return
 	}
 
@@ -377,7 +414,7 @@ func (h *MarketplaceAdminHandler) UpdateBusiness(w http.ResponseWriter, r *http.
 		derefNullableString(req.FullDescription, existing.FullDescription),
 		derefNullableString(req.County, existing.County), derefNullableString(req.Locality, existing.Locality),
 		derefNullableString(req.ServiceArea, existing.ServiceArea), derefNullableString(req.Address, existing.Address),
-		derefFloat(req.LocationLat, existing.LocationLat), derefFloat(req.LocationLng, existing.LocationLng),
+		locationLat, locationLng,
 		derefNullableString(req.ContactEmail, existing.ContactEmail),
 		derefNullableString(req.ContactPhone, existing.ContactPhone), redirectURL,
 		derefNullableString(req.RedirectLabel, existing.RedirectLabel),
@@ -404,8 +441,8 @@ func (h *MarketplaceAdminHandler) DeleteBusiness(w http.ResponseWriter, r *http.
 }
 
 func validateBusiness(name, slug, category, shortDescription, redirectURL, status string, displayOrder int) error {
-	if name == "" {
-		return fmt.Errorf("name is required")
+	if len(strings.TrimSpace(name)) < 2 {
+		return fmt.Errorf("name must be at least 2 characters")
 	}
 	if len(name) > 120 {
 		return fmt.Errorf("name must be 120 characters or fewer")
@@ -437,38 +474,38 @@ func validateBusiness(name, slug, category, shortDescription, redirectURL, statu
 // ── Accommodation properties ──
 
 type stayRequest struct {
-	Name             *string  `json:"name"`
-	Slug             *string  `json:"slug"`
-	Tier             *string  `json:"tier"`
-	PropertyType     *string  `json:"propertyType"`
-	ShortDescription *string  `json:"shortDescription"`
-	FullDescription  *string  `json:"fullDescription"`
-	County           *string  `json:"county"`
-	Locality         *string  `json:"locality"`
-	Address          *string  `json:"address"`
-	LocationLat      *float64 `json:"locationLat"`
-	LocationLng      *float64 `json:"locationLng"`
-	PriceFromKES     *int     `json:"priceFromKes"`
-	PriceNote        *string  `json:"priceNote"`
-	PriceCheckedAt   *string  `json:"priceCheckedAt"`
-	DistanceNote     *string  `json:"distanceNote"`
-	CancellationNote *string  `json:"cancellationNote"`
-	PaymentNote      *string  `json:"paymentNote"`
-	IncludedNote     *string  `json:"includedNote"`
-	BadgeLabel       *string  `json:"badgeLabel"`
-	Amenities        []string `json:"amenities"`
-	Highlights       []string `json:"highlights"`
-	BookingURL       *string  `json:"bookingUrl"`
-	DirectURL        *string  `json:"directUrl"`
-	Disclosure       *string  `json:"disclosure"`
-	ContactEmail     *string  `json:"contactEmail"`
-	ContactPhone     *string  `json:"contactPhone"`
-	ImageURL         *string  `json:"imageUrl"`
-	ImageAlt         *string  `json:"imageAlt"`
-	ImageCredit      *string  `json:"imageCredit"`
-	Status           *string  `json:"status"`
-	IsFeatured       *bool    `json:"isFeatured"`
-	DisplayOrder     *int     `json:"displayOrder"`
+	Name             *string           `json:"name"`
+	Slug             *string           `json:"slug"`
+	Tier             *string           `json:"tier"`
+	PropertyType     *string           `json:"propertyType"`
+	ShortDescription *string           `json:"shortDescription"`
+	FullDescription  *string           `json:"fullDescription"`
+	County           *string           `json:"county"`
+	Locality         *string           `json:"locality"`
+	Address          *string           `json:"address"`
+	LocationLat      optional[float64] `json:"locationLat"`
+	LocationLng      optional[float64] `json:"locationLng"`
+	PriceFromKES     optional[int]     `json:"priceFromKes"`
+	PriceNote        *string           `json:"priceNote"`
+	PriceCheckedAt   *string           `json:"priceCheckedAt"`
+	DistanceNote     *string           `json:"distanceNote"`
+	CancellationNote *string           `json:"cancellationNote"`
+	PaymentNote      *string           `json:"paymentNote"`
+	IncludedNote     *string           `json:"includedNote"`
+	BadgeLabel       *string           `json:"badgeLabel"`
+	Amenities        []string          `json:"amenities"`
+	Highlights       []string          `json:"highlights"`
+	BookingURL       *string           `json:"bookingUrl"`
+	DirectURL        *string           `json:"directUrl"`
+	Disclosure       *string           `json:"disclosure"`
+	ContactEmail     *string           `json:"contactEmail"`
+	ContactPhone     *string           `json:"contactPhone"`
+	ImageURL         *string           `json:"imageUrl"`
+	ImageAlt         *string           `json:"imageAlt"`
+	ImageCredit      *string           `json:"imageCredit"`
+	Status           *string           `json:"status"`
+	IsFeatured       *bool             `json:"isFeatured"`
+	DisplayOrder     *int              `json:"displayOrder"`
 }
 
 type adminStay struct {
@@ -637,7 +674,7 @@ func (h *MarketplaceAdminHandler) CreateStay(w http.ResponseWriter, r *http.Requ
 	displayOrder := derefInt(req.DisplayOrder, 0)
 	bookingURL := derefString(req.BookingURL, "")
 	directURL := derefString(req.DirectURL, "")
-	priceFromKES := req.PriceFromKES
+	priceFromKES := req.PriceFromKES.Value
 	contactEmail := derefString(req.ContactEmail, "")
 
 	if err := validateStay(name, slug, tier, propertyType, shortDescription, county, status, displayOrder,
@@ -655,6 +692,10 @@ func (h *MarketplaceAdminHandler) CreateStay(w http.ResponseWriter, r *http.Requ
 	if highlights == nil {
 		highlights = []string{}
 	}
+	if len(highlights) > 6 {
+		handler.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "add at most 6 highlights")
+		return
+	}
 	err := h.pool.QueryRow(r.Context(), `
 		INSERT INTO accommodation_properties (
 			name, slug, tier, property_type, short_description, full_description, county, locality,
@@ -666,7 +707,7 @@ func (h *MarketplaceAdminHandler) CreateStay(w http.ResponseWriter, r *http.Requ
 		RETURNING id::text`,
 		name, slug, tier, propertyType, shortDescription, nullIfEmpty(derefString(req.FullDescription, "")),
 		county, nullIfEmpty(derefString(req.Locality, "")), nullIfEmpty(derefString(req.Address, "")),
-		derefFloat(req.LocationLat, nil), derefFloat(req.LocationLng, nil), priceFromKES,
+		req.LocationLat.Value, req.LocationLng.Value, priceFromKES,
 		nullIfEmpty(derefString(req.PriceNote, "")), nullIfEmpty(derefString(req.PriceCheckedAt, "")),
 		nullIfEmpty(derefString(req.DistanceNote, "")), nullIfEmpty(derefString(req.CancellationNote, "")),
 		nullIfEmpty(derefString(req.PaymentNote, "")), nullIfEmpty(derefString(req.IncludedNote, "")),
@@ -723,7 +764,18 @@ func (h *MarketplaceAdminHandler) UpdateStay(w http.ResponseWriter, r *http.Requ
 	displayOrder := derefInt(req.DisplayOrder, existing.DisplayOrder)
 	bookingURL := derefString(req.BookingURL, derefString(existing.BookingURL, ""))
 	directURL := derefString(req.DirectURL, derefString(existing.DirectURL, ""))
-	priceFromKES := req.PriceFromKES
+	priceFromKES := existing.PriceFromKES
+	if req.PriceFromKES.Set {
+		priceFromKES = req.PriceFromKES.Value
+	}
+	locationLat := existing.LocationLat
+	if req.LocationLat.Set {
+		locationLat = req.LocationLat.Value
+	}
+	locationLng := existing.LocationLng
+	if req.LocationLng.Set {
+		locationLng = req.LocationLng.Value
+	}
 	contactEmail := derefString(req.ContactEmail, derefString(existing.ContactEmail, ""))
 
 	if err := validateStay(name, slug, tier, propertyType, shortDescription, county, status, displayOrder,
@@ -746,6 +798,10 @@ func (h *MarketplaceAdminHandler) UpdateStay(w http.ResponseWriter, r *http.Requ
 	if highlights == nil {
 		highlights = []string{}
 	}
+	if len(highlights) > 6 {
+		handler.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "add at most 6 highlights")
+		return
+	}
 
 	_, err = h.pool.Exec(r.Context(), `
 		UPDATE accommodation_properties SET
@@ -760,7 +816,7 @@ func (h *MarketplaceAdminHandler) UpdateStay(w http.ResponseWriter, r *http.Requ
 		name, slug, tier, propertyType, shortDescription,
 		derefNullableString(req.FullDescription, existing.FullDescription), county,
 		derefNullableString(req.Locality, existing.Locality), derefNullableString(req.Address, existing.Address),
-		derefFloat(req.LocationLat, nil), derefFloat(req.LocationLng, nil),
+		locationLat, locationLng,
 		priceFromKES, derefNullableString(req.PriceNote, existing.PriceNote),
 		derefNullableString(req.PriceCheckedAt, existing.PriceCheckedAt),
 		derefNullableString(req.DistanceNote, existing.DistanceNote),
@@ -793,8 +849,8 @@ func (h *MarketplaceAdminHandler) DeleteStay(w http.ResponseWriter, r *http.Requ
 
 func validateStay(name, slug, tier, propertyType, shortDescription, county, status string, displayOrder int,
 	bookingURL, directURL string, priceFromKES *int, contactEmail string) error {
-	if name == "" {
-		return fmt.Errorf("name is required")
+	if len(strings.TrimSpace(name)) < 2 {
+		return fmt.Errorf("name must be at least 2 characters")
 	}
 	if len(name) > 120 {
 		return fmt.Errorf("name must be 120 characters or fewer")
@@ -906,6 +962,11 @@ func (h *MarketplaceAdminHandler) ListEsimProviders(w http.ResponseWriter, r *ht
 		where = append(where, fmt.Sprintf("status = $%d", len(args)+1))
 		args = append(args, status)
 	}
+	if q := strings.TrimSpace(r.URL.Query().Get("q")); q != "" {
+		n := len(args) + 1
+		where = append(where, fmt.Sprintf("(name ILIKE $%d OR slug ILIKE $%d OR COALESCE(headline, '') ILIKE $%d)", n, n, n))
+		args = append(args, "%"+q+"%")
+	}
 	if pr.Cursor != nil {
 		order, err := strconv.Atoi(pr.Cursor.SortValue)
 		if err == nil && isUUID(pr.Cursor.ID) {
@@ -980,6 +1041,10 @@ func (h *MarketplaceAdminHandler) CreateEsimProvider(w http.ResponseWriter, r *h
 		handler.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
 		return
 	}
+	if len(derefString(req.Headline, "")) > 120 {
+		handler.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "headline must be 120 characters or fewer")
+		return
+	}
 	if derefBool(req.IsFeatured, false) && status != "published" {
 		handler.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "a featured eSIM provider must be published")
 		return
@@ -1008,7 +1073,7 @@ func (h *MarketplaceAdminHandler) CreateEsimProvider(w http.ResponseWriter, r *h
 		RETURNING id::text`,
 		name, slug, nullIfEmpty(derefString(req.Headline, "")), description,
 		nullIfEmpty(derefString(req.CoverageNote, "")), nullIfEmpty(derefString(req.PriceLabel, "")),
-		redirectURL, nullIfEmpty(derefString(req.RedirectLabel, "")),
+		redirectURL, defaultIfEmpty(derefString(req.RedirectLabel, ""), "Get connected"),
 		nullIfEmpty(derefString(req.Disclosure, "")), nullIfEmpty(derefString(req.LogoURL, "")),
 		nullIfEmpty(derefString(req.LogoAlt, "")), status, derefBool(req.IsFeatured, false), displayOrder,
 		nullableUserID(middleware.UserID(r.Context())),
@@ -1066,6 +1131,10 @@ func (h *MarketplaceAdminHandler) UpdateEsimProvider(w http.ResponseWriter, r *h
 		handler.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
 		return
 	}
+	if len(derefString(req.Headline, "")) > 120 {
+		handler.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "headline must be 120 characters or fewer")
+		return
+	}
 	if isFeatured && status != "published" {
 		handler.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "a featured eSIM provider must be published")
 		return
@@ -1121,8 +1190,8 @@ func (h *MarketplaceAdminHandler) DeleteEsimProvider(w http.ResponseWriter, r *h
 }
 
 func validateEsim(name, slug, description, redirectURL, status string, displayOrder int) error {
-	if name == "" {
-		return fmt.Errorf("name is required")
+	if len(strings.TrimSpace(name)) < 2 {
+		return fmt.Errorf("name must be at least 2 characters")
 	}
 	if len(name) > 120 {
 		return fmt.Errorf("name must be 120 characters or fewer")
