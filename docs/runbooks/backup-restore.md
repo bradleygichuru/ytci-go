@@ -12,8 +12,9 @@ tracked in #212; this runbook records the procedure and the drill evidence.
 | Cold | Daily `pg_dump` to `ytci-pg-backups` R2 | ≤ 24 h | 35 days | Full database |
 | Product | `trip_events` + `plan_revisions` | Per edit | Life of trip | Per trip/revision |
 
-PITR is disaster recovery, not user undo. User-visible restore comes from the
-audit/revision layer (`POST /v1/mobile/itineraries/{id}/revisions/{id}/restore`).
+The current free-tier deployment has no hot tier (no PITR); see **Free-tier
+interim** below. PITR is disaster recovery, not user undo. User-visible restore
+comes from the audit/revision layer (`POST /v1/mobile/itineraries/{id}/revisions/{id}/restore`).
 
 ## Provisioning at scale (owner-only, #212)
 
