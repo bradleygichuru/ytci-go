@@ -70,62 +70,66 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 }
 
 type handlers struct {
-	dest      *admin.DestinationsHandler
-	events    *admin.EventsHandler
-	stories   *admin.StoriesHandler
-	course    *admin.CourseHandler
-	challenge *admin.ChallengeAdminHandler
-	conserv   *admin.ConservationAdminHandler
-	campaign  *admin.CampaignAdminHandler
-	analytics *admin.AnalyticsHandler
-	lessonAdmin *admin.LessonHandler
-	quizAdmin   *admin.QuizAdminHandler
-	bulkImport *admin.BulkImport
-	itinStops *expo.ItineraryStopsHandler
-	feed      *expo.FeedHandler
-	bucket    *expo.BucketHandler
-	profile   *expo.ProfileHandler
-	itin      *expo.ItinerariesHandler
-	pushReg   *expo.PushRegisterHandler
-	actions   *expo.ActionsHandler
-	mStories  *expo.StoriesHandler
-	media     *admin.MediaHandler
-	pushAdmin *admin.PushHandler
-	comments  *expo.CommentHandler
-	adminComments *admin.AdminCommentHandler
-	account   *expo.AccountHandler
-	mobileCourses *expo.CourseHandler
-	places    *expo.PlacesHandler
+	dest             *admin.DestinationsHandler
+	events           *admin.EventsHandler
+	stories          *admin.StoriesHandler
+	course           *admin.CourseHandler
+	challenge        *admin.ChallengeAdminHandler
+	conserv          *admin.ConservationAdminHandler
+	campaign         *admin.CampaignAdminHandler
+	analytics        *admin.AnalyticsHandler
+	lessonAdmin      *admin.LessonHandler
+	quizAdmin        *admin.QuizAdminHandler
+	bulkImport       *admin.BulkImport
+	itinStops        *expo.ItineraryStopsHandler
+	feed             *expo.FeedHandler
+	bucket           *expo.BucketHandler
+	profile          *expo.ProfileHandler
+	itin             *expo.ItinerariesHandler
+	pushReg          *expo.PushRegisterHandler
+	actions          *expo.ActionsHandler
+	mStories         *expo.StoriesHandler
+	media            *admin.MediaHandler
+	pushAdmin        *admin.PushHandler
+	comments         *expo.CommentHandler
+	adminComments    *admin.AdminCommentHandler
+	account          *expo.AccountHandler
+	mobileCourses    *expo.CourseHandler
+	places           *expo.PlacesHandler
+	marketplace      *expo.MarketplaceHandler
+	marketplaceAdmin *admin.MarketplaceAdminHandler
 }
 
 func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Client, cfg *config.Config) *handlers {
 	placesCache := places.NewCache(pool)
 	h := &handlers{
-		dest:      admin.NewDestinationsHandler(pool, r2client, placesCache),
-		events:    admin.NewEventsHandler(pool, r2client),
-		stories:   admin.NewStoriesHandler(pool, r2client),
-		course:    admin.NewCourseHandler(pool),
-		challenge: admin.NewChallengeAdminHandler(pool),
-		conserv:   admin.NewConservationAdminHandler(pool),
-		campaign:  admin.NewCampaignAdminHandler(pool),
-		analytics: admin.NewAnalyticsHandler(pool),
-		lessonAdmin: admin.NewLessonHandler(pool),
-		quizAdmin:   admin.NewQuizAdminHandler(pool),
-		bulkImport: admin.NewBulkImport(pool),
-		itinStops: expo.NewItineraryStopsHandler(pool),
-		feed:      expo.NewFeedHandler(pool),
-		bucket:    expo.NewBucketHandler(pool),
-		profile:   expo.NewProfileHandler(pool),
-		itin:      expo.NewItinerariesHandler(pool),
-		pushReg:   expo.NewPushRegisterHandler(pool),
-		actions:   expo.NewActionsHandler(pool),
-		mStories:  expo.NewStoriesHandler(pool),
-		media:     admin.NewMediaHandler(pool, r2client),
-		comments:  expo.NewCommentHandler(pool),
-		adminComments: admin.NewAdminCommentHandler(pool),
-		account:   expo.NewAccountHandler(pool, r2client),
-		mobileCourses: expo.NewCourseHandler(pool, r2client),
-		places:    expo.NewPlacesHandler(pool, cfg.GooglePlacesAPIKey, placesCache),
+		dest:             admin.NewDestinationsHandler(pool, r2client, placesCache),
+		events:           admin.NewEventsHandler(pool, r2client),
+		stories:          admin.NewStoriesHandler(pool, r2client),
+		course:           admin.NewCourseHandler(pool),
+		challenge:        admin.NewChallengeAdminHandler(pool),
+		conserv:          admin.NewConservationAdminHandler(pool),
+		campaign:         admin.NewCampaignAdminHandler(pool),
+		analytics:        admin.NewAnalyticsHandler(pool),
+		lessonAdmin:      admin.NewLessonHandler(pool),
+		quizAdmin:        admin.NewQuizAdminHandler(pool),
+		bulkImport:       admin.NewBulkImport(pool),
+		itinStops:        expo.NewItineraryStopsHandler(pool),
+		feed:             expo.NewFeedHandler(pool),
+		bucket:           expo.NewBucketHandler(pool),
+		profile:          expo.NewProfileHandler(pool),
+		itin:             expo.NewItinerariesHandler(pool),
+		pushReg:          expo.NewPushRegisterHandler(pool),
+		actions:          expo.NewActionsHandler(pool),
+		mStories:         expo.NewStoriesHandler(pool),
+		media:            admin.NewMediaHandler(pool, r2client),
+		comments:         expo.NewCommentHandler(pool),
+		adminComments:    admin.NewAdminCommentHandler(pool),
+		account:          expo.NewAccountHandler(pool, r2client),
+		mobileCourses:    expo.NewCourseHandler(pool, r2client),
+		places:           expo.NewPlacesHandler(pool, cfg.GooglePlacesAPIKey, placesCache),
+		marketplace:      expo.NewMarketplaceHandler(pool, r2client),
+		marketplaceAdmin: admin.NewMarketplaceAdminHandler(pool, r2client),
 	}
 	if pushClient != nil {
 		h.pushAdmin = admin.NewPushHandler(pool, pushClient)
@@ -181,6 +185,22 @@ func mountAdminRoutes(sub chi.Router, h *handlers, r2client r2.Store, jwks *midd
 		aR.Patch("/campaigns/{id}", h.campaign.Update)
 		aR.Delete("/campaigns/{id}", h.campaign.Delete)
 
+		aR.Get("/marketplace/businesses", h.marketplaceAdmin.ListBusinesses)
+		aR.Post("/marketplace/businesses", h.marketplaceAdmin.CreateBusiness)
+		aR.Get("/marketplace/businesses/{id}", h.marketplaceAdmin.GetBusiness)
+		aR.Patch("/marketplace/businesses/{id}", h.marketplaceAdmin.UpdateBusiness)
+		aR.Delete("/marketplace/businesses/{id}", h.marketplaceAdmin.DeleteBusiness)
+		aR.Get("/stays", h.marketplaceAdmin.ListStays)
+		aR.Post("/stays", h.marketplaceAdmin.CreateStay)
+		aR.Get("/stays/{id}", h.marketplaceAdmin.GetStay)
+		aR.Patch("/stays/{id}", h.marketplaceAdmin.UpdateStay)
+		aR.Delete("/stays/{id}", h.marketplaceAdmin.DeleteStay)
+		aR.Get("/esim-providers", h.marketplaceAdmin.ListEsimProviders)
+		aR.Post("/esim-providers", h.marketplaceAdmin.CreateEsimProvider)
+		aR.Get("/esim-providers/{id}", h.marketplaceAdmin.GetEsimProvider)
+		aR.Patch("/esim-providers/{id}", h.marketplaceAdmin.UpdateEsimProvider)
+		aR.Delete("/esim-providers/{id}", h.marketplaceAdmin.DeleteEsimProvider)
+
 		aR.Get("/analytics/summary", h.analytics.Summary)
 		aR.Get("/analytics/reports", h.analytics.ReportsList)
 		aR.Post("/analytics/reports/export", h.analytics.Export)
@@ -235,6 +255,7 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 		m.Get("/places/location", h.places.GetLocation)
 		m.Get("/places/details", h.places.GetPlaceDetails)
 		m.Get("/destinations/popular", h.places.Popular)
+		m.Post("/marketplace/redirects", h.marketplace.RecordRedirect)
 
 		m.Group(func(aR chi.Router) {
 			aR.Use(middleware.AuthGate)
@@ -319,6 +340,12 @@ func mountPublicRoutes(pub chi.Router, h *handlers, r2client r2.Store) {
 	pub.Get("/challenges", h.challenge.ListMobile)
 	pub.Get("/conservation", h.conserv.ListMobile)
 	pub.Get("/companion", expo.GetCompanion)
+
+	pub.Get("/marketplace/businesses", h.marketplace.ListBusinesses)
+	pub.Get("/marketplace/businesses/{slug}", h.marketplace.GetBusiness)
+	pub.Get("/marketplace/esim", h.marketplace.GetFeaturedEsim)
+	pub.Get("/stays", h.marketplace.ListStays)
+	pub.Get("/stays/{slug}", h.marketplace.GetStay)
 
 	pub.Get("/stories/{id}/comments", h.comments.ListComments)
 
