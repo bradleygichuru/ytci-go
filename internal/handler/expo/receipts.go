@@ -114,6 +114,7 @@ func (h *BudgetHandler) PresignReceipt(w http.ResponseWriter, r *http.Request) {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to commit receipt", err)
 		return
 	}
+	h.publishBudgetChange(r, "updated")
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
@@ -178,6 +179,7 @@ func (h *BudgetHandler) CompleteReceipt(w http.ResponseWriter, r *http.Request) 
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to commit receipt", err)
 		return
 	}
+	h.publishBudgetChange(r, "updated")
 
 	go h.processReceipt(req.ReceiptID)
 	w.Header().Set("Content-Type", "application/json")
@@ -337,6 +339,7 @@ func (h *BudgetHandler) PatchReceipt(w http.ResponseWriter, r *http.Request) {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to commit receipt", err)
 		return
 	}
+	h.publishBudgetChange(r, "updated")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"status": "corrected", "version": newVersion})
 }
@@ -397,6 +400,7 @@ func (h *BudgetHandler) DeleteReceipt(w http.ResponseWriter, r *http.Request) {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to commit receipt", err)
 		return
 	}
+	h.publishBudgetChange(r, "updated")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"status": "deleted", "version": newVersion})
 }

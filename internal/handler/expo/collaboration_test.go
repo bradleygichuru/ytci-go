@@ -434,3 +434,50 @@ func TestEventsStreamChangeAndPresence(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	waitForEvent(ownerLines, "presence")
 }
+
+func TestInviteMaxUsesCaseInsensitiveAndEditorRevoke(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	ctx := context.Background()
+	pool := db.SetupTestDB(t)
+	defer pool.Close()
+
+	ownerID := newCollaborationTestUser(t, pool, "Owner")
+	editorID := newCollaborationTestUser(t, pool, "Editor")
+	firstID := newCollaborationTestUser(t, pool, "First")
+	secondID := newCollaborationTestUser(t, pool, "Second")
+	itineraryID := newCollaborationTestItinerary(t, pool, ownerID)
+	require.NoError(t, AddMember(ctx, pool, itineraryID, editorID, roleEditor, ownerID))
+	h := NewCollaborationHandler(pool, nil)
+
+	req := collabRequest(t, http.MethodPost, "/v1/mobile/itineraries/"+itineraryID+"/invites", ownerID, map[string]any{
+		"role": "viewer", "maxUses": 1,
+	})
+	req.SetPathValue("id", itineraryID)
+	rec := httptest.NewRecorder()
+	h.CreateInvite(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	created := collabResponse(t, rec)
+	code, _ := created["code"].(string)
+	inviteID, _ := created["inviteId"].(string)
+
+	// Editors cannot revoke invites; owners can.
+	req = collabRequest(t, http.MethodDelete, "/v1/mobile/itineraries/"+itineraryID+"/invites/"+inviteID, editorID, nil)
+	req.SetPathValue("id", itineraryID)
+	req.SetPathValue("inviteId", inviteID)
+	rec = httptest.NewRecorder()
+	h.RevokeInvite(rec, req)
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+
+	// Codes are case-insensitive and max uses is enforced.
+	req = collabRequest(t, http.MethodPost, "/v1/mobile/invites/redeem", firstID, map[string]any{"code": strings.ToLower(code)})
+	rec = httptest.NewRecorder()
+	h.RedeemInvite(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	req = collabRequest(t, http.MethodPost, "/v1/mobile/invites/redeem", secondID, map[string]any{"code": code})
+	rec = httptest.NewRecorder()
+	h.RedeemInvite(rec, req)
+	assert.Equal(t, http.StatusGone, rec.Code)
+}

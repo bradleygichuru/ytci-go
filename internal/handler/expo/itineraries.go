@@ -320,11 +320,15 @@ func (h *ItinerariesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to record trip event", err)
 		return
 	}
+	var title string
+	_ = tx.QueryRow(r.Context(), `SELECT title FROM itineraries WHERE id = $1`, itineraryID).Scan(&title)
 	if err := tx.Commit(r.Context()); err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to commit delete", err)
 		return
 	}
 	_ = collab.PublishChange(r.Context(), h.pool, itineraryID, "plan", "deleted", 0, userID)
+	pushItineraryMembers(r.Context(), h.pool, itineraryID, userID,
+		"Trip deleted", "The trip \""+title+"\" was deleted by its owner.")
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})

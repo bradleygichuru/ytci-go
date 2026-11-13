@@ -201,6 +201,7 @@ func (h *BudgetHandler) CreateExpense(w http.ResponseWriter, r *http.Request) {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to commit expense", err)
 		return
 	}
+	h.publishBudgetChange(r, "updated")
 
 	e, err := loadExpenseResponse(r.Context(), h.pool, itineraryID, expenseID)
 	if err != nil {
@@ -390,6 +391,7 @@ func (h *BudgetHandler) UpdateExpense(w http.ResponseWriter, r *http.Request) {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to commit expense", err)
 		return
 	}
+	h.publishBudgetChange(r, "updated")
 
 	e, err := loadExpenseResponse(r.Context(), h.pool, itineraryID, expenseID)
 	if err != nil {
@@ -500,6 +502,7 @@ func (h *BudgetHandler) setExpenseDeleted(w http.ResponseWriter, r *http.Request
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to commit expense", err)
 		return
 	}
+	h.publishBudgetChange(r, "updated")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"status": map[bool]string{true: "deleted", false: "restored"}[deleted], "version": newVersion})
 }
@@ -679,6 +682,11 @@ func (h *BudgetHandler) CreateSettlement(w http.ResponseWriter, r *http.Request)
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to commit settlement", err)
 		return
 	}
+	h.publishBudgetChange(r, "updated")
+	var title string
+	_ = h.pool.QueryRow(r.Context(), `SELECT title FROM itineraries WHERE id = $1`, itineraryID).Scan(&title)
+	pushItineraryMembers(r.Context(), h.pool, itineraryID, userID,
+		"Settlement recorded", "A settlement was recorded on \""+title+"\".")
 
 	_, balances, err := loadBalanceData(r.Context(), h.pool, itineraryID)
 	warning := ""
@@ -751,6 +759,7 @@ func (h *BudgetHandler) DeleteSettlement(w http.ResponseWriter, r *http.Request)
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to commit settlement", err)
 		return
 	}
+	h.publishBudgetChange(r, "updated")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"status": "reversed", "version": newVersion})
 }

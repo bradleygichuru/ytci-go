@@ -1,6 +1,7 @@
 package expo
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,20 +24,22 @@ type CollaborationHandler struct {
 	pool *pgxpool.Pool
 	hub  *collab.Hub
 
-	createLimiter     *collab.Limiter
-	redeemIPLimiter   *collab.Limiter
-	redeemUserLimiter *collab.Limiter
-	previewLimiter    *collab.Limiter
+	createLimiter      *collab.Limiter
+	redeemIPLimiter    *collab.Limiter
+	redeemUserLimiter  *collab.Limiter
+	previewIPLimiter   *collab.Limiter
+	previewCodeLimiter *collab.Limiter
 }
 
 func NewCollaborationHandler(pool *pgxpool.Pool, hub *collab.Hub) *CollaborationHandler {
 	return &CollaborationHandler{
-		pool:              pool,
-		hub:               hub,
-		createLimiter:     collab.NewLimiter(10, 24*time.Hour),
-		redeemIPLimiter:   collab.NewLimiter(10, time.Hour),
-		redeemUserLimiter: collab.NewLimiter(20, 24*time.Hour),
-		previewLimiter:    collab.NewLimiter(60, time.Minute),
+		pool:               pool,
+		hub:                hub,
+		createLimiter:      collab.NewLimiter(10, 24*time.Hour),
+		redeemIPLimiter:    collab.NewLimiter(10, time.Hour),
+		redeemUserLimiter:  collab.NewLimiter(20, 24*time.Hour),
+		previewIPLimiter:   collab.NewLimiter(120, time.Minute),
+		previewCodeLimiter: collab.NewLimiter(60, time.Minute),
 	}
 }
 
@@ -129,6 +132,27 @@ func (h *CollaborationHandler) requireMembersVersion(w http.ResponseWriter, r *h
 	return true
 }
 
+// checkMembersVersionTx is the authoritative check for concurrent writes. The
+// pre-transaction check above is only a fast path; this one holds the row lock.
+func (h *CollaborationHandler) checkMembersVersionTx(w http.ResponseWriter, r *http.Request, tx pgx.Tx, itineraryID string, expected int) bool {
+	if expected <= 0 {
+		return true
+	}
+	var current int
+	if err := tx.QueryRow(r.Context(),
+		`SELECT members_version FROM itineraries WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+		itineraryID,
+	).Scan(&current); err != nil {
+		writeCollabError(w, r, err)
+		return false
+	}
+	if current != expected {
+		writeVersionConflict(w, current)
+		return false
+	}
+	return true
+}
+
 // ---------------------------------------------------------------------------
 // Members and invites
 // ---------------------------------------------------------------------------
@@ -192,6 +216,9 @@ func (h *CollaborationHandler) CreateInvite(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	defer tx.Rollback(r.Context())
+	if !h.checkMembersVersionTx(w, r, tx, itineraryID, req.ExpectedVersion) {
+		return
+	}
 
 	code, inviteID, err := CreateInvite(r.Context(), tx, itineraryID, userID, req.Role, req.MaxUses)
 	if err != nil {
@@ -262,7 +289,7 @@ func (h *CollaborationHandler) RevokeInvite(w http.ResponseWriter, r *http.Reque
 	itineraryID := r.PathValue("id")
 	inviteID := r.PathValue("inviteId")
 	userID := middleware.UserID(r.Context())
-	access, err := requireItineraryRole(r.Context(), h.pool, itineraryID, userID, roleEditor)
+	access, err := requireItineraryRole(r.Context(), h.pool, itineraryID, userID, roleOwner)
 	if err != nil {
 		writeItineraryAccessError(w, r, err)
 		return
@@ -278,10 +305,6 @@ func (h *CollaborationHandler) RevokeInvite(w http.ResponseWriter, r *http.Reque
 	}
 	if err != nil {
 		writeCollabError(w, r, err)
-		return
-	}
-	if access.Role == roleEditor && inviteRole == roleEditor {
-		handler.WriteError(w, http.StatusForbidden, "FORBIDDEN", "only the owner can revoke an editor invite")
 		return
 	}
 	var req struct {
@@ -300,6 +323,9 @@ func (h *CollaborationHandler) RevokeInvite(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	defer tx.Rollback(r.Context())
+	if !h.checkMembersVersionTx(w, r, tx, itineraryID, req.ExpectedVersion) {
+		return
+	}
 	if err := RevokeInvite(r.Context(), tx, inviteID, userID); err != nil {
 		writeCollabError(w, r, err)
 		return
@@ -334,6 +360,11 @@ func (h *CollaborationHandler) RedeemInvite(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	var usesBefore int
+	_ = h.pool.QueryRow(r.Context(),
+		`SELECT use_count FROM itinerary_invites WHERE code_hash = $1`, hashInviteCode(req.Code),
+	).Scan(&usesBefore)
+
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
 		writeCollabError(w, r, err)
@@ -349,8 +380,14 @@ func (h *CollaborationHandler) RedeemInvite(w http.ResponseWriter, r *http.Reque
 		writeCollabError(w, r, err)
 		return
 	}
-	h.publishMembersChange(r, itineraryID, "invite_redeemed", userID)
-	h.pushTripEditors(r, itineraryID, userID, "Someone joined your trip", "A traveler joined "+h.itineraryTitle(r, itineraryID)+". ")
+	var usesAfter int
+	_ = h.pool.QueryRow(r.Context(),
+		`SELECT use_count FROM itinerary_invites WHERE code_hash = $1`, hashInviteCode(req.Code),
+	).Scan(&usesAfter)
+	if usesAfter > usesBefore {
+		h.publishMembersChange(r, itineraryID, "invite_redeemed", userID)
+		h.pushTripEditors(r, itineraryID, userID, "Someone joined your trip", "A traveler joined "+h.itineraryTitle(r, itineraryID)+".")
+	}
 	writeCollabJSON(w, http.StatusOK, map[string]any{
 		"itineraryId": itineraryID,
 		"role":        role,
@@ -387,6 +424,9 @@ func (h *CollaborationHandler) SetMemberRole(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	defer tx.Rollback(r.Context())
+	if !h.checkMembersVersionTx(w, r, tx, itineraryID, req.ExpectedVersion) {
+		return
+	}
 	if err := SetMemberRole(r.Context(), tx, itineraryID, memberID, req.Role, userID); err != nil {
 		writeCollabError(w, r, err)
 		return
@@ -424,6 +464,9 @@ func (h *CollaborationHandler) RemoveMember(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	defer tx.Rollback(r.Context())
+	if !h.checkMembersVersionTx(w, r, tx, itineraryID, req.ExpectedVersion) {
+		return
+	}
 	if err := RemoveMember(r.Context(), tx, itineraryID, memberID, userID); err != nil {
 		writeCollabError(w, r, err)
 		return
@@ -433,6 +476,9 @@ func (h *CollaborationHandler) RemoveMember(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	h.publishMembersChange(r, itineraryID, "member_removed", userID)
+	if h.hub != nil {
+		h.hub.DisconnectUser(itineraryID, memberID)
+	}
 	h.pushUser(r, memberID, "You were removed from a trip", "You no longer have access to "+h.itineraryTitle(r, itineraryID)+".", itineraryID)
 	writeCollabJSON(w, http.StatusOK, map[string]any{"status": "removed"})
 }
@@ -464,6 +510,9 @@ func (h *CollaborationHandler) LeaveTrip(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	h.publishMembersChange(r, itineraryID, "member_left", userID)
+	if h.hub != nil {
+		h.hub.DisconnectUser(itineraryID, userID)
+	}
 	h.pushTripEditors(r, itineraryID, userID, "A traveler left your trip", "A traveler left "+h.itineraryTitle(r, itineraryID)+".")
 	writeCollabJSON(w, http.StatusOK, map[string]any{"status": "left"})
 }
@@ -549,8 +598,12 @@ func (h *CollaborationHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() {
 		h.hub.Unsubscribe(sub)
-		_ = collab.DeletePresence(r.Context(), h.pool, itineraryID, userID)
-		_ = collab.PublishPresence(r.Context(), h.pool, itineraryID)
+		if !h.hub.HasSubscription(itineraryID, userID) {
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 2*time.Second)
+			_ = collab.DeletePresence(cleanupCtx, h.pool, itineraryID, userID)
+			_ = collab.PublishPresence(cleanupCtx, h.pool, itineraryID)
+			cleanupCancel()
+		}
 	}()
 
 	viewers, err := collab.UpsertPresence(r.Context(), h.pool, itineraryID, userID, "plan")
@@ -611,12 +664,16 @@ func (h *CollaborationHandler) Stream(w http.ResponseWriter, r *http.Request) {
 				write("event: shutdown\ndata: {\"reason\":\"server\"}\n\n")
 				return
 			}
+			if ev.Type == "revoked" {
+				write("event: shutdown\ndata: {\"reason\":\"revoked\"}\n\n")
+				return
+			}
 			payload, err := json.Marshal(ev)
 			if err != nil {
 				continue
 			}
-			if ev.Type == "change" && ev.Version > 0 {
-				if !write(fmt.Sprintf("id: %d\nevent: change\ndata: %s\n\n", ev.Version, payload)) {
+			if ev.Type == "change" {
+				if !write("event: change\ndata: " + string(payload) + "\n\n") {
 					return
 				}
 			} else if !write("event: " + ev.Type + "\ndata: " + string(payload) + "\n\n") {
@@ -653,7 +710,8 @@ func (h *CollaborationHandler) Preview(w http.ResponseWriter, r *http.Request) {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_CODE", "invite code is required")
 		return
 	}
-	if !h.previewLimiter.Allow(code + "|" + remoteIP(r)) {
+	ip := remoteIP(r)
+	if !h.previewIPLimiter.Allow(ip) || !h.previewCodeLimiter.Allow(code) {
 		w.Header().Set("Retry-After", "60")
 		handler.WriteError(w, http.StatusTooManyRequests, "RATE_LIMITED", "too many preview requests")
 		return

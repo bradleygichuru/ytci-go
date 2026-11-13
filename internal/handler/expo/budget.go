@@ -8,9 +8,24 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/bradleygichuru/ytci-go/internal/collab"
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 	"github.com/bradleygichuru/ytci-go/internal/middleware"
 )
+
+func (h *BudgetHandler) publishBudgetChange(r *http.Request, action string) {
+	itineraryID := r.PathValue("id")
+	if itineraryID == "" {
+		return
+	}
+	var version int
+	if err := h.pool.QueryRow(r.Context(),
+		`SELECT budget_version FROM itineraries WHERE id = $1`, itineraryID,
+	).Scan(&version); err != nil {
+		return
+	}
+	_ = collab.PublishChange(r.Context(), h.pool, itineraryID, "budget", action, version, middleware.UserID(r.Context()))
+}
 
 func (h *BudgetHandler) GetBudget(w http.ResponseWriter, r *http.Request) {
 	itineraryID := r.PathValue("id")
@@ -310,6 +325,7 @@ func (h *BudgetHandler) UpdateBudget(w http.ResponseWriter, r *http.Request) {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to commit budget", err)
 		return
 	}
+	h.publishBudgetChange(r, "updated")
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"version": newVersion})
@@ -398,6 +414,7 @@ func (h *BudgetHandler) CreateParticipant(w http.ResponseWriter, r *http.Request
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to commit participant", err)
 		return
 	}
+	h.publishBudgetChange(r, "updated")
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -464,6 +481,7 @@ func (h *BudgetHandler) RemoveParticipant(w http.ResponseWriter, r *http.Request
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to commit participant", err)
 		return
 	}
+	h.publishBudgetChange(r, "updated")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "removed"})
 }

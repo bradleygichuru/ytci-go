@@ -16,10 +16,7 @@ import (
 const (
 	NotifyChannel = "itinerary_events"
 
-	heartbeatInterval   = 15 * time.Second
-	presenceStaleAfter  = 90 * time.Second
-	presenceExpireAfter = 2 * time.Minute
-	cleanupInterval     = 60 * time.Second
+	cleanupInterval = 60 * time.Second
 
 	maxStreamsPerUser = 3
 	maxStreamsTotal   = 200
@@ -60,8 +57,6 @@ type Subscription struct {
 	ItineraryID string
 	UserID      string
 	Events      chan Event
-
-	hub *Hub
 }
 
 type Hub struct {
@@ -148,7 +143,6 @@ func (h *Hub) Subscribe(itineraryID, userID string) (*Subscription, error) {
 		ItineraryID: itineraryID,
 		UserID:      userID,
 		Events:      make(chan Event, subscriberBuffer),
-		hub:         h,
 	}
 	if h.subs[itineraryID] == nil {
 		h.subs[itineraryID] = make(map[*Subscription]struct{})
@@ -157,6 +151,44 @@ func (h *Hub) Subscribe(itineraryID, userID string) (*Subscription, error) {
 	h.userCounts[userID]++
 	h.total++
 	return sub, nil
+}
+
+func (h *Hub) HasSubscription(itineraryID, userID string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for sub := range h.subs[itineraryID] {
+		if sub.UserID == userID {
+			return true
+		}
+	}
+	return false
+}
+
+// DisconnectUser closes every live stream for one member. Access revocation is
+// immediate; the client reconnects and receives a 204 from the stream handler.
+func (h *Hub) DisconnectUser(itineraryID, userID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	set := h.subs[itineraryID]
+	for sub := range set {
+		if sub.UserID != userID {
+			continue
+		}
+		select {
+		case sub.Events <- Event{Type: "revoked", ServerTime: time.Now().UTC()}:
+		default:
+		}
+		close(sub.Events)
+		delete(set, sub)
+		h.total--
+		h.userCounts[userID]--
+	}
+	if len(set) == 0 {
+		delete(h.subs, itineraryID)
+	}
+	if h.userCounts[userID] <= 0 {
+		delete(h.userCounts, userID)
+	}
 }
 
 func (h *Hub) Unsubscribe(sub *Subscription) {
@@ -213,7 +245,7 @@ func (h *Hub) listenLoop() {
 			if !h.sleep(backoff) {
 				return
 			}
-			backoff = minDuration(backoff*2, 30*time.Second)
+			backoff = min(backoff*2, 30*time.Second)
 			continue
 		}
 
@@ -222,7 +254,7 @@ func (h *Hub) listenLoop() {
 			if !h.sleep(backoff) {
 				return
 			}
-			backoff = minDuration(backoff*2, 30*time.Second)
+			backoff = min(backoff*2, 30*time.Second)
 			continue
 		}
 
@@ -266,7 +298,7 @@ func (h *Hub) listenLoop() {
 		if !h.sleep(backoff) {
 			return
 		}
-		backoff = minDuration(backoff*2, 30*time.Second)
+		backoff = min(backoff*2, 30*time.Second)
 	}
 }
 
@@ -297,15 +329,9 @@ func (h *Hub) cleanupLoop() {
 	}
 }
 
-func minDuration(a, b time.Duration) time.Duration {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-// Publish emits an invalidation hint through Postgres. Call inside the same
-// transaction as the write so NOTIFY is delivered only on commit.
+// Publish emits an invalidation hint through Postgres. Callers may publish
+// after the write commits; if called inside the write transaction, NOTIFY is
+// delivered on commit.
 func Publish(ctx context.Context, q Querier, ev Event) error {
 	ev.ServerTime = time.Now().UTC()
 	payload, err := json.Marshal(ev)
@@ -316,7 +342,11 @@ func Publish(ctx context.Context, q Querier, ev Event) error {
 		// Presence rosters are small; this is a guard against accidentally
 		// putting a large payload on NOTIFY.
 		ev.Viewers = nil
-		payload, _ = json.Marshal(ev)
+		var marshalErr error
+		payload, marshalErr = json.Marshal(ev)
+		if marshalErr != nil {
+			return marshalErr
+		}
 	}
 	_, err = q.Exec(ctx, `SELECT pg_notify($1, $2)`, NotifyChannel, string(payload))
 	return err
