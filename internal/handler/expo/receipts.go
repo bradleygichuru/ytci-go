@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 	"github.com/bradleygichuru/ytci-go/internal/middleware"
@@ -36,11 +37,17 @@ func (h *BudgetHandler) PresignReceipt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		ContentType   string `json:"contentType"`
-		FileSizeBytes int    `json:"fileSizeBytes"`
+		ContentType     string `json:"contentType"`
+		FileSizeBytes   int    `json:"fileSizeBytes"`
+		ClientRequestID string `json:"clientRequestId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
+		return
+	}
+	clientRequestID := strings.TrimSpace(req.ClientRequestID)
+	if len(clientRequestID) > 100 {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "clientRequestId must be 100 characters or fewer")
 		return
 	}
 	ext, ok := receiptContentTypes[req.ContentType]
@@ -78,6 +85,35 @@ func (h *BudgetHandler) PresignReceipt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// An offline retry with the same request id must reuse the original upload
+	// target instead of replacing the receipt. This lookup runs before the
+	// replace step below so a replay never soft-deletes the row it is retrying.
+	if clientRequestID != "" {
+		var receiptID, objectKey string
+		lookupErr := tx.QueryRow(r.Context(),
+			`SELECT id::text, object_key FROM expense_receipts
+			 WHERE itinerary_id = $1 AND client_request_id = $2 AND deleted_at IS NULL
+			 ORDER BY created_at DESC LIMIT 1`,
+			itineraryID, clientRequestID).Scan(&receiptID, &objectKey)
+		if lookupErr == nil {
+			uploadURL, signErr := h.r2.PresignedPutURL(r.Context(), objectKey, 5*time.Minute)
+			if signErr != nil {
+				handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to sign receipt upload", signErr)
+				return
+			}
+			if err := tx.Commit(r.Context()); err != nil {
+				handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to commit receipt", err)
+				return
+			}
+			writeReceiptPresign(w, receiptID, uploadURL)
+			return
+		}
+		if !errors.Is(lookupErr, pgx.ErrNoRows) {
+			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to look up receipt", lookupErr)
+			return
+		}
+	}
+
 	if _, err := tx.Exec(r.Context(),
 		`UPDATE expense_receipts
 		 SET status = 'deleted', deleted_at = now(), updated_at = now()
@@ -96,11 +132,33 @@ func (h *BudgetHandler) PresignReceipt(w http.ResponseWriter, r *http.Request) {
 	var receiptID string
 	err = tx.QueryRow(r.Context(),
 		`INSERT INTO expense_receipts
-		 (expense_id, itinerary_id, object_key, content_type, file_size_bytes, status, ocr_status, created_by)
-		 VALUES ($1,$2,$3,$4,$5,'uploading','pending',$6)
+		 (expense_id, itinerary_id, object_key, content_type, file_size_bytes, status, ocr_status, created_by, client_request_id)
+		 VALUES ($1,$2,$3,$4,$5,'uploading','pending',$6,NULLIF($7,''))
 		 RETURNING id`,
-		expenseID, itineraryID, objectKey, req.ContentType, req.FileSizeBytes, userID).Scan(&receiptID)
+		expenseID, itineraryID, objectKey, req.ContentType, req.FileSizeBytes, userID, clientRequestID).Scan(&receiptID)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if clientRequestID != "" && errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			// Another retry of the same request committed first. The failed
+			// transaction is aborted, so read the winner from the pool.
+			tx.Rollback(r.Context())
+			var existingKey string
+			if lookupErr := h.pool.QueryRow(r.Context(),
+				`SELECT id::text, object_key FROM expense_receipts
+				 WHERE itinerary_id = $1 AND client_request_id = $2 AND deleted_at IS NULL
+				 ORDER BY created_at DESC LIMIT 1`,
+				itineraryID, clientRequestID).Scan(&receiptID, &existingKey); lookupErr != nil {
+				handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to load receipt", lookupErr)
+				return
+			}
+			uploadURL, signErr := h.r2.PresignedPutURL(r.Context(), existingKey, 5*time.Minute)
+			if signErr != nil {
+				handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to sign receipt upload", signErr)
+				return
+			}
+			writeReceiptPresign(w, receiptID, uploadURL)
+			return
+		}
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create receipt", err)
 		return
 	}
@@ -116,6 +174,10 @@ func (h *BudgetHandler) PresignReceipt(w http.ResponseWriter, r *http.Request) {
 	}
 	h.publishBudgetChange(r, "updated")
 
+	writeReceiptPresign(w, receiptID, uploadURL)
+}
+
+func writeReceiptPresign(w http.ResponseWriter, receiptID, uploadURL string) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"receiptId": receiptID,

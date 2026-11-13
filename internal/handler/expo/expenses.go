@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 	"github.com/bradleygichuru/ytci-go/internal/middleware"
@@ -27,6 +28,7 @@ type expenseInput struct {
 	PayerParticipantID string     `json:"payerParticipantId"`
 	Notes              string     `json:"notes"`
 	Split              splitInput `json:"split"`
+	ClientRequestID    string     `json:"clientRequestId"`
 	ExpectedVersion    int        `json:"expectedVersion,omitempty"`
 }
 
@@ -122,6 +124,11 @@ func (h *BudgetHandler) CreateExpense(w http.ResponseWriter, r *http.Request) {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
 		return
 	}
+	clientRequestID := strings.TrimSpace(req.ClientRequestID)
+	if len(clientRequestID) > 100 {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "clientRequestId must be 100 characters or fewer")
+		return
+	}
 
 	original, amountKes, currency, fxRate, date, err := normalizeExpenseInput(req)
 	if err != nil {
@@ -137,12 +144,47 @@ func (h *BudgetHandler) CreateExpense(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 
-	if _, err := requireItineraryRole(r.Context(), tx, itineraryID, userID, roleEditor); err != nil {
+	access, err := requireItineraryRole(r.Context(), tx, itineraryID, userID, roleEditor)
+	if err != nil {
 		writeBudgetError(w, r, err)
 		return
 	}
+	// Replays bypass the version check: the original write already advanced the
+	// budget version, so a queued retry with its original expectedVersion must
+	// still return the original expense.
+	if clientRequestID != "" {
+		existingID, lookupErr := findExpenseByClientRequestID(r.Context(), tx, itineraryID, clientRequestID)
+		if lookupErr == nil {
+			e, loadErr := loadExpenseResponse(r.Context(), tx, itineraryID, existingID)
+			if loadErr != nil {
+				handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to load expense", loadErr)
+				return
+			}
+			tx.Rollback(r.Context())
+			writeExpenseCreated(w, e, access.BudgetVersion)
+			return
+		}
+		if !errors.Is(lookupErr, pgx.ErrNoRows) {
+			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to look up expense", lookupErr)
+			return
+		}
+	}
 	current, err := lockBudgetVersion(r.Context(), tx, itineraryID, req.ExpectedVersion)
 	if errors.Is(err, errBudgetVersionConflict) {
+		// A concurrent retry may have committed while this request waited on
+		// the budget row lock; resolve it the same way as a unique violation.
+		if clientRequestID != "" {
+			if existingID, lookupErr := findExpenseByClientRequestID(r.Context(), tx, itineraryID, clientRequestID); lookupErr == nil {
+				e, loadErr := loadExpenseResponse(r.Context(), tx, itineraryID, existingID)
+				if loadErr != nil {
+					handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to load expense", loadErr)
+					return
+				}
+				tx.Rollback(r.Context())
+				writeExpenseCreated(w, e, current)
+				return
+			}
+		}
 		tx.Rollback(r.Context())
 		writeBudgetVersionConflict(w, current)
 		return
@@ -172,12 +214,36 @@ func (h *BudgetHandler) CreateExpense(w http.ResponseWriter, r *http.Request) {
 	err = tx.QueryRow(r.Context(),
 		`INSERT INTO expenses
 		 (itinerary_id, title, category, original_amount, currency, fx_rate, amount_kes,
-		  expense_date, payer_participant_id, notes, created_by, updated_by)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,''),$11,$11)
+		  expense_date, payer_participant_id, notes, created_by, updated_by, client_request_id)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,''),$11,$11,NULLIF($12,''))
 		 RETURNING id`,
 		itineraryID, strings.TrimSpace(req.Title), req.Category, original, currency, fxRate, amountKes,
-		date, req.PayerParticipantID, req.Notes, userID).Scan(&expenseID)
+		date, req.PayerParticipantID, req.Notes, userID, clientRequestID).Scan(&expenseID)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if clientRequestID != "" && errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			// Another retry of the same request committed first. The failed
+			// transaction is aborted, so read the winner from the pool.
+			tx.Rollback(r.Context())
+			existingID, lookupErr := findExpenseByClientRequestID(r.Context(), h.pool, itineraryID, clientRequestID)
+			if lookupErr != nil {
+				handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to load expense", lookupErr)
+				return
+			}
+			e, loadErr := loadExpenseResponse(r.Context(), h.pool, itineraryID, existingID)
+			if loadErr != nil {
+				handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to load expense", loadErr)
+				return
+			}
+			var version int
+			if err := h.pool.QueryRow(r.Context(),
+				`SELECT budget_version FROM itineraries WHERE id = $1`, itineraryID).Scan(&version); err != nil {
+				handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to load budget version", err)
+				return
+			}
+			writeExpenseCreated(w, e, version)
+			return
+		}
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create expense", err)
 		return
 	}
@@ -208,9 +274,7 @@ func (h *BudgetHandler) CreateExpense(w http.ResponseWriter, r *http.Request) {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to load expense", err)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]any{"expense": e, "version": newVersion})
+	writeExpenseCreated(w, e, newVersion)
 }
 
 func (h *BudgetHandler) UpdateExpense(w http.ResponseWriter, r *http.Request) {
@@ -767,6 +831,22 @@ func (h *BudgetHandler) DeleteSettlement(w http.ResponseWriter, r *http.Request)
 // ---------------------------------------------------------------------------
 // Shared expense helpers
 // ---------------------------------------------------------------------------
+
+func writeExpenseCreated(w http.ResponseWriter, e *expenseResponse, version int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]any{"expense": e, "version": version})
+}
+
+func findExpenseByClientRequestID(ctx context.Context, q dbQuerier, itineraryID, clientRequestID string) (string, error) {
+	var id string
+	err := q.QueryRow(ctx,
+		`SELECT id::text FROM expenses
+		 WHERE itinerary_id = $1 AND client_request_id = $2 AND deleted_at IS NULL
+		 ORDER BY created_at DESC LIMIT 1`,
+		itineraryID, clientRequestID).Scan(&id)
+	return id, err
+}
 
 func normalizeExpenseInput(req expenseInput) (original float64, amountKes int64, currency string, fxRate float64, date time.Time, err error) {
 	if strings.TrimSpace(req.Title) == "" || len(strings.TrimSpace(req.Title)) > 120 {
