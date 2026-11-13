@@ -90,6 +90,12 @@ type accommodationSummary struct {
 	Locality         *string `json:"locality"`
 	PriceFromKES     *int    `json:"priceFromKes"`
 	PriceNote        *string `json:"priceNote"`
+	PriceCheckedAt   *string `json:"priceCheckedAt"`
+	DistanceNote     *string `json:"distanceNote"`
+	CancellationNote *string `json:"cancellationNote"`
+	PaymentNote      *string `json:"paymentNote"`
+	IncludedNote     *string `json:"includedNote"`
+	BadgeLabel       *string `json:"badgeLabel"`
 	ImageURL         *string `json:"imageUrl"`
 	ImageAlt         *string `json:"imageAlt"`
 	IsFeatured       bool    `json:"isFeatured"`
@@ -258,7 +264,9 @@ func (h *MarketplaceHandler) ListStays(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := `SELECT id::text, name, slug, tier, property_type, short_description, county,
-	                 locality, price_from_kes, price_note, image_url, image_alt, is_featured, display_order
+	                 locality, price_from_kes, price_note, price_checked_at::text, distance_note,
+	                 cancellation_note, payment_note, included_note, badge_label,
+	                 image_url, image_alt, is_featured, display_order
 	          FROM accommodation_properties
 	          WHERE ` + strings.Join(where, " AND ") + `
 	          ORDER BY display_order ASC, id ASC
@@ -277,7 +285,9 @@ func (h *MarketplaceHandler) ListStays(w http.ResponseWriter, r *http.Request) {
 		var a accommodationSummary
 		var imageKey *string
 		if err := rows.Scan(&a.ID, &a.Name, &a.Slug, &a.Tier, &a.PropertyType, &a.ShortDescription,
-			&a.County, &a.Locality, &a.PriceFromKES, &a.PriceNote, &imageKey, &a.ImageAlt, &a.IsFeatured, &a.DisplayOrder); err != nil {
+			&a.County, &a.Locality, &a.PriceFromKES, &a.PriceNote, &a.PriceCheckedAt, &a.DistanceNote,
+			&a.CancellationNote, &a.PaymentNote, &a.IncludedNote, &a.BadgeLabel,
+			&imageKey, &a.ImageAlt, &a.IsFeatured, &a.DisplayOrder); err != nil {
 			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to scan accommodation", err)
 			return
 		}
@@ -294,13 +304,15 @@ func (h *MarketplaceHandler) GetStay(w http.ResponseWriter, r *http.Request) {
 	var imageKey *string
 	err := h.pool.QueryRow(r.Context(), `
 		SELECT id::text, name, slug, tier, property_type, short_description, county, locality,
-		       price_from_kes, price_note, image_url, image_alt, is_featured, display_order,
+		       price_from_kes, price_note, price_checked_at::text, distance_note, cancellation_note,
+		       payment_note, included_note, badge_label, image_url, image_alt, is_featured, display_order,
 		       full_description, address, location_lat, location_lng, amenities, highlights,
 		       booking_url, direct_url, disclosure, contact_email, contact_phone
 		FROM accommodation_properties
 		WHERE slug = $1 AND status = 'published'`, slug).Scan(
 		&a.ID, &a.Name, &a.Slug, &a.Tier, &a.PropertyType, &a.ShortDescription, &a.County, &a.Locality,
-		&a.PriceFromKES, &a.PriceNote, &imageKey, &a.ImageAlt, &a.IsFeatured, &a.DisplayOrder,
+		&a.PriceFromKES, &a.PriceNote, &a.PriceCheckedAt, &a.DistanceNote, &a.CancellationNote,
+		&a.PaymentNote, &a.IncludedNote, &a.BadgeLabel, &imageKey, &a.ImageAlt, &a.IsFeatured, &a.DisplayOrder,
 		&a.FullDescription, &a.Address, &a.LocationLat, &a.LocationLng, &a.Amenities, &a.Highlights,
 		&a.BookingURL, &a.DirectURL, &a.Disclosure, &a.ContactEmail, &a.ContactPhone,
 	)

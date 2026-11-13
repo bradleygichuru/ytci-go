@@ -96,10 +96,13 @@ func TestMarketplacePublicSurfaces(t *testing.T) {
 
 	_, err = pool.Exec(ctx, `
 		INSERT INTO accommodation_properties
-			(name, slug, tier, property_type, short_description, county, price_from_kes, booking_url, status, is_featured, display_order)
+			(name, slug, tier, property_type, short_description, county, price_from_kes, price_note, price_checked_at,
+			 distance_note, cancellation_note, payment_note, included_note, badge_label, booking_url, status, is_featured, display_order)
 		VALUES
-			('Mara River Camp', 'mara-river-camp', 'midrange', 'camp', 'Tented camp on the Mara River.', 'Narok', 12500, 'https://example.com/stay', 'published', true, 1),
-			('City Hostel', 'city-hostel', 'budget', 'hostel', 'Bunks in the city.', 'Nairobi', 1800, 'https://example.com/hostel', 'published', false, 2)
+			('Mara River Camp', 'mara-river-camp', 'midrange', 'camp', 'Tented camp on the Mara River.', 'Narok', 12500, 'per night', '2026-11-12',
+			 '10 min to the gate', 'Free to cancel until 48 hours before', 'Pay at the stay or by M-PESA', 'Breakfast included', 'Verified partner', 'https://example.com/stay', 'published', true, 1),
+			('City Hostel', 'city-hostel', 'budget', 'hostel', 'Bunks in the city.', 'Nairobi', 1800, NULL, NULL,
+			 NULL, NULL, NULL, NULL, NULL, 'https://example.com/hostel', 'published', false, 2)
 	`)
 	require.NoError(t, err)
 
@@ -123,6 +126,9 @@ func TestMarketplacePublicSurfaces(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp7.Body).Decode(&stayDetail))
 	assert.Equal(t, "https://example.com/stay", stayDetail["bookingUrl"])
 	assert.NotNil(t, stayDetail["amenities"])
+	assert.Equal(t, "Free to cancel until 48 hours before", stayDetail["cancellationNote"])
+	assert.Equal(t, "Verified partner", stayDetail["badgeLabel"])
+	assert.Equal(t, "2026-11-12", stayDetail["priceCheckedAt"])
 
 	_, err = pool.Exec(ctx, `
 		INSERT INTO esim_providers

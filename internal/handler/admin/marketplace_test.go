@@ -98,6 +98,12 @@ func TestMarketplaceAdminCRUD(t *testing.T) {
 		"shortDescription": "Tented camp on the Mara River.",
 		"county":           "Narok",
 		"priceFromKes":     12500,
+		"priceCheckedAt":   "2026-11-12",
+		"distanceNote":     "10 min to the gate",
+		"cancellationNote": "Free to cancel until 48 hours before",
+		"paymentNote":      "Pay at the stay or by M-PESA",
+		"includedNote":     "Breakfast and conservancy fee included",
+		"badgeLabel":       "Verified partner",
 		"amenities":        []string{"wifi", "breakfast"},
 		"highlights":       []string{"River deck"},
 		"bookingUrl":       "https://example.com/stay",
@@ -105,6 +111,11 @@ func TestMarketplaceAdminCRUD(t *testing.T) {
 		"isFeatured":       true,
 	})
 	require.Equal(t, http.StatusCreated, stayRR.Code, stayRR.Body.String())
+
+	var distanceNote, badgeLabel string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT distance_note, badge_label FROM accommodation_properties WHERE slug = 'mara-river-camp'`).Scan(&distanceNote, &badgeLabel))
+	assert.Equal(t, "10 min to the gate", distanceNote)
+	assert.Equal(t, "Verified partner", badgeLabel)
 
 	// First eSIM provider is featured.
 	esimRR := doJSON(t, h.CreateEsimProvider, "POST", "/v1/esim-providers", map[string]any{

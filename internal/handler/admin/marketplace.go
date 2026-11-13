@@ -450,6 +450,12 @@ type stayRequest struct {
 	LocationLng      *float64 `json:"locationLng"`
 	PriceFromKES     *int     `json:"priceFromKes"`
 	PriceNote        *string  `json:"priceNote"`
+	PriceCheckedAt   *string  `json:"priceCheckedAt"`
+	DistanceNote     *string  `json:"distanceNote"`
+	CancellationNote *string  `json:"cancellationNote"`
+	PaymentNote      *string  `json:"paymentNote"`
+	IncludedNote     *string  `json:"includedNote"`
+	BadgeLabel       *string  `json:"badgeLabel"`
 	Amenities        []string `json:"amenities"`
 	Highlights       []string `json:"highlights"`
 	BookingURL       *string  `json:"bookingUrl"`
@@ -480,6 +486,12 @@ type adminStay struct {
 	LocationLng      *float64 `json:"locationLng"`
 	PriceFromKES     *int     `json:"priceFromKes"`
 	PriceNote        *string  `json:"priceNote"`
+	PriceCheckedAt   *string  `json:"priceCheckedAt"`
+	DistanceNote     *string  `json:"distanceNote"`
+	CancellationNote *string  `json:"cancellationNote"`
+	PaymentNote      *string  `json:"paymentNote"`
+	IncludedNote     *string  `json:"includedNote"`
+	BadgeLabel       *string  `json:"badgeLabel"`
 	Amenities        []string `json:"amenities"`
 	Highlights       []string `json:"highlights"`
 	BookingURL       *string  `json:"bookingUrl"`
@@ -506,15 +518,18 @@ func scanStay(row pgx.Row, s *adminStay) error {
 	var imageKey *string
 	err := row.Scan(&s.ID, &s.Name, &s.Slug, &s.Tier, &s.PropertyType, &s.ShortDescription,
 		&s.FullDescription, &s.County, &s.Locality, &s.Address, &s.LocationLat, &s.LocationLng,
-		&s.PriceFromKES, &s.PriceNote, &s.Amenities, &s.Highlights, &s.BookingURL, &s.DirectURL,
-		&s.Disclosure, &s.ContactEmail, &s.ContactPhone, &imageKey, &s.ImageAlt, &s.ImageCredit,
-		&s.Status, &s.IsFeatured, &s.DisplayOrder, &s.CreatedAt, &s.UpdatedAt)
+		&s.PriceFromKES, &s.PriceNote, &s.PriceCheckedAt, &s.DistanceNote, &s.CancellationNote,
+		&s.PaymentNote, &s.IncludedNote, &s.BadgeLabel, &s.Amenities, &s.Highlights,
+		&s.BookingURL, &s.DirectURL, &s.Disclosure, &s.ContactEmail, &s.ContactPhone,
+		&imageKey, &s.ImageAlt, &s.ImageCredit, &s.Status, &s.IsFeatured, &s.DisplayOrder,
+		&s.CreatedAt, &s.UpdatedAt)
 	s.ImageURLKey = imageKey
 	return err
 }
 
 const stayColumns = `id::text, name, slug, tier, property_type, short_description, full_description,
-	county, locality, address, location_lat, location_lng, price_from_kes, price_note, amenities,
+	county, locality, address, location_lat, location_lng, price_from_kes, price_note, price_checked_at::text,
+	distance_note, cancellation_note, payment_note, included_note, badge_label, amenities,
 	highlights, booking_url, direct_url, disclosure, contact_email, contact_phone, image_url,
 	image_alt, image_credit, status, is_featured, display_order, created_at::text, updated_at::text`
 
@@ -643,15 +658,19 @@ func (h *MarketplaceAdminHandler) CreateStay(w http.ResponseWriter, r *http.Requ
 	err := h.pool.QueryRow(r.Context(), `
 		INSERT INTO accommodation_properties (
 			name, slug, tier, property_type, short_description, full_description, county, locality,
-			address, location_lat, location_lng, price_from_kes, price_note, amenities, highlights,
-			booking_url, direct_url, disclosure, contact_email, contact_phone, image_url, image_alt,
-			image_credit, status, is_featured, display_order, created_by
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
+			address, location_lat, location_lng, price_from_kes, price_note, price_checked_at,
+			distance_note, cancellation_note, payment_note, included_note, badge_label,
+			amenities, highlights, booking_url, direct_url, disclosure, contact_email, contact_phone,
+			image_url, image_alt, image_credit, status, is_featured, display_order, created_by
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33)
 		RETURNING id::text`,
 		name, slug, tier, propertyType, shortDescription, nullIfEmpty(derefString(req.FullDescription, "")),
 		county, nullIfEmpty(derefString(req.Locality, "")), nullIfEmpty(derefString(req.Address, "")),
 		derefFloat(req.LocationLat, nil), derefFloat(req.LocationLng, nil), priceFromKES,
-		nullIfEmpty(derefString(req.PriceNote, "")), amenities, highlights,
+		nullIfEmpty(derefString(req.PriceNote, "")), nullIfEmpty(derefString(req.PriceCheckedAt, "")),
+		nullIfEmpty(derefString(req.DistanceNote, "")), nullIfEmpty(derefString(req.CancellationNote, "")),
+		nullIfEmpty(derefString(req.PaymentNote, "")), nullIfEmpty(derefString(req.IncludedNote, "")),
+		nullIfEmpty(derefString(req.BadgeLabel, "")), amenities, highlights,
 		nullIfEmpty(bookingURL), nullIfEmpty(directURL), nullIfEmpty(derefString(req.Disclosure, "")),
 		nullIfEmpty(contactEmail), nullIfEmpty(derefString(req.ContactPhone, "")),
 		nullIfEmpty(derefString(req.ImageURL, "")), nullIfEmpty(derefString(req.ImageAlt, "")),
@@ -735,15 +754,23 @@ func (h *MarketplaceAdminHandler) UpdateStay(w http.ResponseWriter, r *http.Requ
 		UPDATE accommodation_properties SET
 			name=$1, slug=$2, tier=$3, property_type=$4, short_description=$5, full_description=$6,
 			county=$7, locality=$8, address=$9, location_lat=$10, location_lng=$11, price_from_kes=$12,
-			price_note=$13, amenities=$14, highlights=$15, booking_url=$16, direct_url=$17, disclosure=$18,
-			contact_email=$19, contact_phone=$20, image_url=$21, image_alt=$22, image_credit=$23,
-			status=$24, is_featured=$25, display_order=$26, updated_at=now()
-		WHERE id=$27`,
+			price_note=$13, price_checked_at=$14, distance_note=$15, cancellation_note=$16,
+			payment_note=$17, included_note=$18, badge_label=$19, amenities=$20, highlights=$21,
+			booking_url=$22, direct_url=$23, disclosure=$24, contact_email=$25, contact_phone=$26,
+			image_url=$27, image_alt=$28, image_credit=$29, status=$30, is_featured=$31,
+			display_order=$32, updated_at=now()
+		WHERE id=$33`,
 		name, slug, tier, propertyType, shortDescription,
 		derefNullableString(req.FullDescription, existing.FullDescription), county,
 		derefNullableString(req.Locality, existing.Locality), derefNullableString(req.Address, existing.Address),
 		derefFloat(req.LocationLat, existing.LocationLat), derefFloat(req.LocationLng, existing.LocationLng),
-		priceFromKES, derefNullableString(req.PriceNote, existing.PriceNote), amenities, highlights,
+		priceFromKES, derefNullableString(req.PriceNote, existing.PriceNote),
+		derefNullableString(req.PriceCheckedAt, existing.PriceCheckedAt),
+		derefNullableString(req.DistanceNote, existing.DistanceNote),
+		derefNullableString(req.CancellationNote, existing.CancellationNote),
+		derefNullableString(req.PaymentNote, existing.PaymentNote),
+		derefNullableString(req.IncludedNote, existing.IncludedNote),
+		derefNullableString(req.BadgeLabel, existing.BadgeLabel), amenities, highlights,
 		nullIfEmpty(bookingURL), nullIfEmpty(directURL), derefNullableString(req.Disclosure, existing.Disclosure),
 		nullIfEmpty(contactEmail), derefNullableString(req.ContactPhone, existing.ContactPhone),
 		derefNullableString(req.ImageURL, existing.ImageURLKey),
