@@ -1142,10 +1142,12 @@ func loadBalanceData(ctx context.Context, q dbQuerier, itineraryID string) ([]pa
 			return nil, nil, err
 		}
 		if b, ok := balances[fromID]; ok {
-			b.BalanceKes -= amount
+			// Paying a settlement reduces what the sender owes.
+			b.BalanceKes += amount
 		}
 		if b, ok := balances[toID]; ok {
-			b.BalanceKes += amount
+			// Receiving a settlement reduces what the recipient is owed.
+			b.BalanceKes -= amount
 		}
 	}
 	rows.Close()
