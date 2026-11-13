@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -119,7 +120,7 @@ func (w *Worker) sendOne(ctx context.Context, j job) {
 		return
 	}
 
-	tokens := w.resolveTokens(ctx)
+	tokens := w.resolveTokens(ctx, j.targetAudience)
 	if len(tokens) == 0 {
 		w.pool.Exec(ctx,
 			`UPDATE push_notifications SET status = 'sent', sent_at = now(), recipient_count = 0 WHERE id = $1`, j.id)
@@ -161,7 +162,25 @@ func (w *Worker) sendOne(ctx context.Context, j job) {
 	}
 }
 
-func (w *Worker) resolveTokens(ctx context.Context) []string {
+func (w *Worker) resolveTokens(ctx context.Context, targetAudience string) []string {
+	if strings.HasPrefix(targetAudience, "user:") {
+		userID := strings.TrimPrefix(targetAudience, "user:")
+		rows, err := w.pool.Query(ctx,
+			`SELECT token FROM push_tokens WHERE user_id = $1 AND is_active = true`, userID)
+		if err != nil {
+			slog.Error("push worker: resolve user tokens", "error", err)
+			return nil
+		}
+		defer rows.Close()
+		var tokens []string
+		for rows.Next() {
+			var token string
+			if err := rows.Scan(&token); err == nil {
+				tokens = append(tokens, token)
+			}
+		}
+		return tokens
+	}
 	tokens, err := ResolveActiveTokens(ctx, w.pool)
 	if err != nil {
 		slog.Error("push worker: resolve tokens", "error", err)

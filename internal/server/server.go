@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/bradleygichuru/ytci-go/internal/collab"
 	"github.com/bradleygichuru/ytci-go/internal/config"
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 	"github.com/bradleygichuru/ytci-go/internal/handler/admin"
@@ -23,24 +24,29 @@ import (
 
 func New(cfg *config.Config, pool *pgxpool.Pool) *chi.Mux {
 	jwks := middleware.NewJWKSCache(cfg.AdminJWKSURL, cfg.JWKSCacheTTL, pool)
-	return newRouter(cfg, pool, jwks, nil, nil)
+	hub := collab.NewHub(pool)
+	return newRouter(cfg, pool, jwks, nil, nil, hub)
 }
 
 func NewWithClients(cfg *config.Config, pool *pgxpool.Pool, r2client *r2.Client, pushClient *push.Client) (*chi.Mux, *middleware.JWKSCache) {
-	jwks := middleware.NewJWKSCache(cfg.AdminJWKSURL, cfg.JWKSCacheTTL, pool)
-	r := newRouter(cfg, pool, jwks, r2client, pushClient)
+	r, jwks, _ := NewWithClientsAndHub(cfg, pool, r2client, pushClient)
 	return r, jwks
 }
 
-func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCache, r2client *r2.Client, pushClient *push.Client) *chi.Mux {
-	r := chi.NewRouter()
+func NewWithClientsAndHub(cfg *config.Config, pool *pgxpool.Pool, r2client *r2.Client, pushClient *push.Client) (*chi.Mux, *middleware.JWKSCache, *collab.Hub) {
+	jwks := middleware.NewJWKSCache(cfg.AdminJWKSURL, cfg.JWKSCacheTTL, pool)
+	hub := collab.NewHub(pool)
+	hub.Start()
+	return newRouter(cfg, pool, jwks, r2client, pushClient, hub), jwks, hub
+}
 
-	r.Use(chimw.RequestID)
-	r.Use(chimw.RealIP)
-	r.Use(middleware.Logger)
-	r.Use(chimw.Recoverer)
-	r.Use(chimw.Timeout(60 * time.Second))
-	r.Use(cors.Handler(cors.Options{
+func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCache, r2client *r2.Client, pushClient *push.Client, hub *collab.Hub) *chi.Mux {
+	root := chi.NewRouter()
+	root.Use(chimw.RequestID)
+	root.Use(chimw.RealIP)
+	root.Use(middleware.Logger)
+	root.Use(chimw.Recoverer)
+	root.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   splitOrigins(cfg.CORSOrigins),
 		AllowedMethods:   []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "Idempotency-Key"},
@@ -48,91 +54,108 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 		MaxAge:           300,
 	}))
 
-	r.Get("/health", handler.Health)
+	root.Get("/health", handler.Health)
 
 	var r2Store r2.Store
 	if r2client != nil {
 		r2Store = r2client
 	}
-	h := mountHandlers(pool, r2Store, pushClient, cfg)
+	h := mountHandlers(pool, r2Store, pushClient, cfg, hub)
+
+	// SSE lives outside the 60s timeout and the authenticated route limiter.
+	// A stream consumes one rate-limit token at connect only; its own
+	// per-user/per-instance caps protect the process.
+	if hub != nil {
+		root.Group(func(stream chi.Router) {
+			stream.Use(middleware.OptionalAuth(jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud))
+			stream.Use(middleware.AuthGate)
+			stream.Get("/v1/mobile/itineraries/{id}/events", h.collab.Stream)
+		})
+	}
+
+	api := chi.NewRouter()
+	api.Use(chimw.Timeout(60 * time.Second))
 
 	publicLimiter := middleware.PublicRateLimiter()
 
-	r.Route("/v1/public", func(pub chi.Router) {
+	api.Route("/v1/public", func(pub chi.Router) {
 		pub.Use(publicLimiter.Middleware)
 		mountPublicRoutes(pub, h, r2client)
 	})
 
 	authLimiter := middleware.AuthenticatedRateLimiter()
 
-	r.Route("/v1", func(sub chi.Router) {
+	api.Route("/v1", func(sub chi.Router) {
 		sub.Use(middleware.OptionalAuth(jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud))
 		mountAdminRoutes(sub, h, r2client, jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud)
 		mountMobileRoutes(sub, h, r2client, authLimiter)
 	})
 
-	return r
+	root.Mount("/", api)
+	return root
 }
 
 type handlers struct {
-	dest      *admin.DestinationsHandler
-	events    *admin.EventsHandler
-	stories   *admin.StoriesHandler
-	course    *admin.CourseHandler
-	challenge *admin.ChallengeAdminHandler
-	conserv   *admin.ConservationAdminHandler
-	campaign  *admin.CampaignAdminHandler
-	analytics *admin.AnalyticsHandler
-	lessonAdmin *admin.LessonHandler
-	quizAdmin   *admin.QuizAdminHandler
-	bulkImport *admin.BulkImport
-	itinStops *expo.ItineraryStopsHandler
-	feed      *expo.FeedHandler
-	bucket    *expo.BucketHandler
-	profile   *expo.ProfileHandler
-	itin      *expo.ItinerariesHandler
-	pushReg   *expo.PushRegisterHandler
-	actions   *expo.ActionsHandler
-	mStories  *expo.StoriesHandler
-	media     *admin.MediaHandler
-	pushAdmin *admin.PushHandler
-	comments  *expo.CommentHandler
+	dest          *admin.DestinationsHandler
+	events        *admin.EventsHandler
+	stories       *admin.StoriesHandler
+	course        *admin.CourseHandler
+	challenge     *admin.ChallengeAdminHandler
+	conserv       *admin.ConservationAdminHandler
+	campaign      *admin.CampaignAdminHandler
+	analytics     *admin.AnalyticsHandler
+	lessonAdmin   *admin.LessonHandler
+	quizAdmin     *admin.QuizAdminHandler
+	bulkImport    *admin.BulkImport
+	itinStops     *expo.ItineraryStopsHandler
+	feed          *expo.FeedHandler
+	bucket        *expo.BucketHandler
+	profile       *expo.ProfileHandler
+	itin          *expo.ItinerariesHandler
+	pushReg       *expo.PushRegisterHandler
+	actions       *expo.ActionsHandler
+	mStories      *expo.StoriesHandler
+	media         *admin.MediaHandler
+	pushAdmin     *admin.PushHandler
+	comments      *expo.CommentHandler
 	adminComments *admin.AdminCommentHandler
-	account   *expo.AccountHandler
+	account       *expo.AccountHandler
 	mobileCourses *expo.CourseHandler
-	places    *expo.PlacesHandler
-	budget    *expo.BudgetHandler
+	places        *expo.PlacesHandler
+	budget        *expo.BudgetHandler
+	collab        *expo.CollaborationHandler
 }
 
-func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Client, cfg *config.Config) *handlers {
+func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Client, cfg *config.Config, hub *collab.Hub) *handlers {
 	placesCache := places.NewCache(pool)
 	h := &handlers{
-		dest:      admin.NewDestinationsHandler(pool, r2client, placesCache),
-		events:    admin.NewEventsHandler(pool, r2client),
-		stories:   admin.NewStoriesHandler(pool, r2client),
-		course:    admin.NewCourseHandler(pool),
-		challenge: admin.NewChallengeAdminHandler(pool),
-		conserv:   admin.NewConservationAdminHandler(pool),
-		campaign:  admin.NewCampaignAdminHandler(pool),
-		analytics: admin.NewAnalyticsHandler(pool),
-		lessonAdmin: admin.NewLessonHandler(pool),
-		quizAdmin:   admin.NewQuizAdminHandler(pool),
-		bulkImport: admin.NewBulkImport(pool),
-		itinStops: expo.NewItineraryStopsHandler(pool),
-		feed:      expo.NewFeedHandler(pool),
-		bucket:    expo.NewBucketHandler(pool),
-		profile:   expo.NewProfileHandler(pool),
-		itin:      expo.NewItinerariesHandler(pool),
-		pushReg:   expo.NewPushRegisterHandler(pool),
-		actions:   expo.NewActionsHandler(pool),
-		mStories:  expo.NewStoriesHandler(pool),
-		media:     admin.NewMediaHandler(pool, r2client),
-		comments:  expo.NewCommentHandler(pool),
+		dest:          admin.NewDestinationsHandler(pool, r2client, placesCache),
+		events:        admin.NewEventsHandler(pool, r2client),
+		stories:       admin.NewStoriesHandler(pool, r2client),
+		course:        admin.NewCourseHandler(pool),
+		challenge:     admin.NewChallengeAdminHandler(pool),
+		conserv:       admin.NewConservationAdminHandler(pool),
+		campaign:      admin.NewCampaignAdminHandler(pool),
+		analytics:     admin.NewAnalyticsHandler(pool),
+		lessonAdmin:   admin.NewLessonHandler(pool),
+		quizAdmin:     admin.NewQuizAdminHandler(pool),
+		bulkImport:    admin.NewBulkImport(pool),
+		itinStops:     expo.NewItineraryStopsHandler(pool),
+		feed:          expo.NewFeedHandler(pool),
+		bucket:        expo.NewBucketHandler(pool),
+		profile:       expo.NewProfileHandler(pool),
+		itin:          expo.NewItinerariesHandler(pool),
+		pushReg:       expo.NewPushRegisterHandler(pool),
+		actions:       expo.NewActionsHandler(pool),
+		mStories:      expo.NewStoriesHandler(pool),
+		media:         admin.NewMediaHandler(pool, r2client),
+		comments:      expo.NewCommentHandler(pool),
 		adminComments: admin.NewAdminCommentHandler(pool),
-		account:   expo.NewAccountHandler(pool, r2client),
+		account:       expo.NewAccountHandler(pool, r2client),
 		mobileCourses: expo.NewCourseHandler(pool, r2client),
-		places:    expo.NewPlacesHandler(pool, cfg.GooglePlacesAPIKey, placesCache),
-		budget:    expo.NewBudgetHandler(pool, r2client, ocr.NewClient(cfg.GoogleVisionAPIKey, cfg.GoogleVisionEndpoint)),
+		places:        expo.NewPlacesHandler(pool, cfg.GooglePlacesAPIKey, placesCache),
+		budget:        expo.NewBudgetHandler(pool, r2client, ocr.NewClient(cfg.GoogleVisionAPIKey, cfg.GoogleVisionEndpoint)),
+		collab:        expo.NewCollaborationHandler(pool, hub),
 	}
 	if pushClient != nil {
 		h.pushAdmin = admin.NewPushHandler(pool, pushClient)
@@ -261,6 +284,16 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 			aR.Post("/itineraries/{id}/duplicate", h.itin.Duplicate)
 			aR.Get("/itineraries/{id}/stops", h.itinStops.GetStops)
 			aR.Put("/itineraries/{id}/stops", h.itinStops.UpsertStops)
+			aR.Get("/itineraries/{id}/members", h.collab.ListMembers)
+			aR.Patch("/itineraries/{id}/members/{userId}", h.collab.SetMemberRole)
+			aR.Delete("/itineraries/{id}/members/{userId}", h.collab.RemoveMember)
+			aR.Post("/itineraries/{id}/leave", h.collab.LeaveTrip)
+			aR.Get("/itineraries/{id}/invites", h.collab.ListInvites)
+			aR.Post("/itineraries/{id}/invites", h.collab.CreateInvite)
+			aR.Delete("/itineraries/{id}/invites/{inviteId}", h.collab.RevokeInvite)
+			aR.Get("/itineraries/{id}/presence", h.collab.GetPresence)
+			aR.Post("/itineraries/{id}/presence", h.collab.Heartbeat)
+			aR.Post("/invites/redeem", h.collab.RedeemInvite)
 			aR.Get("/itineraries/{id}/budget", h.budget.GetBudget)
 			aR.Put("/itineraries/{id}/budget", h.budget.UpdateBudget)
 			aR.Get("/itineraries/{id}/participants", h.budget.ListParticipants)
@@ -346,6 +379,7 @@ func mountPublicRoutes(pub chi.Router, h *handlers, r2client r2.Store) {
 	pub.Get("/challenges", h.challenge.ListMobile)
 	pub.Get("/conservation", h.conserv.ListMobile)
 	pub.Get("/companion", expo.GetCompanion)
+	pub.Get("/itineraries/preview", h.collab.Preview)
 
 	pub.Get("/stories/{id}/comments", h.comments.ListComments)
 

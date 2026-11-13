@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/bradleygichuru/ytci-go/internal/collab"
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 	"github.com/bradleygichuru/ytci-go/internal/middleware"
 	"github.com/bradleygichuru/ytci-go/internal/model"
@@ -275,6 +276,7 @@ func (h *ItinerariesHandler) Update(w http.ResponseWriter, r *http.Request) {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to commit update", err)
 		return
 	}
+	_ = collab.PublishChange(r.Context(), h.pool, itineraryID, "plan", "updated", newVersion, userID)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"status": "updated", "version": newVersion})
@@ -322,6 +324,7 @@ func (h *ItinerariesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to commit delete", err)
 		return
 	}
+	_ = collab.PublishChange(r.Context(), h.pool, itineraryID, "plan", "deleted", 0, userID)
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})

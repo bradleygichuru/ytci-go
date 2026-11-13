@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/bradleygichuru/ytci-go/internal/collab"
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 	"github.com/bradleygichuru/ytci-go/internal/middleware"
 )
@@ -131,6 +132,7 @@ func (h *ItineraryStopsHandler) UpsertStops(w http.ResponseWriter, r *http.Reque
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to commit", err)
 		return
 	}
+	_ = collab.PublishChange(r.Context(), h.pool, itineraryID, "plan", "stops_updated", newVersion, userID)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"status": "updated", "version": newVersion})

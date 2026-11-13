@@ -54,7 +54,7 @@ func main() {
 		slog.Info("push notification client initialized")
 	}
 
-	router, jwks := server.NewWithClients(cfg, dbpool, r2client, pushClient)
+	router, jwks, hub := server.NewWithClientsAndHub(cfg, dbpool, r2client, pushClient)
 
 	if err := jwks.Ping(); err != nil {
 		slog.Error("failed to reach JWKS endpoint at startup", "url", cfg.AdminJWKSURL, "error", err)
@@ -77,6 +77,7 @@ func main() {
 		Addr:    ":" + cfg.Port,
 		Handler: router,
 	}
+	srv.RegisterOnShutdown(hub.Shutdown)
 
 	go func() {
 		slog.Info("server starting", "port", cfg.Port)
