@@ -180,6 +180,7 @@ func (h *ItinerariesHandler) Get(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{
 		"id": itineraryID, "title": title, "status": status, "inputs": inputs,
 		"role": access.Role, "planVersion": access.PlanVersion,
+		"budgetVersion": access.BudgetVersion, "membersVersion": access.MembersVersion,
 	})
 }
 

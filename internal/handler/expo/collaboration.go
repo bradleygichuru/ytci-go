@@ -159,7 +159,8 @@ func (h *CollaborationHandler) checkMembersVersionTx(w http.ResponseWriter, r *h
 
 func (h *CollaborationHandler) ListMembers(w http.ResponseWriter, r *http.Request) {
 	itineraryID := r.PathValue("id")
-	if _, err := requireItineraryRole(r.Context(), h.pool, itineraryID, middleware.UserID(r.Context()), roleViewer); err != nil {
+	access, err := requireItineraryRole(r.Context(), h.pool, itineraryID, middleware.UserID(r.Context()), roleViewer)
+	if err != nil {
 		writeItineraryAccessError(w, r, err)
 		return
 	}
@@ -168,7 +169,10 @@ func (h *CollaborationHandler) ListMembers(w http.ResponseWriter, r *http.Reques
 		writeCollabError(w, r, err)
 		return
 	}
-	writeCollabJSON(w, http.StatusOK, map[string]any{"members": members})
+	writeCollabJSON(w, http.StatusOK, map[string]any{
+		"members":        members,
+		"membersVersion": access.MembersVersion,
+	})
 }
 
 type createInviteRequest struct {
