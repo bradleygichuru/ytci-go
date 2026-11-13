@@ -427,9 +427,11 @@ func CreateInvite(ctx context.Context, q dbQuerier, itineraryID, createdBy, role
 		return "", "", err
 	}
 
-	_ = recordTripEvent(ctx, q, itineraryID, createdBy, "members", "invite_created",
+	if err := recordTripEvent(ctx, q, itineraryID, createdBy, "members", "invite_created",
 		"invite", inviteID, "Created a "+role+" invite", nil,
-		map[string]any{"role": role, "expiresAt": expiresAt, "maxUses": maxUses}, "")
+		map[string]any{"role": role, "expiresAt": expiresAt, "maxUses": maxUses}, ""); err != nil {
+		return "", "", err
+	}
 	return code, inviteID, nil
 }
 

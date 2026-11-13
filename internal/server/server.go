@@ -283,6 +283,7 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 			aR.Delete("/itineraries/{id}", h.itin.Delete)
 			aR.Post("/itineraries/{id}/duplicate", h.itin.Duplicate)
 			aR.Get("/itineraries/{id}/history", h.itin.ListHistory)
+			aR.Get("/itineraries/{id}/export", h.itin.Export)
 			aR.Post("/itineraries/{id}/revisions/{revisionId}/restore", h.itin.RestoreRevision)
 			aR.Get("/itineraries/{id}/stops", h.itinStops.GetStops)
 			aR.Put("/itineraries/{id}/stops", h.itinStops.UpsertStops)
