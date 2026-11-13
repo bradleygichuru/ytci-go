@@ -32,6 +32,13 @@ audit/revision layer (`POST /v1/mobile/itineraries/{id}/revisions/{id}/restore`)
    storage size, PITR window, and latest restore timestamp in the operations
    log.
 
+## Render Cron image
+
+`scripts/backup-cron/` contains the Docker image and entrypoint for the daily
+Render Cron Job. It dumps the internal database URL and uploads the custom dump
+plus `.sha256` sidecar to `daily/YYYY/MM/DD/` in `ytci-pg-backups`. See its
+README for the environment group and bucket-lock setup.
+
 ## Logical backup
 
 ```bash
