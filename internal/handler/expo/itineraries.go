@@ -118,10 +118,18 @@ func (h *ItinerariesHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	for _, s := range req.Stops {
 		_, err = tx.Exec(r.Context(),
-			`INSERT INTO itinerary_stops (itinerary_id, destination_id, day, display_order, title, description, start_time, category, image_url, estimated_cost)
-			 VALUES ($1, NULLIF($2, '')::uuid, $3, $4, $5, $6, NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, ''), $10)`,
+			`INSERT INTO itinerary_stops (
+				itinerary_id, destination_id, day, display_order, title, description,
+				start_time, category, image_url, estimated_cost, place_id, provenance,
+				latitude, longitude, county, verified, kind
+			 ) VALUES (
+				$1, NULLIF($2, '')::uuid, $3, $4, $5, $6, NULLIF($7, ''), NULLIF($8, ''),
+				NULLIF($9, ''), $10, NULLIF($11, ''), NULLIF($12, ''),
+				$13, $14, NULLIF($15, ''), $16, COALESCE(NULLIF($17, ''), 'stop')
+			 )`,
 			itineraryID, s.DestinationID, s.Day, s.DisplayOrder, s.Title, s.Description,
-			s.StartTime, s.Category, s.ImageURL, s.EstimatedCost)
+			s.StartTime, s.Category, s.ImageURL, s.EstimatedCost, s.PlaceID, s.Provenance,
+			s.Latitude, s.Longitude, s.County, s.Verified, s.Kind)
 		if err != nil {
 			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create stops", err)
 			return

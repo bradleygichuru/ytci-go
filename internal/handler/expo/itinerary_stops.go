@@ -14,30 +14,44 @@ import (
 )
 
 type StopInput struct {
-	DestinationID string `json:"destinationId,omitempty"`
-	Day           int    `json:"day"`
-	DisplayOrder  int    `json:"displayOrder"`
-	Title         string `json:"title,omitempty"`
-	Description   string `json:"description,omitempty"`
-	StartTime     string `json:"startTime,omitempty"`
-	Category      string `json:"category,omitempty"`
-	ImageURL      string `json:"imageUrl,omitempty"`
-	EstimatedCost string `json:"estimatedCost,omitempty"`
+	DestinationID string   `json:"destinationId,omitempty"`
+	PlaceID       string   `json:"placeId,omitempty"`
+	Provenance    string   `json:"provenance,omitempty"`
+	Day           int      `json:"day"`
+	DisplayOrder  int      `json:"displayOrder"`
+	Title         string   `json:"title,omitempty"`
+	Description   string   `json:"description,omitempty"`
+	StartTime     string   `json:"startTime,omitempty"`
+	Category      string   `json:"category,omitempty"`
+	ImageURL      string   `json:"imageUrl,omitempty"`
+	EstimatedCost string   `json:"estimatedCost,omitempty"`
+	Latitude      *float64 `json:"lat,omitempty"`
+	Longitude     *float64 `json:"lng,omitempty"`
+	County        string   `json:"county,omitempty"`
+	Verified      *bool    `json:"verified,omitempty"`
+	Kind          string   `json:"kind,omitempty"`
 }
 
 type StopResponse struct {
-	ID              string  `json:"id"`
-	DestinationID   string  `json:"destinationId,omitempty"`
-	DestinationName *string `json:"destinationName,omitempty"`
-	DestinationSlug *string `json:"destinationSlug,omitempty"`
-	Day             int     `json:"day"`
-	DisplayOrder    int     `json:"displayOrder"`
-	Title           string  `json:"title"`
-	Description     string  `json:"description,omitempty"`
-	StartTime       string  `json:"startTime,omitempty"`
-	Category        string  `json:"category,omitempty"`
-	ImageURL        string  `json:"imageUrl,omitempty"`
-	EstimatedCost   string  `json:"estimatedCost,omitempty"`
+	ID              string   `json:"id"`
+	DestinationID   string   `json:"destinationId,omitempty"`
+	DestinationName *string  `json:"destinationName,omitempty"`
+	DestinationSlug *string  `json:"destinationSlug,omitempty"`
+	PlaceID         string   `json:"placeId,omitempty"`
+	Provenance      string   `json:"provenance,omitempty"`
+	Day             int      `json:"day"`
+	DisplayOrder    int      `json:"displayOrder"`
+	Title           string   `json:"title"`
+	Description     string   `json:"description,omitempty"`
+	StartTime       string   `json:"startTime,omitempty"`
+	Category        string   `json:"category,omitempty"`
+	ImageURL        string   `json:"imageUrl,omitempty"`
+	EstimatedCost   string   `json:"estimatedCost,omitempty"`
+	Latitude        *float64 `json:"lat,omitempty"`
+	Longitude       *float64 `json:"lng,omitempty"`
+	County          string   `json:"county,omitempty"`
+	Verified        *bool    `json:"verified,omitempty"`
+	Kind            string   `json:"kind,omitempty"`
 }
 
 type ItineraryStopsHandler struct {
@@ -106,10 +120,18 @@ func (h *ItineraryStopsHandler) UpsertStops(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		_, err = tx.Exec(r.Context(),
-			`INSERT INTO itinerary_stops (itinerary_id, destination_id, day, display_order, title, description, start_time, category, image_url, estimated_cost)
-			 VALUES ($1, NULLIF($2, '')::uuid, $3, $4, $5, $6, NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, ''), $10)`,
+			`INSERT INTO itinerary_stops (
+				itinerary_id, destination_id, day, display_order, title, description,
+				start_time, category, image_url, estimated_cost, place_id, provenance,
+				latitude, longitude, county, verified, kind
+			 ) VALUES (
+				$1, NULLIF($2, '')::uuid, $3, $4, $5, $6, NULLIF($7, ''), NULLIF($8, ''),
+				NULLIF($9, ''), $10, NULLIF($11, ''), NULLIF($12, ''),
+				$13, $14, NULLIF($15, ''), $16, COALESCE(NULLIF($17, ''), 'stop')
+			 )`,
 			itineraryID, s.DestinationID, s.Day, s.DisplayOrder, s.Title, s.Description,
-			s.StartTime, s.Category, s.ImageURL, s.EstimatedCost)
+			s.StartTime, s.Category, s.ImageURL, s.EstimatedCost, s.PlaceID, s.Provenance,
+			s.Latitude, s.Longitude, s.County, s.Verified, s.Kind)
 		if err != nil {
 			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to insert stop", err)
 			return
@@ -155,7 +177,9 @@ func (h *ItineraryStopsHandler) GetStops(w http.ResponseWriter, r *http.Request)
 		`SELECT s.id::text, s.day, s.display_order,
 			COALESCE(s.title, ''), COALESCE(s.description, ''), COALESCE(s.start_time, ''), COALESCE(s.category, ''), COALESCE(s.image_url, ''),
 			COALESCE(s.estimated_cost, ''),
-			COALESCE(s.destination_id::text, ''), d.name, d.slug
+			COALESCE(s.destination_id::text, ''), COALESCE(d.name, s.title), d.slug,
+			COALESCE(s.place_id, ''), COALESCE(s.provenance, ''),
+			s.latitude, s.longitude, COALESCE(s.county, ''), s.verified, COALESCE(s.kind, 'stop')
 		 FROM itinerary_stops s
 		 LEFT JOIN destinations d ON d.id = s.destination_id
 		 WHERE s.itinerary_id = $1 ORDER BY s.day, s.display_order`, itineraryID)
@@ -169,7 +193,8 @@ func (h *ItineraryStopsHandler) GetStops(w http.ResponseWriter, r *http.Request)
 	for rows.Next() {
 		var s StopResponse
 		if err := rows.Scan(&s.ID, &s.Day, &s.DisplayOrder, &s.Title, &s.Description, &s.StartTime, &s.Category, &s.ImageURL,
-			&s.EstimatedCost, &s.DestinationID, &s.DestinationName, &s.DestinationSlug); err != nil {
+			&s.EstimatedCost, &s.DestinationID, &s.DestinationName, &s.DestinationSlug,
+			&s.PlaceID, &s.Provenance, &s.Latitude, &s.Longitude, &s.County, &s.Verified, &s.Kind); err != nil {
 			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to read stop", err)
 			return
 		}

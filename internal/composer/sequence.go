@@ -329,6 +329,12 @@ func (e *Engine) buildPlan(
 		Code: "BUDGET_ESTIMATE", Severity: "info",
 		Message: "Costs are composer estimates, not live quotes.",
 	})
+	if len(brief.Accessibility) > 0 {
+		plan.Warnings = appendWarning(plan.Warnings, Warning{
+			Code: "ACCESSIBILITY_UNVERIFIED", Severity: "info",
+			Message: "Accessibility needs are noted, but verified accessibility data is limited. Confirm with the provider.",
+		})
+	}
 	for _, day := range plan.Days {
 		for _, warning := range day.Warnings {
 			plan.Warnings = appendWarning(plan.Warnings, warning)
