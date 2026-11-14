@@ -818,7 +818,7 @@ func (h *CollaborationHandler) Preview(w http.ResponseWriter, r *http.Request) {
 	safeInputs := map[string]any{}
 	var parsed map[string]any
 	if json.Unmarshal([]byte(inputsRaw), &parsed) == nil {
-		for _, key := range []string{"origin", "days", "startDate", "endDate", "interests", "transport", "pace", "groupType"} {
+		for _, key := range []string{"origin", "days", "startDate", "endDate", "interests", "transport", "pace", "groupType", "groupSize"} {
 			if value, ok := parsed[key]; ok {
 				safeInputs[key] = value
 			}

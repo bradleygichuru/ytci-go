@@ -78,6 +78,7 @@ func (h *ItinerariesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		BudgetBand      string      `json:"budgetBand,omitempty"`
 		Interests       []string    `json:"interests,omitempty"`
 		GroupType       string      `json:"groupType,omitempty"`
+		GroupSize       int         `json:"groupSize,omitempty"`
 		Transport       string      `json:"transport,omitempty"`
 		Pace            string      `json:"pace,omitempty"`
 		StartDate       string      `json:"startDate,omitempty"`
@@ -96,8 +97,9 @@ func (h *ItinerariesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	inputsRaw, err := json.Marshal(map[string]any{
 		"origin": req.Origin, "days": req.Days,
 		"budgetBand": req.BudgetBand, "interests": req.Interests,
-		"groupType": req.GroupType, "transport": req.Transport,
-		"pace": req.Pace, "startDate": req.StartDate,
+		"groupType": req.GroupType, "groupSize": req.GroupSize,
+		"transport": req.Transport,
+		"pace":      req.Pace, "startDate": req.StartDate,
 		"mustInclude": req.MustInclude, "returnToOrigin": req.ReturnToOrigin,
 		"allowUnverified": req.AllowUnverified,
 	})
