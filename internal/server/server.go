@@ -96,6 +96,7 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 }
 
 type handlers struct {
+	composer      *expo.ComposerHandler
 	dest          *admin.DestinationsHandler
 	events        *admin.EventsHandler
 	stories       *admin.StoriesHandler
@@ -154,6 +155,7 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 		account:       expo.NewAccountHandler(pool, r2client),
 		mobileCourses: expo.NewCourseHandler(pool, r2client),
 		places:        expo.NewPlacesHandler(pool, cfg.GooglePlacesAPIKey, placesCache),
+		composer:      expo.NewComposerHandler(pool, cfg.GooglePlacesAPIKey, cfg.ORSAPIKey),
 		budget:        expo.NewBudgetHandler(pool, r2client, ocr.NewClient(cfg.GoogleVisionAPIKey, cfg.GoogleVisionEndpoint)),
 		collab:        expo.NewCollaborationHandler(pool, hub),
 	}
@@ -277,6 +279,7 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 			aR.Post("/bucket/{destinationId}/visited", h.bucket.MarkVisited)
 			aR.Get("/profile", h.profile.Get)
 			aR.Patch("/profile", h.profile.Update)
+			aR.Post("/itineraries/suggest", h.composer.Suggest)
 			aR.Get("/itineraries", h.itin.List)
 			aR.Post("/itineraries", h.itin.Create)
 			aR.Get("/itineraries/{id}", h.itin.Get)
