@@ -374,13 +374,24 @@ func (h *DestinationsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	// this request first, then fall back to the stored row.
 	if req.Status != nil && *req.Status == "published" {
 		var currentCounty string
+		var currentVerification string
 		var currentLat, currentLng *float64
 		err := h.pool.QueryRow(r.Context(),
-			`SELECT county, ST_Y(location::geometry), ST_X(location::geometry)
+			`SELECT county, COALESCE(verification_status, ''),
+			        ST_Y(location::geometry), ST_X(location::geometry)
 			 FROM destinations WHERE id = $1`, destID,
-		).Scan(&currentCounty, &currentLat, &currentLng)
+		).Scan(&currentCounty, &currentVerification, &currentLat, &currentLng)
 		if err != nil {
 			handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "destination not found")
+			return
+		}
+		effectiveVerification := currentVerification
+		if req.VerificationStatus != nil {
+			effectiveVerification = *req.VerificationStatus
+		}
+		if effectiveVerification != "verified" {
+			handler.WriteError(w, http.StatusBadRequest, "VERIFICATION_REQUIRED",
+				"publishing requires verificationStatus=verified")
 			return
 		}
 		countyText := currentCounty
@@ -431,6 +442,7 @@ func (h *DestinationsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		 content_owner = COALESCE($28::text, content_owner),
 		 verification_status = COALESCE($29::text, verification_status),
 		 status = CASE WHEN $30::text != '' THEN $30 ELSE status END,
+		 verified_at = CASE WHEN $30::text = 'published' AND verified_at IS NULL THEN now() ELSE verified_at END,
 		 updated_at = now()
 		 WHERE id = $1`,
 		destID, valOrEmpty(req.Name), valOrEmpty(req.Slug),

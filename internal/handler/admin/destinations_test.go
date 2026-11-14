@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,7 +14,7 @@ import (
 	"github.com/bradleygichuru/ytci-go/internal/db"
 )
 
-func TestDestinationPublishingRequiresCanonicalCounty(t *testing.T) {
+func TestDestinationPublishingRequiresVerificationAndCounty(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -36,23 +37,31 @@ func TestDestinationPublishingRequiresCanonicalCounty(t *testing.T) {
 		RETURNING id::text
 	`).Scan(&unknownID))
 
-	publish := func(id string) *httptest.ResponseRecorder {
+	publish := func(id string, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPatch, "/v1/destinations/"+id,
-			strings.NewReader(`{"status":"published"}`))
+			strings.NewReader(body))
 		req.SetPathValue("id", id)
 		rec := httptest.NewRecorder()
 		h.Update(rec, req)
 		return rec
 	}
 
-	rec := publish(nairobiID)
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	var status string
-	require.NoError(t, pool.QueryRow(ctx,
-		`SELECT status FROM destinations WHERE id = $1`, nairobiID).Scan(&status))
-	assert.Equal(t, "published", status)
+	rec := publish(nairobiID, `{"status":"published"}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "VERIFICATION_REQUIRED")
 
-	rec = publish(unknownID)
+	rec = publish(nairobiID, `{"status":"published","verificationStatus":"verified"}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var status, verification string
+	var verifiedAt *time.Time
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT status, verification_status, verified_at FROM destinations WHERE id = $1`, nairobiID).
+		Scan(&status, &verification, &verifiedAt))
+	assert.Equal(t, "published", status)
+	assert.Equal(t, "verified", verification)
+	assert.NotNil(t, verifiedAt)
+
+	rec = publish(unknownID, `{"status":"published","verificationStatus":"verified"}`)
 	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 	assert.Contains(t, rec.Body.String(), "COUNTY_NOT_FOUND")
 
