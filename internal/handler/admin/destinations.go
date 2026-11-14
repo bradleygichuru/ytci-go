@@ -317,6 +317,9 @@ func (h *DestinationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create destination", err)
 		return
 	}
+	// The admin dashboard is the curation surface, so its rows are curated.
+	_, _ = h.pool.Exec(r.Context(),
+		`UPDATE destinations SET is_curated = true WHERE id = $1`, dest.ID)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -355,6 +358,7 @@ func (h *DestinationsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		ContentOwner       *string  `json:"contentOwner,omitempty"`
 		VerificationStatus *string  `json:"verificationStatus,omitempty"`
 		Status             *string  `json:"status,omitempty"`
+		IsCurated          *bool    `json:"isCurated,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
@@ -443,6 +447,10 @@ func (h *DestinationsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to update destination", err)
 		return
+	}
+	if req.IsCurated != nil {
+		_, _ = h.pool.Exec(r.Context(),
+			`UPDATE destinations SET is_curated = $2 WHERE id = $1`, destID, *req.IsCurated)
 	}
 
 	// Invalidate caches on status change so popular listing reflects the update
