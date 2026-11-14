@@ -14,15 +14,15 @@ import (
 const baseURL = "https://places.googleapis.com/v1/"
 
 type Client struct {
-	apiKey   string
-	http     *http.Client
-	baseURL  string
+	apiKey  string
+	http    *http.Client
+	baseURL string
 }
 
 func NewClient(apiKey string) *Client {
 	return &Client{
-		apiKey:   apiKey,
-		baseURL:  baseURL,
+		apiKey:  apiKey,
+		baseURL: baseURL,
 		http: &http.Client{
 			Timeout: 15 * time.Second,
 		},

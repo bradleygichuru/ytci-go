@@ -31,9 +31,12 @@ duration, fee status, opening-hours status, hero attribution, source, and
 `verified_at`. Unpublished, uncurated, or incomplete rows are excluded.
 
 Unverified rows come from `composer_unverified_candidates`, not from
-`destinations`. Discovery (#218) fills that table; it never creates catalog
-drafts. Rows expire after 30 days. The view never exposes fees, safety,
-accessibility, duration, or seasonality for Google Places candidates.
+`destinations`. Discovery fills that table; it never creates catalog drafts.
+See `docs/catalog/discovery.md` for the county/route search plan, quota, and
+live counts. Rows expire after 30 days. Google photo refs are stored as
+`/v1/mobile/places/photo?ref=...` and proxied server-side so clients never see
+the API key. The view never exposes fees, safety, accessibility, duration, or
+seasonality for Google Places candidates.
 
 ## `composer_county_coverage`
 

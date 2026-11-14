@@ -132,8 +132,23 @@ func (h *PlacesHandler) Search(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+	cacheKey := q
+	opts := places.TextSearchOptions{
+		Query:        q,
+		Center:       &places.LatLng{Latitude: 0.0236, Longitude: 36.8888},
+		RadiusMeters: 50000,
+	}
+	latStr, lngStr := r.URL.Query().Get("lat"), r.URL.Query().Get("lng")
+	if latStr != "" && lngStr != "" {
+		lat, latErr := strconv.ParseFloat(latStr, 64)
+		lng, lngErr := strconv.ParseFloat(lngStr, 64)
+		if latErr == nil && lngErr == nil {
+			opts.Center = &places.LatLng{Latitude: lat, Longitude: lng}
+			cacheKey = fmt.Sprintf("%s@%.3f,%.3f", q, lat, lng)
+		}
+	}
 
-	if results, found, err := h.cache.GetTextSearchResults(ctx, q); err != nil {
+	if results, found, err := h.cache.GetTextSearchResults(ctx, cacheKey); err != nil {
 		slog.Warn("places: text search cache read failed", "error", err)
 	} else if found {
 		w.Header().Set("Content-Type", "application/json")
@@ -141,13 +156,13 @@ func (h *PlacesHandler) Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results, err := h.client.TextSearch(ctx, q)
+	results, _, err := h.client.TextSearchWithOptions(ctx, opts)
 	if err != nil {
 		handler.WriteServerError(w, r, "PLACES_ERROR", "failed to search places", err)
 		return
 	}
 
-	if err := h.cache.SetTextSearchResults(ctx, q, results); err != nil {
+	if err := h.cache.SetTextSearchResults(ctx, cacheKey, results); err != nil {
 		slog.Warn("places: text search cache write failed", "error", err)
 	}
 
@@ -196,6 +211,29 @@ func (h *PlacesHandler) GetLocation(w http.ResponseWriter, r *http.Request) {
 	} else {
 		handler.WriteError(w, http.StatusNotFound, "NO_LOCATION", "location not available for this place")
 	}
+}
+
+// Photo proxies a Google Places photo through the server-side API key. The
+// composer stores a relative proxy path for unverified candidates so mobile
+// clients never receive the key.
+func (h *PlacesHandler) Photo(w http.ResponseWriter, r *http.Request) {
+	ref := r.URL.Query().Get("ref")
+	if !places.ValidPhotoRef(ref) {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_REF", "invalid photo reference")
+		return
+	}
+	if h.client == nil {
+		handler.WriteError(w, http.StatusServiceUnavailable, "PLACES_UNAVAILABLE", "places client is not configured")
+		return
+	}
+	body, contentType, err := h.client.PhotoMedia(r.Context(), ref, 1200)
+	if err != nil {
+		handler.WriteServerError(w, r, "PLACES_ERROR", "failed to fetch place photo", err)
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Write(body)
 }
 
 func (h *PlacesHandler) GetPlaceDetails(w http.ResponseWriter, r *http.Request) {

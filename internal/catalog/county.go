@@ -44,7 +44,8 @@ func ResolveCounty(
 		FROM catalog_resolve_county(
 			CASE
 				WHEN $1::float8 IS NULL OR $2::float8 IS NULL THEN NULL
-				ELSE ST_SetSRID(ST_MakePoint($1, $2), 4326)
+				-- $1 is latitude, $2 is longitude; ST_MakePoint takes (x, y).
+				ELSE ST_SetSRID(ST_MakePoint($2, $1), 4326)
 			END,
 			$3::text
 		)

@@ -168,11 +168,10 @@ func TestCreateDraftDestinationTaxonomyAndDedupe(t *testing.T) {
 
 	h := NewPlacesHandler(pool, "", nil)
 	details := &places.PlaceDetails{
-		PlaceID:          "catalog-test-place",
-		DisplayName:      "Catalog Test Park",
-		Types:            []string{"national_park", "tourist_attraction"},
-		FormattedAddress: "Nairobi, Kenya",
-		Location:         &places.LatLng{Latitude: -1.2921, Longitude: 36.8219},
+		PlaceID:     "catalog-test-place",
+		DisplayName: "Catalog Test Park",
+		Types:       []string{"national_park", "tourist_attraction"},
+		Location:    &places.LatLng{Latitude: -1.2921, Longitude: 36.8219},
 	}
 
 	first, err := h.createDraftDestination(ctx, details)

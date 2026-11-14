@@ -92,3 +92,23 @@ func TestIsCategory(t *testing.T) {
 		t.Fatal("church is not in the controlled taxonomy")
 	}
 }
+
+func TestIsDiscoveryNonDestination(t *testing.T) {
+	for _, name := range []string{
+		"Redeemed Gospel Church", "Pwani Complex Guest House",
+		"Pampes Computers Services", "Justine wanjohi bodaa stage",
+		"Fast Food Centre", "Local Pharmacy", "County Office",
+	} {
+		if !IsDiscoveryNonDestination(name) {
+			t.Fatalf("IsDiscoveryNonDestination(%q) = false, want true", name)
+		}
+	}
+	for _, name := range []string{
+		"Fort Jesus", "Lake Paradise", "Hell's Kitchen", "Diani Beach",
+		"Maasai Mara", "Karura Forest", "Amboseli",
+	} {
+		if IsDiscoveryNonDestination(name) {
+			t.Fatalf("IsDiscoveryNonDestination(%q) = true, want false", name)
+		}
+	}
+}

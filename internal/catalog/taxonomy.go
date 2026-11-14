@@ -1,6 +1,9 @@
 package catalog
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // Category is the controlled destination taxonomy. It is deliberately the
 // same vocabulary the mobile app uses for itinerary stops (STOP_CATEGORIES),
@@ -251,6 +254,76 @@ func InterestTags(category Category) []string {
 		tags = append(tags, string(CategoryWildlife))
 	}
 	return tags
+}
+
+// googleDiscoveryTypes is the high-signal subset sent to Google Nearby Search.
+// Google caps includedTypes at 50; keep this list under that limit. The
+// taxonomy classifier still decides which returned places are destinations.
+var googleDiscoveryTypes = []string{
+	"national_park", "state_park", "park", "nature_preserve", "wildlife_park",
+	"wildlife_refuge", "zoo", "aquarium", "botanical_garden", "garden", "lake",
+	"mountain_peak", "scenic_spot", "beach", "marina", "hiking_area", "museum",
+	"art_gallery", "historical_landmark", "historical_place", "monument",
+	"cultural_landmark", "castle", "performing_arts_theater", "planetarium",
+	"visitor_center", "tourist_information_center", "plaza", "amusement_park",
+	"water_park", "golf_course", "tourist_attraction", "observation_deck",
+}
+
+// GoogleDiscoveryTypes returns the includedTypes list for discovery. Callers
+// may not mutate the returned slice's backing array.
+func GoogleDiscoveryTypes() []string {
+	return append([]string(nil), googleDiscoveryTypes...)
+}
+
+// GoogleDiscoveryExcludedTypes returns the non-destination types to exclude
+// from discovery requests. Included and excluded lists do not overlap.
+func GoogleDiscoveryExcludedTypes() []string {
+	// Nearby Search rejects address/establishment types that are not valid
+	// included/excluded place types. Keep this list to supported types.
+	unsupported := map[string]bool{
+		"resort": true, "street_address": true, "subpremise": true,
+		"place_of_worship": true, "office": true, "intersection": true,
+		"plus_code": true, "route": true, "political": true, "premises": true,
+	}
+	out := make([]string, 0, len(hardRejectTypes)+len(softRejectTypes))
+	for t := range hardRejectTypes {
+		if !unsupported[t] {
+			out = append(out, t)
+		}
+	}
+	for t := range softRejectTypes {
+		if !unsupported[t] {
+			out = append(out, t)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// discoveryNameDenylist catches obvious non-destinations whose Google types
+// are missing or too generic (for example a church typed as tourist_attraction).
+var discoveryNameDenylist = []string{
+	"church", "cathedral", "mosque", "temple", "shrine", "chapel",
+	"guest house", "guesthouse", "hotel", "motel", "hostel", "lodging",
+	"tented camp", "lodge", "resort", "villa", "guest wing", "apartment",
+	"office", "computer", "cyber", " pub",
+	"salon", "barber", "pharmacy", "clinic", "hospital", "school",
+	"college", "university", "petrol", "gas station", "supermarket",
+	"hardware", "butchery", "car wash", "car repair", "laundry", "bank",
+	"atm", "police", "prison", "courthouse", "matatu stage", "bus stage",
+	"bodaa stage", "boda stage", "fast food",
+}
+
+// IsDiscoveryNonDestination is a conservative name check for discovery.
+// It is never used for curated destinations.
+func IsDiscoveryNonDestination(name string) bool {
+	n := strings.ToLower(strings.TrimSpace(name))
+	for _, token := range discoveryNameDenylist {
+		if strings.Contains(n, token) {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeTypes(types []string) []string {

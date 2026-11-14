@@ -7,7 +7,7 @@ import (
 	"net/url"
 )
 
-const placeDetailsFieldMask = "id,displayName,formattedAddress,location,types,googleMapsUri,nationalPhoneNumber,websiteUri,accessibilityOptions,containingPlaces,subDestinations,rating,userRatingCount,currentOpeningHours,primaryTypeDisplayName"
+const placeDetailsFieldMask = "id,displayName,formattedAddress,location,types,googleMapsUri,nationalPhoneNumber,websiteUri,accessibilityOptions,containingPlaces,subDestinations,rating,userRatingCount,currentOpeningHours,regularOpeningHours,priceLevel,photos,primaryTypeDisplayName"
 
 type accessibilityOptions struct {
 	WheelchairAccessibleParking  *bool `json:"wheelchairAccessibleParking,omitempty"`
@@ -41,7 +41,10 @@ type placeDetailsResponse struct {
 	Rating                 float64               `json:"rating,omitempty"`
 	UserRatingCount        int32                 `json:"userRatingCount,omitempty"`
 	CurrentOpeningHours    *OpeningHours         `json:"currentOpeningHours,omitempty"`
-	PrimaryTypeDisplayName displayName          `json:"primaryTypeDisplayName,omitempty"`
+	RegularOpeningHours    *OpeningHours         `json:"regularOpeningHours,omitempty"`
+	PriceLevel             string                `json:"priceLevel,omitempty"`
+	Photos                 []Photo               `json:"photos,omitempty"`
+	PrimaryTypeDisplayName displayName           `json:"primaryTypeDisplayName,omitempty"`
 }
 
 func (c *Client) PlaceDetails(ctx context.Context, placeID, sessionToken string) (*PlaceDetails, error) {
@@ -61,15 +64,15 @@ func (c *Client) PlaceDetails(ctx context.Context, placeID, sessionToken string)
 	}
 
 	result := &PlaceDetails{
-		PlaceID:              resp.ID,
-		DisplayName:          resp.DisplayName.Text,
-		FormattedAddress:     resp.FormattedAddress,
-		Types:                resp.Types,
-		GoogleMapsURI:        resp.GoogleMapsURI,
-		NationalPhoneNumber:  resp.NationalPhoneNumber,
-		WebsiteURI:           resp.WebsiteURI,
-		Rating:               resp.Rating,
-		UserRatingCount:      resp.UserRatingCount,
+		PlaceID:                resp.ID,
+		DisplayName:            resp.DisplayName.Text,
+		FormattedAddress:       resp.FormattedAddress,
+		Types:                  resp.Types,
+		GoogleMapsURI:          resp.GoogleMapsURI,
+		NationalPhoneNumber:    resp.NationalPhoneNumber,
+		WebsiteURI:             resp.WebsiteURI,
+		Rating:                 resp.Rating,
+		UserRatingCount:        resp.UserRatingCount,
 		PrimaryTypeDisplayName: resp.PrimaryTypeDisplayName.Text,
 	}
 	if resp.Location != nil {
@@ -100,6 +103,13 @@ func (c *Client) PlaceDetails(ctx context.Context, placeID, sessionToken string)
 	}
 	if resp.CurrentOpeningHours != nil {
 		result.CurrentOpeningHours = resp.CurrentOpeningHours
+	}
+	if resp.RegularOpeningHours != nil {
+		result.RegularOpeningHours = resp.RegularOpeningHours
+	}
+	result.PriceLevel = resp.PriceLevel
+	if len(resp.Photos) > 0 {
+		result.Photos = resp.Photos
 	}
 
 	return result, nil
