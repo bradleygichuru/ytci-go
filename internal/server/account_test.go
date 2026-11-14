@@ -125,7 +125,7 @@ func TestAccountDeletion(t *testing.T) {
 	if err != nil {
 		err = pool.QueryRow(ctx, `
 			INSERT INTO destinations (id, name, slug, county, category, status)
-			VALUES (gen_random_uuid(), 'Test Dest', 'test-dest-' || gen_random_uuid()::text, 'Nairobi', 'nature', 'published')
+			VALUES (gen_random_uuid(), 'Test Dest', 'test-dest-' || gen_random_uuid()::text, 'Nairobi', 'Wildlife', 'published')
 			RETURNING id
 		`).Scan(&destID)
 		require.NoError(t, err)

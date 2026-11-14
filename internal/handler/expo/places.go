@@ -14,24 +14,23 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/bradleygichuru/ytci-go/internal/catalog"
 	"github.com/bradleygichuru/ytci-go/internal/db/gen"
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 	"github.com/bradleygichuru/ytci-go/internal/places"
 )
 
-const defaultCategory = "tourist_attraction"
-const defaultCounty = "Unknown"
-
 var nonSlug = regexp.MustCompile(`[^a-z0-9-]+`)
 var multiDash = regexp.MustCompile(`-+`)
 
 type PlacesHandler struct {
-	pool      *pgxpool.Pool
-	client    *places.Client
-	cache     *places.Cache
+	pool   *pgxpool.Pool
+	client *places.Client
+	cache  *places.Cache
 }
 
 func NewPlacesHandler(pool *pgxpool.Pool, apiKey string, cache *places.Cache) *PlacesHandler {
@@ -263,9 +262,7 @@ func (h *PlacesHandler) Resolve(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"slug": existing.Slug, "id": existing.ID})
 		return
 	}
-
-	// Check if error is "no rows found" vs other error
-	if !strings.Contains(err.Error(), "no rows") {
+	if !errors.Is(err, pgx.ErrNoRows) {
 		handler.WriteServerError(w, r, "DB_ERROR", "failed to check existing destination", err)
 		return
 	}
@@ -284,17 +281,16 @@ func (h *PlacesHandler) Resolve(w http.ResponseWriter, r *http.Request) {
 
 	dest, err := h.createDraftDestination(ctx, details)
 	if err != nil {
-		// Check if error is duplicate key violation (SQLSTATE 23505)
-		if strings.Contains(err.Error(), "SQLSTATE 23505") || strings.Contains(err.Error(), "duplicate key") {
-			// Destination already exists, fetch and return it
-			existing, fetchErr := h.queries().GetDestinationByGooglePlaceID(ctx, &req.PlaceID)
-			if fetchErr == nil {
-				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(map[string]interface{}{"slug": existing.Slug, "id": existing.ID})
-				return
-			}
+		switch {
+		case errors.Is(err, catalog.ErrNotADestination):
+			handler.WriteError(w, http.StatusUnprocessableEntity, "NOT_A_DESTINATION",
+				"This place cannot be added as a destination.")
+		case errors.Is(err, catalog.ErrCountyNotFound):
+			handler.WriteError(w, http.StatusUnprocessableEntity, "COUNTY_NOT_FOUND",
+				"Could not resolve a Kenyan county for this place.")
+		default:
+			handler.WriteServerError(w, r, "CREATE_ERROR", "failed to create draft destination", err)
 		}
-		handler.WriteServerError(w, r, "CREATE_ERROR", "failed to create draft destination", err)
 		return
 	}
 
@@ -303,74 +299,142 @@ func (h *PlacesHandler) Resolve(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"slug": dest.Slug, "id": dest.ID})
 }
 
-func (h *PlacesHandler) createDraftDestination(ctx context.Context, details *places.PlaceDetails) (gen.Destination, error) {
-	slug := slugify(details.DisplayName)
-	county := defaultCounty
+type draftDestination struct {
+	ID   pgtype.UUID
+	Slug string
+}
 
-	if details.FormattedAddress != "" {
-		parts := strings.Split(details.FormattedAddress, ",")
-		for _, part := range parts {
-			part = strings.TrimSpace(part)
-			if strings.EqualFold(part, "Kenya") {
-				continue
-			}
-			region := parts[len(parts)-2]
-			if region != "" {
-				county = strings.TrimSpace(region)
-			}
-		}
+func (h *PlacesHandler) createDraftDestination(ctx context.Context, details *places.PlaceDetails) (draftDestination, error) {
+	if details == nil || strings.TrimSpace(details.DisplayName) == "" {
+		return draftDestination{}, fmt.Errorf("catalog: place has no name")
 	}
 
-	category := defaultCategory
-	if len(details.Types) > 0 {
-		for _, t := range details.Types {
-			if t == "lodging" || t == "hotel" {
-				continue
-			}
-			category = t
-			break
-		}
+	classification := catalog.ClassifyGoogleTypes(details.Types)
+	if !classification.IsDestination {
+		return draftDestination{}, fmt.Errorf("%w: %s", catalog.ErrNotADestination, classification.Reason)
 	}
 
-	params := &gen.CreateGooglePlacesDraftParams{
-		Name:          details.DisplayName,
-		Slug:          slug,
-		County:        county,
-		Category:      category,
-		GooglePlaceID: &details.PlaceID,
-	}
-	if details.FormattedAddress != "" {
-		params.ShortDescription = &details.FormattedAddress
-	}
+	var lat, lng *float64
 	if details.Location != nil {
-		params.StMakepoint = details.Location.Longitude
-		params.StMakepoint_2 = details.Location.Latitude
+		lat = &details.Location.Latitude
+		lng = &details.Location.Longitude
+	}
+	county, err := catalog.ResolveCounty(ctx, h.pool, lat, lng, countyFromAddress(details.FormattedAddress))
+	if err != nil {
+		return draftDestination{}, err
 	}
 
-	dest, err := h.queries().CreateGooglePlacesDraft(ctx, params)
-	if err != nil {
-		if strings.Contains(err.Error(), "duplicate key") && strings.Contains(err.Error(), "slug") {
-			params.Slug = params.Slug + fmt.Sprintf("-%d", dest.CreatedAt.Time.Unix()%10000)
-			return h.queries().CreateGooglePlacesDraft(ctx, params)
-		}
-		return dest, err
+	// Dedupe on Google's place id first, then on a normalized name inside the
+	// same county. Returning the existing row keeps the user's save idempotent.
+	existing, err := h.queries().GetDestinationByGooglePlaceID(ctx, &details.PlaceID)
+	if err == nil {
+		return draftDestination{ID: existing.ID, Slug: existing.Slug}, nil
 	}
-	return dest, nil
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return draftDestination{}, fmt.Errorf("catalog: lookup place: %w", err)
+	}
+
+	var existingID pgtype.UUID
+	var existingSlug string
+	err = h.pool.QueryRow(ctx, `
+		SELECT id, slug FROM destinations
+		WHERE county_code = $1
+		  AND regexp_replace(lower(name), '[^a-z0-9]', '', 'g') =
+		      regexp_replace(lower($2), '[^a-z0-9]', '', 'g')
+		ORDER BY created_at
+		LIMIT 1
+	`, county.Code, details.DisplayName).Scan(&existingID, &existingSlug)
+	if err == nil {
+		return draftDestination{ID: existingID, Slug: existingSlug}, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return draftDestination{}, fmt.Errorf("catalog: lookup duplicate name: %w", err)
+	}
+
+	baseSlug := slugify(details.DisplayName)
+	if baseSlug == "" {
+		baseSlug = "destination"
+	}
+	var shortDescription *string
+	if details.FormattedAddress != "" {
+		shortDescription = &details.FormattedAddress
+	}
+
+	for attempt := 0; attempt < 6; attempt++ {
+		slug := baseSlug
+		if attempt > 0 {
+			slug = fmt.Sprintf("%s-%d", baseSlug, attempt+1)
+		}
+
+		var id pgtype.UUID
+		err = h.pool.QueryRow(ctx, `
+			INSERT INTO destinations (
+				name, slug, county, county_code, locality, category, interest_tags,
+				status, source, google_place_id, location, short_description,
+				verification_status
+			) VALUES (
+				$1, $2, $3, $4, NULL, $5, $6,
+				'draft', 'google_places', $7,
+				CASE WHEN $8::float8 IS NULL OR $9::float8 IS NULL THEN NULL
+				     ELSE ST_SetSRID(ST_MakePoint($8, $9), 4326) END,
+				$10, 'unverified'
+			)
+			ON CONFLICT DO NOTHING
+			RETURNING id
+		`, details.DisplayName, slug, county.Name, county.Code,
+			string(classification.Category), classification.Interests,
+			details.PlaceID, lng, lat, shortDescription).Scan(&id)
+		if err == nil {
+			return draftDestination{ID: id, Slug: slug}, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return draftDestination{}, fmt.Errorf("catalog: create draft: %w", err)
+		}
+
+		// A conflict can be the slug or a concurrent insert of the same place.
+		concurrent, lookupErr := h.queries().GetDestinationByGooglePlaceID(ctx, &details.PlaceID)
+		if lookupErr == nil {
+			return draftDestination{ID: concurrent.ID, Slug: concurrent.Slug}, nil
+		}
+		if !errors.Is(lookupErr, pgx.ErrNoRows) {
+			return draftDestination{}, fmt.Errorf("catalog: lookup conflicting place: %w", lookupErr)
+		}
+	}
+
+	return draftDestination{}, fmt.Errorf("catalog: could not allocate a unique slug for %q", details.DisplayName)
+}
+
+// countyFromAddress takes the most specific county-like component from a
+// Google formatted address. Polygon resolution normally wins; this text is
+// only the fallback.
+func countyFromAddress(address string) string {
+	if strings.TrimSpace(address) == "" {
+		return ""
+	}
+	parts := strings.Split(address, ",")
+	for i := len(parts) - 1; i >= 0; i-- {
+		part := strings.TrimSpace(parts[i])
+		if part == "" || strings.EqualFold(part, "Kenya") {
+			continue
+		}
+		return part
+	}
+	return ""
 }
 
 type popularDestination struct {
-	ID                 pgtype.UUID      `json:"id"`
-	Name               string           `json:"name"`
-	Slug               string           `json:"slug"`
-	County             string           `json:"county"`
-	Locality           *string          `json:"locality,omitempty"`
-	Category           string           `json:"category"`
-	ShortDescription   *string          `json:"shortDescription,omitempty"`
-	Media              json.RawMessage  `json:"media"`
-	SaveCount          int64            `json:"-"`
-	HeroImageUrl       *string          `json:"heroImageUrl,omitempty"`
-	HeroImageSource    *string          `json:"heroImageSource,omitempty"`
-	HeroImageAttribution *string        `json:"heroImageAttribution,omitempty"`
+	ID                   pgtype.UUID     `json:"id"`
+	Name                 string          `json:"name"`
+	Slug                 string          `json:"slug"`
+	County               string          `json:"county"`
+	Locality             *string         `json:"locality,omitempty"`
+	Category             string          `json:"category"`
+	ShortDescription     *string         `json:"shortDescription,omitempty"`
+	Media                json.RawMessage `json:"media"`
+	SaveCount            int64           `json:"-"`
+	HeroImageUrl         *string         `json:"heroImageUrl,omitempty"`
+	HeroImageSource      *string         `json:"heroImageSource,omitempty"`
+	HeroImageAttribution *string         `json:"heroImageAttribution,omitempty"`
 }
 
 type mobilePopularMedia struct {
@@ -395,7 +459,7 @@ LEFT JOIN LATERAL (
 		'altText', ma.alt_text
 	) ORDER BY ma.display_order) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
 	FROM media_assets ma
-	WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text
+	WHERE ma.entity_type = 'destination' AND ma.entity_id::text = d.id::text
 ) med ON true
 WHERE d.google_place_id IS NOT NULL AND d.status IN ('published', 'draft')
 ORDER BY save_count DESC, d.updated_at DESC
@@ -414,11 +478,11 @@ LEFT JOIN LATERAL (
 		'altText', ma.alt_text
 	) ORDER BY ma.display_order) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
 	FROM media_assets ma
-	WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text
+	WHERE ma.entity_type = 'destination' AND ma.entity_id::text = d.id::text
 ) med ON true
 LEFT JOIN google_places_cache gpc ON gpc.place_id = d.google_place_id
-WHERE d.google_place_id = ANY($1) AND d.status IN ('published', 'draft')
-ORDER BY array_position($1, d.google_place_id)
+WHERE d.google_place_id = ANY($1::text[]) AND d.status IN ('published', 'draft')
+ORDER BY array_position($1::text[], d.google_place_id)
 LIMIT 10`
 
 const popularFallbackQuery = `SELECT d.id, d.name, d.slug, d.county, d.locality, d.category,
@@ -434,7 +498,7 @@ LEFT JOIN LATERAL (
 		'altText', ma.alt_text
 	) ORDER BY ma.display_order) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
 	FROM media_assets ma
-	WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text
+	WHERE ma.entity_type = 'destination' AND ma.entity_id::text = d.id::text
 ) med ON true
 LEFT JOIN google_places_cache gpc ON gpc.place_id = d.google_place_id
 WHERE d.google_place_id IS NOT NULL
@@ -557,10 +621,11 @@ func (h *PlacesHandler) fireHeroFetches(ctx context.Context, populars []popularD
 func (h *PlacesHandler) matchNearbyPlaces(ctx context.Context, nearbyPlaces []places.NearbyPlace) []popularDestination {
 	populars := []popularDestination{}
 
-	// Post-filter: only keep tourist-relevant places (safety net for API-level filter)
+	// Post-filter with the controlled taxonomy. The popular path never
+	// creates catalog rows; it only surfaces destinations that already exist.
 	placeIDs := make([]string, 0, len(nearbyPlaces))
 	for _, p := range nearbyPlaces {
-		if places.IsTouristPlace(p.Types) {
+		if catalog.ClassifyGoogleTypes(p.Types).IsDestination {
 			placeIDs = append(placeIDs, p.PlaceID)
 		}
 	}
@@ -574,8 +639,8 @@ func (h *PlacesHandler) matchNearbyPlaces(ctx context.Context, nearbyPlaces []pl
 		slog.Warn("places: nearby destination lookup failed", "error", err)
 		return populars
 	}
+	defer nearbyRows.Close()
 
-	matched := make(map[string]bool, len(placeIDs))
 	for nearbyRows.Next() {
 		var d popularDestination
 		var mediaJSON []byte
@@ -593,34 +658,6 @@ func (h *PlacesHandler) matchNearbyPlaces(ctx context.Context, nearbyPlaces []pl
 			d.Media = json.RawMessage(`[]`)
 		}
 		populars = append(populars, d)
-
-		// Track matched place IDs by re-querying the google_place_id
-		var gpid string
-		_ = h.pool.QueryRow(ctx,
-			`SELECT google_place_id FROM destinations WHERE id = $1`, d.ID).Scan(&gpid)
-		if gpid != "" {
-			matched[gpid] = true
-		}
-	}
-	nearbyRows.Close()
-
-	// Auto-create drafts for unmatched Google Place IDs
-	for _, np := range nearbyPlaces {
-		if matched[np.PlaceID] {
-			continue
-		}
-		if !places.IsTouristPlace(np.Types) {
-			continue
-		}
-		if len(populars) >= 10 {
-			break
-		}
-		dest, err := h.autoCreateDraftFromNearby(ctx, np)
-		if err != nil {
-			slog.Warn("places: auto-create draft failed", "place_id", np.PlaceID, "error", err)
-			continue
-		}
-		populars = append(populars, dest)
 	}
 
 	if len(populars) > 10 {
@@ -628,85 +665,6 @@ func (h *PlacesHandler) matchNearbyPlaces(ctx context.Context, nearbyPlaces []pl
 	}
 
 	return populars
-}
-
-func (h *PlacesHandler) autoCreateDraftFromNearby(ctx context.Context, np places.NearbyPlace) (popularDestination, error) {
-	slug := slugify(np.DisplayName.Text)
-	county := defaultCounty
-
-	if np.FormattedAddress != "" {
-		parts := strings.Split(np.FormattedAddress, ",")
-		if len(parts) >= 2 {
-			county = strings.TrimSpace(parts[len(parts)-2])
-		}
-	}
-
-	category := defaultCategory
-	if len(np.Types) > 0 {
-		for _, t := range np.Types {
-			if t == "lodging" || t == "hotel" {
-				continue
-			}
-			category = t
-			break
-		}
-	}
-
-	params := &gen.CreateGooglePlacesDraftParams{
-		Name:          np.DisplayName.Text,
-		Slug:          slug,
-		County:        county,
-		Category:      category,
-		GooglePlaceID: &np.PlaceID,
-	}
-	if np.FormattedAddress != "" {
-		params.ShortDescription = &np.FormattedAddress
-	}
-	if np.Location != nil {
-		params.StMakepoint = np.Location.Longitude
-		params.StMakepoint_2 = np.Location.Latitude
-	}
-
-	dest, err := h.queries().CreateGooglePlacesDraft(ctx, params)
-	if err != nil {
-		// Duplicate slug — retry with suffix
-		if strings.Contains(err.Error(), "duplicate key") && strings.Contains(err.Error(), "slug") {
-			params.Slug = slug + fmt.Sprintf("-%d", time.Now().Unix()%10000)
-			dest, err = h.queries().CreateGooglePlacesDraft(ctx, params)
-			if err != nil {
-				return popularDestination{}, fmt.Errorf("create draft (slug retry): %w", err)
-			}
-		} else if strings.Contains(err.Error(), "duplicate key") {
-			// Duplicate google_place_id — fetch existing
-			var existing popularDestination
-			var mediaJSON []byte
-			rowErr := h.pool.QueryRow(ctx, popularNearbyQuery, []string{np.PlaceID}).Scan(
-				&existing.ID, &existing.Name, &existing.Slug, &existing.County, &existing.Locality,
-				&existing.Category, &existing.ShortDescription, &existing.SaveCount, &mediaJSON)
-			if rowErr != nil {
-				return popularDestination{}, fmt.Errorf("create draft (duplicate fetch): %w", err)
-			}
-			if mediaJSON != nil {
-				existing.Media = json.RawMessage(mediaJSON)
-			} else {
-				existing.Media = json.RawMessage(`[]`)
-			}
-			return existing, nil
-		}
-		return popularDestination{}, fmt.Errorf("create draft: %w", err)
-	}
-
-	return popularDestination{
-		ID:               dest.ID,
-		Name:             dest.Name,
-		Slug:             dest.Slug,
-		County:           dest.County,
-		Locality:         dest.Locality,
-		Category:         dest.Category,
-		ShortDescription: dest.ShortDescription,
-		SaveCount:        0,
-		Media:            json.RawMessage(`[]`),
-	}, nil
 }
 
 func (h *PlacesHandler) fallbackPopular(ctx context.Context, w http.ResponseWriter, lat, lng float64) {
@@ -751,17 +709,17 @@ func (h *PlacesHandler) fallbackPopular(ctx context.Context, w http.ResponseWrit
 
 func (h *PlacesHandler) writePopularResponse(w http.ResponseWriter, destinations []popularDestination) {
 	type popularItem struct {
-		ID                   pgtype.UUID      `json:"id"`
-		Name                 string           `json:"name"`
-		Slug                 string           `json:"slug"`
-		County               string           `json:"county"`
-		Locality             *string          `json:"locality,omitempty"`
-		Category             string           `json:"category"`
-		ShortDescription     *string          `json:"shortDescription,omitempty"`
-		Media                json.RawMessage  `json:"media"`
-		HeroImageUrl         *string          `json:"heroImageUrl,omitempty"`
-		HeroImageSource      *string          `json:"heroImageSource,omitempty"`
-		HeroImageAttribution *string          `json:"heroImageAttribution,omitempty"`
+		ID                   pgtype.UUID     `json:"id"`
+		Name                 string          `json:"name"`
+		Slug                 string          `json:"slug"`
+		County               string          `json:"county"`
+		Locality             *string         `json:"locality,omitempty"`
+		Category             string          `json:"category"`
+		ShortDescription     *string         `json:"shortDescription,omitempty"`
+		Media                json.RawMessage `json:"media"`
+		HeroImageUrl         *string         `json:"heroImageUrl,omitempty"`
+		HeroImageSource      *string         `json:"heroImageSource,omitempty"`
+		HeroImageAttribution *string         `json:"heroImageAttribution,omitempty"`
 	}
 
 	items := make([]popularItem, 0, len(destinations))

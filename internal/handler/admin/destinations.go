@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/bradleygichuru/ytci-go/internal/catalog"
 	"github.com/bradleygichuru/ytci-go/internal/db/gen"
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 	"github.com/bradleygichuru/ytci-go/internal/model"
@@ -36,39 +37,39 @@ func (h *DestinationsHandler) List(w http.ResponseWriter, r *http.Request) {
 	limit := int32(pr.Limit) + 1
 
 	type adminDestination struct {
-		ID                  pgtype.UUID      `json:"id"`
-		Name                string           `json:"name"`
-		Slug                string           `json:"slug"`
-		County              string           `json:"county"`
-		Locality            *string          `json:"locality"`
-		Category            string           `json:"category"`
-		Status              string           `json:"status"`
-		MapLabel            *string          `json:"map_label"`
-		AccessRoute         *string          `json:"access_route"`
-		DistanceReference   *string          `json:"distance_reference"`
-		ShortDescription    *string          `json:"short_description"`
-		FullDescription     *string          `json:"full_description"`
-		Significance        *string          `json:"significance"`
-		History             *string          `json:"history"`
-		ThingsToDo          *string          `json:"things_to_do"`
-		SuitableAudiences   *string          `json:"suitable_audiences"`
-		Duration            *string          `json:"duration"`
-		Difficulty          *string          `json:"difficulty"`
-		Seasonality         *string          `json:"seasonality"`
-		IndicativeFees      *string          `json:"indicative_fees"`
-		OpeningInfo         *string          `json:"opening_info"`
-		TransportNotes      *string          `json:"transport_notes"`
-		Accessibility       *string          `json:"accessibility"`
-		Facilities          *string          `json:"facilities"`
-		SafetyNotes         *string          `json:"safety_notes"`
-		Source              *string          `json:"source"`
-		ContentOwner        *string          `json:"content_owner"`
-		VerificationStatus  *string          `json:"verification_status"`
-		CreatedAt           pgtype.Timestamp `json:"created_at"`
-		UpdatedAt           pgtype.Timestamp `json:"updated_at"`
-		Lat                 *float64         `json:"lat"`
-		Lng                 *float64         `json:"lng"`
-		Media               json.RawMessage  `json:"media"`
+		ID                 pgtype.UUID      `json:"id"`
+		Name               string           `json:"name"`
+		Slug               string           `json:"slug"`
+		County             string           `json:"county"`
+		Locality           *string          `json:"locality"`
+		Category           string           `json:"category"`
+		Status             string           `json:"status"`
+		MapLabel           *string          `json:"map_label"`
+		AccessRoute        *string          `json:"access_route"`
+		DistanceReference  *string          `json:"distance_reference"`
+		ShortDescription   *string          `json:"short_description"`
+		FullDescription    *string          `json:"full_description"`
+		Significance       *string          `json:"significance"`
+		History            *string          `json:"history"`
+		ThingsToDo         *string          `json:"things_to_do"`
+		SuitableAudiences  *string          `json:"suitable_audiences"`
+		Duration           *string          `json:"duration"`
+		Difficulty         *string          `json:"difficulty"`
+		Seasonality        *string          `json:"seasonality"`
+		IndicativeFees     *string          `json:"indicative_fees"`
+		OpeningInfo        *string          `json:"opening_info"`
+		TransportNotes     *string          `json:"transport_notes"`
+		Accessibility      *string          `json:"accessibility"`
+		Facilities         *string          `json:"facilities"`
+		SafetyNotes        *string          `json:"safety_notes"`
+		Source             *string          `json:"source"`
+		ContentOwner       *string          `json:"content_owner"`
+		VerificationStatus *string          `json:"verification_status"`
+		CreatedAt          pgtype.Timestamp `json:"created_at"`
+		UpdatedAt          pgtype.Timestamp `json:"updated_at"`
+		Lat                *float64         `json:"lat"`
+		Lng                *float64         `json:"lng"`
+		Media              json.RawMessage  `json:"media"`
 	}
 
 	q := `SELECT d.id, d.name, d.slug, d.county, d.locality, d.category,
@@ -88,7 +89,7 @@ func (h *DestinationsHandler) List(w http.ResponseWriter, r *http.Request) {
 				'caption', ma.caption,
 				'credit', ma.credit
 			) ORDER BY ma.display_order)
-			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
+			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id::text = d.id::text),
 			'[]'::json
 		) AS media
 		FROM destinations d`
@@ -163,39 +164,39 @@ func (h *DestinationsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type adminDetail struct {
-		ID                  pgtype.UUID      `json:"id"`
-		Name                string           `json:"name"`
-		Slug                string           `json:"slug"`
-		County              string           `json:"county"`
-		Locality            *string          `json:"locality"`
-		Category            string           `json:"category"`
-		Status              string           `json:"status"`
-		MapLabel            *string          `json:"map_label"`
-		AccessRoute         *string          `json:"access_route"`
-		DistanceReference   *string          `json:"distance_reference"`
-		ShortDescription    *string          `json:"short_description"`
-		FullDescription     *string          `json:"full_description"`
-		Significance        *string          `json:"significance"`
-		History             *string          `json:"history"`
-		ThingsToDo          *string          `json:"things_to_do"`
-		SuitableAudiences   *string          `json:"suitable_audiences"`
-		Duration            *string          `json:"duration"`
-		Difficulty          *string          `json:"difficulty"`
-		Seasonality         *string          `json:"seasonality"`
-		IndicativeFees      *string          `json:"indicative_fees"`
-		OpeningInfo         *string          `json:"opening_info"`
-		TransportNotes      *string          `json:"transport_notes"`
-		Accessibility       *string          `json:"accessibility"`
-		Facilities          *string          `json:"facilities"`
-		SafetyNotes         *string          `json:"safety_notes"`
-		Source              *string          `json:"source"`
-		ContentOwner        *string          `json:"content_owner"`
-		VerificationStatus  *string          `json:"verification_status"`
-		CreatedAt           pgtype.Timestamp `json:"created_at"`
-		UpdatedAt           pgtype.Timestamp `json:"updated_at"`
-		Lat                 *float64         `json:"lat"`
-		Lng                 *float64         `json:"lng"`
-		Media               json.RawMessage  `json:"media"`
+		ID                 pgtype.UUID      `json:"id"`
+		Name               string           `json:"name"`
+		Slug               string           `json:"slug"`
+		County             string           `json:"county"`
+		Locality           *string          `json:"locality"`
+		Category           string           `json:"category"`
+		Status             string           `json:"status"`
+		MapLabel           *string          `json:"map_label"`
+		AccessRoute        *string          `json:"access_route"`
+		DistanceReference  *string          `json:"distance_reference"`
+		ShortDescription   *string          `json:"short_description"`
+		FullDescription    *string          `json:"full_description"`
+		Significance       *string          `json:"significance"`
+		History            *string          `json:"history"`
+		ThingsToDo         *string          `json:"things_to_do"`
+		SuitableAudiences  *string          `json:"suitable_audiences"`
+		Duration           *string          `json:"duration"`
+		Difficulty         *string          `json:"difficulty"`
+		Seasonality        *string          `json:"seasonality"`
+		IndicativeFees     *string          `json:"indicative_fees"`
+		OpeningInfo        *string          `json:"opening_info"`
+		TransportNotes     *string          `json:"transport_notes"`
+		Accessibility      *string          `json:"accessibility"`
+		Facilities         *string          `json:"facilities"`
+		SafetyNotes        *string          `json:"safety_notes"`
+		Source             *string          `json:"source"`
+		ContentOwner       *string          `json:"content_owner"`
+		VerificationStatus *string          `json:"verification_status"`
+		CreatedAt          pgtype.Timestamp `json:"created_at"`
+		UpdatedAt          pgtype.Timestamp `json:"updated_at"`
+		Lat                *float64         `json:"lat"`
+		Lng                *float64         `json:"lng"`
+		Media              json.RawMessage  `json:"media"`
 	}
 
 	q := `SELECT d.id, d.name, d.slug, d.county, d.locality, d.category,
@@ -215,7 +216,7 @@ func (h *DestinationsHandler) Get(w http.ResponseWriter, r *http.Request) {
 				'caption', ma.caption,
 				'credit', ma.credit
 			) ORDER BY ma.display_order)
-			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
+			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id::text = d.id::text),
 			'[]'::json
 		) AS media
 		FROM destinations d WHERE d.slug = $1`
@@ -272,6 +273,11 @@ func (h *DestinationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
+		return
+	}
+	if !catalog.IsCategory(req.Category) {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_CATEGORY",
+			"category must be one of the controlled destination categories")
 		return
 	}
 
@@ -353,6 +359,42 @@ func (h *DestinationsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
 		return
+	}
+	if req.Category != nil && !catalog.IsCategory(*req.Category) {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_CATEGORY",
+			"category must be one of the controlled destination categories")
+		return
+	}
+
+	// Publishing requires a canonical county. Resolve against the values in
+	// this request first, then fall back to the stored row.
+	if req.Status != nil && *req.Status == "published" {
+		var currentCounty string
+		var currentLat, currentLng *float64
+		err := h.pool.QueryRow(r.Context(),
+			`SELECT county, ST_Y(location::geometry), ST_X(location::geometry)
+			 FROM destinations WHERE id = $1`, destID,
+		).Scan(&currentCounty, &currentLat, &currentLng)
+		if err != nil {
+			handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "destination not found")
+			return
+		}
+		countyText := currentCounty
+		if req.County != nil {
+			countyText = *req.County
+		}
+		lat, lng := currentLat, currentLng
+		if req.Lat != nil {
+			lat = req.Lat
+		}
+		if req.Lng != nil {
+			lng = req.Lng
+		}
+		if _, err := catalog.ResolveCounty(r.Context(), h.pool, lat, lng, countyText); err != nil {
+			handler.WriteError(w, http.StatusBadRequest, "COUNTY_NOT_FOUND",
+				"cannot publish a destination that does not resolve to a Kenyan county")
+			return
+		}
 	}
 
 	_, err := h.pool.Exec(r.Context(),
@@ -590,7 +632,7 @@ func (h *DestinationsHandler) ListMobile(w http.ResponseWriter, r *http.Request)
 				'type', ma.type,
 				'altText', ma.alt_text
 			) ORDER BY ma.display_order)
-			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
+			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id::text = d.id::text),
 			'[]'
 		) AS media,
 		gpc.hero_image_url, gpc.hero_image_source, gpc.hero_image_attribution,
@@ -638,42 +680,42 @@ func (h *DestinationsHandler) ListMobile(w http.ResponseWriter, r *http.Request)
 	}
 
 	type mobileDestination struct {
-		ID                string         `json:"id"`
-		Name              string         `json:"name"`
-		Slug              string         `json:"slug"`
-		County            string         `json:"county"`
-		Locality          *string        `json:"locality,omitempty"`
-		Category          string         `json:"category"`
-		ShortDescription  *string        `json:"shortDescription,omitempty"`
-		FullDescription   *string        `json:"fullDescription,omitempty"`
-		Significance      *string        `json:"significance,omitempty"`
-		History           *string        `json:"history,omitempty"`
-		ThingsToDo        *string        `json:"thingsToDo,omitempty"`
-		SuitableAudiences *string        `json:"suitableAudiences,omitempty"`
-		Duration          *string        `json:"duration,omitempty"`
-		Difficulty        *string        `json:"difficulty,omitempty"`
-		Seasonality       *string        `json:"seasonality,omitempty"`
-		IndicativeFees    *string        `json:"indicativeFees,omitempty"`
-		OpeningInfo       *string        `json:"openingInfo,omitempty"`
-		TransportNotes    *string        `json:"transportNotes,omitempty"`
-		Accessibility     *string        `json:"accessibility,omitempty"`
-		Facilities        *string        `json:"facilities,omitempty"`
-		SafetyNotes       *string        `json:"safetyNotes,omitempty"`
-		MapLabel          *string        `json:"mapLabel,omitempty"`
-		AccessRoute       *string        `json:"accessRoute,omitempty"`
-		DistanceReference *string        `json:"distanceReference,omitempty"`
-		Media             []mobileMedia  `json:"media"`
-		Lng               interface{}       `json:"lng"`
-		Lat               interface{}       `json:"lat"`
-		Source            *string           `json:"source,omitempty"`
-		GooglePlaceID     *string           `json:"googlePlaceId,omitempty"`
-		TypeChips            []string          `json:"typeChips,omitempty"`
-		PlaceDetails         *json.RawMessage  `json:"placeDetails,omitempty"`
-		HeroImageUrl         *string           `json:"heroImageUrl,omitempty"`
-		HeroImageSource      *string           `json:"heroImageSource,omitempty"`
-		HeroImageAttribution *string           `json:"heroImageAttribution,omitempty"`
-		CreatedAt            pgtype.Timestamp  `json:"createdAt"`
-		UpdatedAt            pgtype.Timestamp  `json:"updatedAt"`
+		ID                   string           `json:"id"`
+		Name                 string           `json:"name"`
+		Slug                 string           `json:"slug"`
+		County               string           `json:"county"`
+		Locality             *string          `json:"locality,omitempty"`
+		Category             string           `json:"category"`
+		ShortDescription     *string          `json:"shortDescription,omitempty"`
+		FullDescription      *string          `json:"fullDescription,omitempty"`
+		Significance         *string          `json:"significance,omitempty"`
+		History              *string          `json:"history,omitempty"`
+		ThingsToDo           *string          `json:"thingsToDo,omitempty"`
+		SuitableAudiences    *string          `json:"suitableAudiences,omitempty"`
+		Duration             *string          `json:"duration,omitempty"`
+		Difficulty           *string          `json:"difficulty,omitempty"`
+		Seasonality          *string          `json:"seasonality,omitempty"`
+		IndicativeFees       *string          `json:"indicativeFees,omitempty"`
+		OpeningInfo          *string          `json:"openingInfo,omitempty"`
+		TransportNotes       *string          `json:"transportNotes,omitempty"`
+		Accessibility        *string          `json:"accessibility,omitempty"`
+		Facilities           *string          `json:"facilities,omitempty"`
+		SafetyNotes          *string          `json:"safetyNotes,omitempty"`
+		MapLabel             *string          `json:"mapLabel,omitempty"`
+		AccessRoute          *string          `json:"accessRoute,omitempty"`
+		DistanceReference    *string          `json:"distanceReference,omitempty"`
+		Media                []mobileMedia    `json:"media"`
+		Lng                  interface{}      `json:"lng"`
+		Lat                  interface{}      `json:"lat"`
+		Source               *string          `json:"source,omitempty"`
+		GooglePlaceID        *string          `json:"googlePlaceId,omitempty"`
+		TypeChips            []string         `json:"typeChips,omitempty"`
+		PlaceDetails         *json.RawMessage `json:"placeDetails,omitempty"`
+		HeroImageUrl         *string          `json:"heroImageUrl,omitempty"`
+		HeroImageSource      *string          `json:"heroImageSource,omitempty"`
+		HeroImageAttribution *string          `json:"heroImageAttribution,omitempty"`
+		CreatedAt            pgtype.Timestamp `json:"createdAt"`
+		UpdatedAt            pgtype.Timestamp `json:"updatedAt"`
 	}
 
 	var items []mobileDestination
@@ -727,7 +769,7 @@ func (h *DestinationsHandler) GetMobile(w http.ResponseWriter, r *http.Request) 
 				'type', ma.type,
 				'altText', ma.alt_text
 			) ORDER BY ma.display_order)
-			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
+			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id::text = d.id::text),
 			'[]'
 		) AS media,
 		d.source, d.google_place_id, d.created_at, d.updated_at,
@@ -746,42 +788,42 @@ func (h *DestinationsHandler) GetMobile(w http.ResponseWriter, r *http.Request) 
 	}
 
 	type mobileDestination struct {
-		ID                string         `json:"id"`
-		Name              string         `json:"name"`
-		Slug              string         `json:"slug"`
-		County            string         `json:"county"`
-		Locality          *string        `json:"locality,omitempty"`
-		Category          string         `json:"category"`
-		ShortDescription  *string        `json:"shortDescription,omitempty"`
-		FullDescription   *string        `json:"fullDescription,omitempty"`
-		Significance      *string        `json:"significance,omitempty"`
-		History           *string        `json:"history,omitempty"`
-		ThingsToDo        *string        `json:"thingsToDo,omitempty"`
-		SuitableAudiences *string        `json:"suitableAudiences,omitempty"`
-		Duration          *string        `json:"duration,omitempty"`
-		Difficulty        *string        `json:"difficulty,omitempty"`
-		Seasonality       *string        `json:"seasonality,omitempty"`
-		IndicativeFees    *string        `json:"indicativeFees,omitempty"`
-		OpeningInfo       *string        `json:"openingInfo,omitempty"`
-		TransportNotes    *string        `json:"transportNotes,omitempty"`
-		Accessibility     *string        `json:"accessibility,omitempty"`
-		Facilities        *string        `json:"facilities,omitempty"`
-		SafetyNotes       *string        `json:"safetyNotes,omitempty"`
-		MapLabel          *string        `json:"mapLabel,omitempty"`
-		AccessRoute       *string        `json:"accessRoute,omitempty"`
-		DistanceReference *string        `json:"distanceReference,omitempty"`
-		Media             []mobileMedia  `json:"media"`
-		Lng               interface{}       `json:"lng"`
-		Lat               interface{}       `json:"lat"`
-		Source            *string           `json:"source,omitempty"`
-		GooglePlaceID     *string           `json:"googlePlaceId,omitempty"`
-		TypeChips         []string          `json:"typeChips,omitempty"`
-		PlaceDetails      *json.RawMessage  `json:"placeDetails,omitempty"`
-		HeroImageUrl      *string           `json:"heroImageUrl,omitempty"`
-		HeroImageSource   *string           `json:"heroImageSource,omitempty"`
-		HeroImageAttribution *string        `json:"heroImageAttribution,omitempty"`
-		CreatedAt         pgtype.Timestamp  `json:"createdAt"`
-		UpdatedAt         pgtype.Timestamp  `json:"updatedAt"`
+		ID                   string           `json:"id"`
+		Name                 string           `json:"name"`
+		Slug                 string           `json:"slug"`
+		County               string           `json:"county"`
+		Locality             *string          `json:"locality,omitempty"`
+		Category             string           `json:"category"`
+		ShortDescription     *string          `json:"shortDescription,omitempty"`
+		FullDescription      *string          `json:"fullDescription,omitempty"`
+		Significance         *string          `json:"significance,omitempty"`
+		History              *string          `json:"history,omitempty"`
+		ThingsToDo           *string          `json:"thingsToDo,omitempty"`
+		SuitableAudiences    *string          `json:"suitableAudiences,omitempty"`
+		Duration             *string          `json:"duration,omitempty"`
+		Difficulty           *string          `json:"difficulty,omitempty"`
+		Seasonality          *string          `json:"seasonality,omitempty"`
+		IndicativeFees       *string          `json:"indicativeFees,omitempty"`
+		OpeningInfo          *string          `json:"openingInfo,omitempty"`
+		TransportNotes       *string          `json:"transportNotes,omitempty"`
+		Accessibility        *string          `json:"accessibility,omitempty"`
+		Facilities           *string          `json:"facilities,omitempty"`
+		SafetyNotes          *string          `json:"safetyNotes,omitempty"`
+		MapLabel             *string          `json:"mapLabel,omitempty"`
+		AccessRoute          *string          `json:"accessRoute,omitempty"`
+		DistanceReference    *string          `json:"distanceReference,omitempty"`
+		Media                []mobileMedia    `json:"media"`
+		Lng                  interface{}      `json:"lng"`
+		Lat                  interface{}      `json:"lat"`
+		Source               *string          `json:"source,omitempty"`
+		GooglePlaceID        *string          `json:"googlePlaceId,omitempty"`
+		TypeChips            []string         `json:"typeChips,omitempty"`
+		PlaceDetails         *json.RawMessage `json:"placeDetails,omitempty"`
+		HeroImageUrl         *string          `json:"heroImageUrl,omitempty"`
+		HeroImageSource      *string          `json:"heroImageSource,omitempty"`
+		HeroImageAttribution *string          `json:"heroImageAttribution,omitempty"`
+		CreatedAt            pgtype.Timestamp `json:"createdAt"`
+		UpdatedAt            pgtype.Timestamp `json:"updatedAt"`
 	}
 
 	var dest mobileDestination
@@ -820,7 +862,9 @@ func (h *DestinationsHandler) GetMobile(w http.ResponseWriter, r *http.Request) 
 			raw := json.RawMessage(placeData)
 			dest.PlaceDetails = &raw
 
-			var pd struct{ Types []string `json:"types"` }
+			var pd struct {
+				Types []string `json:"types"`
+			}
 			if json.Unmarshal(placeData, &pd) == nil && len(pd.Types) > 0 {
 				dest.TypeChips = places.AllTypeChips(pd.Types)
 				if dest.TypeChips == nil {
@@ -841,7 +885,7 @@ func (h *DestinationsHandler) GetMobile(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(dest)
-}	
+}
 
 func (h *DestinationsHandler) NearbyMobile(w http.ResponseWriter, r *http.Request) {
 	latStr := r.URL.Query().Get("lat")
@@ -869,7 +913,7 @@ func (h *DestinationsHandler) NearbyMobile(w http.ResponseWriter, r *http.Reques
 				'type', ma.type,
 				'altText', ma.alt_text
 			) ORDER BY ma.display_order)
-			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
+			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id::text = d.id::text),
 			'[]'
 		) AS media,
 		gpc.hero_image_url, gpc.hero_image_source, gpc.hero_image_attribution,
@@ -892,36 +936,36 @@ func (h *DestinationsHandler) NearbyMobile(w http.ResponseWriter, r *http.Reques
 	}
 
 	type nearbyMobileDestination struct {
-		ID                string            `json:"id"`
-		Name              string            `json:"name"`
-		Slug              string            `json:"slug"`
-		County            string            `json:"county"`
-		Locality          *string           `json:"locality,omitempty"`
-		Category          string            `json:"category"`
-		ShortDescription  *string           `json:"shortDescription,omitempty"`
-		FullDescription   *string           `json:"fullDescription,omitempty"`
-		Significance      *string           `json:"significance,omitempty"`
-		History           *string           `json:"history,omitempty"`
-		ThingsToDo        *string           `json:"thingsToDo,omitempty"`
-		SuitableAudiences *string           `json:"suitableAudiences,omitempty"`
-		Duration          *string           `json:"duration,omitempty"`
-		Difficulty        *string           `json:"difficulty,omitempty"`
-		Seasonality       *string           `json:"seasonality,omitempty"`
-		IndicativeFees    *string           `json:"indicativeFees,omitempty"`
-		OpeningInfo       *string           `json:"openingInfo,omitempty"`
-		TransportNotes    *string           `json:"transportNotes,omitempty"`
-		Accessibility     *string           `json:"accessibility,omitempty"`
-		Facilities        *string           `json:"facilities,omitempty"`
-		SafetyNotes       *string           `json:"safetyNotes,omitempty"`
-		MapLabel          *string           `json:"mapLabel,omitempty"`
-		AccessRoute       *string           `json:"accessRoute,omitempty"`
-		DistanceReference *string           `json:"distanceReference,omitempty"`
-		Media             []nearbyMobileMedia `json:"media"`
-		DistanceMeters    float64           `json:"distanceMeters"`
-		Lng               interface{}       `json:"lng"`
-		Lat               interface{}       `json:"lat"`
-		Source            *string          `json:"source,omitempty"`
-		GooglePlaceID     *string          `json:"googlePlaceId,omitempty"`
+		ID                   string              `json:"id"`
+		Name                 string              `json:"name"`
+		Slug                 string              `json:"slug"`
+		County               string              `json:"county"`
+		Locality             *string             `json:"locality,omitempty"`
+		Category             string              `json:"category"`
+		ShortDescription     *string             `json:"shortDescription,omitempty"`
+		FullDescription      *string             `json:"fullDescription,omitempty"`
+		Significance         *string             `json:"significance,omitempty"`
+		History              *string             `json:"history,omitempty"`
+		ThingsToDo           *string             `json:"thingsToDo,omitempty"`
+		SuitableAudiences    *string             `json:"suitableAudiences,omitempty"`
+		Duration             *string             `json:"duration,omitempty"`
+		Difficulty           *string             `json:"difficulty,omitempty"`
+		Seasonality          *string             `json:"seasonality,omitempty"`
+		IndicativeFees       *string             `json:"indicativeFees,omitempty"`
+		OpeningInfo          *string             `json:"openingInfo,omitempty"`
+		TransportNotes       *string             `json:"transportNotes,omitempty"`
+		Accessibility        *string             `json:"accessibility,omitempty"`
+		Facilities           *string             `json:"facilities,omitempty"`
+		SafetyNotes          *string             `json:"safetyNotes,omitempty"`
+		MapLabel             *string             `json:"mapLabel,omitempty"`
+		AccessRoute          *string             `json:"accessRoute,omitempty"`
+		DistanceReference    *string             `json:"distanceReference,omitempty"`
+		Media                []nearbyMobileMedia `json:"media"`
+		DistanceMeters       float64             `json:"distanceMeters"`
+		Lng                  interface{}         `json:"lng"`
+		Lat                  interface{}         `json:"lat"`
+		Source               *string             `json:"source,omitempty"`
+		GooglePlaceID        *string             `json:"googlePlaceId,omitempty"`
 		TypeChips            []string            `json:"typeChips,omitempty"`
 		PlaceDetails         *json.RawMessage    `json:"placeDetails,omitempty"`
 		HeroImageUrl         *string             `json:"heroImageUrl,omitempty"`
