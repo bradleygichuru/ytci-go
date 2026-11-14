@@ -311,7 +311,7 @@ var discoveryNameDenylist = []string{
 	"college", "university", "petrol", "gas station", "supermarket",
 	"hardware", "butchery", "car wash", "car repair", "laundry", "bank",
 	"atm", "police", "prison", "courthouse", "matatu stage", "bus stage",
-	"bodaa stage", "boda stage", "fast food",
+	"bodaa stage", "boda stage", "fast food", "cafe", "restaurant",
 }
 
 // IsDiscoveryNonDestination is a conservative name check for discovery.
