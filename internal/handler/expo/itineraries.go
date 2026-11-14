@@ -72,12 +72,19 @@ func (h *ItinerariesHandler) List(w http.ResponseWriter, r *http.Request) {
 
 func (h *ItinerariesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Title      string      `json:"title"`
-		Origin     string      `json:"origin,omitempty"`
-		Days       int         `json:"days,omitempty"`
-		BudgetBand string      `json:"budgetBand,omitempty"`
-		Interests  []string    `json:"interests,omitempty"`
-		Stops      []StopInput `json:"stops,omitempty"`
+		Title           string      `json:"title"`
+		Origin          string      `json:"origin,omitempty"`
+		Days            int         `json:"days,omitempty"`
+		BudgetBand      string      `json:"budgetBand,omitempty"`
+		Interests       []string    `json:"interests,omitempty"`
+		GroupType       string      `json:"groupType,omitempty"`
+		Transport       string      `json:"transport,omitempty"`
+		Pace            string      `json:"pace,omitempty"`
+		StartDate       string      `json:"startDate,omitempty"`
+		MustInclude     []string    `json:"mustInclude,omitempty"`
+		ReturnToOrigin  *bool       `json:"returnToOrigin,omitempty"`
+		AllowUnverified bool        `json:"allowUnverified,omitempty"`
+		Stops           []StopInput `json:"stops,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
@@ -89,6 +96,10 @@ func (h *ItinerariesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	inputsRaw, err := json.Marshal(map[string]any{
 		"origin": req.Origin, "days": req.Days,
 		"budgetBand": req.BudgetBand, "interests": req.Interests,
+		"groupType": req.GroupType, "transport": req.Transport,
+		"pace": req.Pace, "startDate": req.StartDate,
+		"mustInclude": req.MustInclude, "returnToOrigin": req.ReturnToOrigin,
+		"allowUnverified": req.AllowUnverified,
 	})
 	if err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to serialize inputs", err)
