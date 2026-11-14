@@ -45,7 +45,8 @@ func TestGoldenDestinationFixturesAreComposerReady(t *testing.T) {
 	}
 
 	rows, err := pool.Query(ctx, `
-		SELECT slug, county_code, category, interest_tags, short_description,
+		SELECT slug, county_code, category, interest_tags, transport_modes,
+		       best_seasons, short_description,
 		       status, is_curated, verification_status, verified_at,
 		       visit_duration_min_minutes, visit_duration_max_minutes,
 		       fee_status, fee_basis, opening_hours_status, opening_hours,
@@ -62,7 +63,7 @@ func TestGoldenDestinationFixturesAreComposerReady(t *testing.T) {
 	for rows.Next() {
 		var (
 			slug, countyCode, category, shortDescription string
-			interests                                    []string
+			interests, transportModes, bestSeasons       []string
 			status, verificationStatus                   string
 			isCurated                                    bool
 			verifiedAt                                   *time.Time
@@ -74,7 +75,8 @@ func TestGoldenDestinationFixturesAreComposerReady(t *testing.T) {
 			hasLocation, validLocation                   bool
 		)
 		require.NoError(t, rows.Scan(
-			&slug, &countyCode, &category, &interests, &shortDescription,
+			&slug, &countyCode, &category, &interests, &transportModes,
+			&bestSeasons, &shortDescription,
 			&status, &isCurated, &verificationStatus, &verifiedAt,
 			&durationMin, &durationMax,
 			&feeStatus, &feeBasis, &openingStatus, &openingHours,
@@ -92,6 +94,8 @@ func TestGoldenDestinationFixturesAreComposerReady(t *testing.T) {
 		for _, interest := range interests {
 			assert.True(t, catalog.IsCategory(interest), "%s interest %q", slug, interest)
 		}
+		assert.NotEmpty(t, transportModes, slug)
+		assert.NotEmpty(t, bestSeasons, slug)
 		assert.NotEmpty(t, shortDescription, slug)
 		assert.NotContains(t, shortDescription, "P.O. Box", slug)
 		assert.Equal(t, "published", status, slug)

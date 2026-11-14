@@ -166,6 +166,25 @@ ON CONFLICT (slug) DO UPDATE SET
     hero_image_alt = EXCLUDED.hero_image_alt,
     updated_at = now();
 
+-- Structured transport/season filters for the composer.
+UPDATE destinations d
+SET transport_modes = v.transport_modes,
+    best_seasons = v.best_seasons,
+    updated_at = now()
+FROM (VALUES
+    ('hells-kitchen', ARRAY['car', 'walking']::TEXT[], ARRAY['dry']::TEXT[]),
+    ('chalbi-desert', ARRAY['4x4']::TEXT[], ARRAY['dry']::TEXT[]),
+    ('lake-paradise', ARRAY['car', '4x4']::TEXT[], ARRAY['dry']::TEXT[]),
+    ('lake-turkana', ARRAY['car', '4x4', 'flight', 'boat']::TEXT[], ARRAY['dry']::TEXT[]),
+    ('fort-jesus', ARRAY['car', 'public_transport', 'walking']::TEXT[], ARRAY['year_round']::TEXT[]),
+    ('diani-beach', ARRAY['car', 'public_transport', 'flight', 'boat']::TEXT[], ARRAY['year_round']::TEXT[]),
+    ('maasai-mara', ARRAY['car', '4x4', 'flight']::TEXT[], ARRAY['dry', 'migration']::TEXT[]),
+    ('amboseli', ARRAY['car', '4x4', 'flight']::TEXT[], ARRAY['dry', 'year_round']::TEXT[]),
+    ('lake-nakuru', ARRAY['car', 'public_transport']::TEXT[], ARRAY['year_round']::TEXT[]),
+    ('karura-forest', ARRAY['car', 'public_transport', 'walking', 'cycling']::TEXT[], ARRAY['year_round']::TEXT[])
+) AS v(slug, transport_modes, best_seasons)
+WHERE d.slug = v.slug;
+
 DO $$
 DECLARE
     fixture_count INTEGER;

@@ -26,6 +26,7 @@ type County struct {
 // Queryer is satisfied by *pgxpool.Pool and pgx.Tx.
 type Queryer interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
 // ResolveCounty runs the same polygon-first, text-second resolver the
