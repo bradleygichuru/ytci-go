@@ -1,0 +1,150 @@
+package admin
+
+import (
+	"encoding/json"
+	"net/http"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/bradleygichuru/ytci-go/internal/handler"
+	"github.com/bradleygichuru/ytci-go/internal/middleware"
+)
+
+type ProgramUpdateHandler struct {
+	pool *pgxpool.Pool
+}
+
+func NewProgramUpdateHandler(pool *pgxpool.Pool) *ProgramUpdateHandler {
+	return &ProgramUpdateHandler{pool: pool}
+}
+
+type programUpdateRequest struct {
+	Title       string     `json:"title"`
+	Body        string     `json:"body"`
+	Priority    string     `json:"priority"`
+	CountyGids  []int      `json:"countyGids"`
+	Categories  []string   `json:"categories"`
+	ImageURL    *string    `json:"imageUrl"`
+	LinkURL     *string    `json:"linkUrl"`
+	PublishedAt *time.Time `json:"publishedAt"`
+	ExpiresAt   *time.Time `json:"expiresAt"`
+}
+
+func (h *ProgramUpdateHandler) Create(w http.ResponseWriter, r *http.Request) {
+	var req programUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Title == "" || req.Body == "" {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "title and body are required")
+		return
+	}
+	if req.Priority == "" {
+		req.Priority = "Normal"
+	}
+	if req.Categories == nil {
+		req.Categories = []string{}
+	}
+	if req.CountyGids == nil {
+		req.CountyGids = []int{}
+	}
+	if req.Priority != "Normal" && req.Priority != "Important" {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_PRIORITY", "priority must be Normal or Important")
+		return
+	}
+	if len(req.CountyGids) > 0 {
+		// Let the FK reject invalid county gids, but bound the payload.
+		if len(req.CountyGids) > 47 {
+			handler.WriteError(w, http.StatusBadRequest, "INVALID_COUNTIES", "too many counties")
+			return
+		}
+	}
+	var id string
+	err := h.pool.QueryRow(r.Context(), `
+		INSERT INTO program_updates (title, body, priority, status, county_gids, categories, image_url, link_url, published_at, expires_at, created_by)
+		VALUES ($1,$2,$3,'draft',$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+		req.Title, req.Body, req.Priority, intsToInt32(req.CountyGids), req.Categories,
+		req.ImageURL, req.LinkURL, req.PublishedAt, req.ExpiresAt, middleware.UserID(r.Context())).Scan(&id)
+	if err != nil {
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create program update", err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]any{"id": id, "status": "draft"})
+}
+
+func (h *ProgramUpdateHandler) List(w http.ResponseWriter, r *http.Request) {
+	status := r.URL.Query().Get("status")
+	rows, err := h.pool.Query(r.Context(), `
+		SELECT id, title, body, priority, status, county_gids, categories, image_url, link_url,
+		       published_at, expires_at, created_at, updated_at
+		FROM program_updates
+		WHERE ($1 = '' OR status=$1)
+		ORDER BY created_at DESC LIMIT 200`, status)
+	if err != nil {
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list program updates", err)
+		return
+	}
+	defer rows.Close()
+	items := make([]map[string]any, 0)
+	for rows.Next() {
+		var id, title, body, priority, status string
+		var counties []int32
+		var categories []string
+		var image, link *string
+		var published, expires *time.Time
+		var created, updated time.Time
+		if err := rows.Scan(&id, &title, &body, &priority, &status, &counties, &categories,
+			&image, &link, &published, &expires, &created, &updated); err != nil {
+			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to read program update", err)
+			return
+		}
+		items = append(items, map[string]any{
+			"id": id, "title": title, "body": body, "priority": priority, "status": status,
+			"countyGids": int32sToInts(counties), "categories": categories,
+			"imageUrl": image, "linkUrl": link, "publishedAt": published, "expiresAt": expires,
+			"createdAt": created, "updatedAt": updated,
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"items": items, "hasMore": false})
+}
+
+func (h *ProgramUpdateHandler) Publish(w http.ResponseWriter, r *http.Request) {
+	h.setStatus(w, r, "published", "published_at=COALESCE(published_at, now()), ")
+}
+
+func (h *ProgramUpdateHandler) Expire(w http.ResponseWriter, r *http.Request) {
+	h.setStatus(w, r, "expired", "")
+}
+
+func (h *ProgramUpdateHandler) setStatus(w http.ResponseWriter, r *http.Request, status, extraSet string) {
+	id := r.PathValue("id")
+	query := `UPDATE program_updates SET status=$2, ` + extraSet + `updated_at=now() WHERE id=$1`
+	tag, err := h.pool.Exec(r.Context(), query, id, status)
+	if err != nil {
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to update program update", err)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "program update not found")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"id": id, "status": status})
+}
+
+func intsToInt32(in []int) []int32 {
+	out := make([]int32, 0, len(in))
+	for _, v := range in {
+		out = append(out, int32(v))
+	}
+	return out
+}
+
+func int32sToInts(in []int32) []int {
+	out := make([]int, 0, len(in))
+	for _, v := range in {
+		out = append(out, int(v))
+	}
+	return out
+}

@@ -91,8 +91,28 @@ A device-specific Expo Push token stored for delivering notifications. Associate
 _Avoid_: Device token, FCM token, APNS token
 
 **Push Notification**:
-A scheduled notification job in the push_notifications table. Processed by the push worker via pg_notify channel, sent through Expo Push API, with status tracking (draft → scheduled → sending → sent → failed).
+A scheduled campaign job in the push_notifications table. Processed by the existing push worker via pg_notify channel, sent through Expo Push API, with status tracking (draft → scheduled → sending → sent → failed). It is a delivery mechanism, not a public-safety Alert.
 _Avoid_: Alert, message, notification campaign
+
+**Alert**:
+A time-bound, area-scoped public-safety message from an official source, with a trust label, category, severity, validity window, and optional instructions. Alerts are stored in the alerts domain, not in push_notifications.
+_Avoid_: Push notification, campaign message
+
+**Alert Update**:
+A new version of an existing Alert, linked by CAP references or the source's stable identifier. It changes the current Alert without creating a second record.
+_Avoid_: New alert, duplicate alert
+
+**Program Update**:
+A YTCI-authored message about program operations, campaign changes, or app updates. It is not an Alert and never carries a hazard severity.
+_Avoid_: Alert, campaign push
+
+**Alert Delivery**:
+The record of attempting to deliver an Alert to a specific Push Token. Delivery status is separate from the Alert's lifecycle and from the push_notifications campaign job.
+_Avoid_: Alert, notification
+
+**Alert Preferences**:
+A user's push subscription: enabled state, categories, minimum severity, quiet hours, home county, watchlist, current-location use, and language. Preferences gate push, not the in-app inbox.
+_Avoid_: Consent (legal consent remains user_profiles.consent_notifications)
 
 ### Analytics
 

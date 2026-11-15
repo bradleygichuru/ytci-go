@@ -98,6 +98,8 @@ type handlers struct {
 	places           *expo.PlacesHandler
 	marketplace      *expo.MarketplaceHandler
 	marketplaceAdmin *admin.MarketplaceAdminHandler
+	alerts           *expo.AlertsHandler
+	programUpdates   *admin.ProgramUpdateHandler
 }
 
 func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Client, cfg *config.Config) *handlers {
@@ -130,6 +132,8 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 		places:           expo.NewPlacesHandler(pool, cfg.GooglePlacesAPIKey, placesCache),
 		marketplace:      expo.NewMarketplaceHandler(pool, r2client),
 		marketplaceAdmin: admin.NewMarketplaceAdminHandler(pool, r2client),
+		alerts:           expo.NewAlertsHandler(pool),
+		programUpdates:   admin.NewProgramUpdateHandler(pool),
 	}
 	if pushClient != nil {
 		h.pushAdmin = admin.NewPushHandler(pool, pushClient)
@@ -201,6 +205,11 @@ func mountAdminRoutes(sub chi.Router, h *handlers, r2client r2.Store, jwks *midd
 		aR.Patch("/esim-providers/{id}", h.marketplaceAdmin.UpdateEsimProvider)
 		aR.Delete("/esim-providers/{id}", h.marketplaceAdmin.DeleteEsimProvider)
 
+		aR.Get("/program-updates", h.programUpdates.List)
+		aR.Post("/program-updates", h.programUpdates.Create)
+		aR.Post("/program-updates/{id}/publish", h.programUpdates.Publish)
+		aR.Post("/program-updates/{id}/expire", h.programUpdates.Expire)
+
 		aR.Get("/analytics/summary", h.analytics.Summary)
 		aR.Get("/analytics/reports", h.analytics.ReportsList)
 		aR.Post("/analytics/reports/export", h.analytics.Export)
@@ -256,6 +265,9 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 		m.Get("/places/details", h.places.GetPlaceDetails)
 		m.Get("/destinations/popular", h.places.Popular)
 		m.Post("/marketplace/redirects", h.marketplace.RecordRedirect)
+		m.Get("/alerts", h.alerts.List)
+		m.Get("/alerts/{id}", h.alerts.Get)
+		m.Get("/program-updates", h.alerts.ListProgramUpdates)
 
 		m.Group(func(aR chi.Router) {
 			aR.Use(middleware.AuthGate)
@@ -276,6 +288,12 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 			aR.Get("/itineraries/{id}/stops", h.itinStops.GetStops)
 			aR.Put("/itineraries/{id}/stops", h.itinStops.UpsertStops)
 			aR.Post("/push/register", h.pushReg.Register)
+			aR.Post("/alerts/{id}/read", h.alerts.MarkRead)
+			aR.Post("/alerts/{id}/dismiss", h.alerts.Dismiss)
+			aR.Get("/alert-preferences", h.alerts.GetPreferences)
+			aR.Patch("/alert-preferences", h.alerts.UpdatePreferences)
+			aR.Post("/alert-location", h.alerts.UpdateLocation)
+			aR.Post("/program-updates/{id}/read", h.alerts.MarkProgramUpdateRead)
 
 			if r2client != nil {
 				aR.Post("/media/presign", h.media.Presign)
@@ -340,6 +358,9 @@ func mountPublicRoutes(pub chi.Router, h *handlers, r2client r2.Store) {
 	pub.Get("/challenges", h.challenge.ListMobile)
 	pub.Get("/conservation", h.conserv.ListMobile)
 	pub.Get("/companion", expo.GetCompanion)
+	pub.Get("/alerts", h.alerts.List)
+	pub.Get("/alerts/{id}", h.alerts.Get)
+	pub.Get("/program-updates", h.alerts.ListProgramUpdates)
 
 	pub.Get("/marketplace/businesses", h.marketplace.ListBusinesses)
 	pub.Get("/marketplace/businesses/{slug}", h.marketplace.GetBusiness)

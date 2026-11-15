@@ -12,14 +12,18 @@ import (
 )
 
 type ExpoPushMessage struct {
-	To       string `json:"to"`
-	Title    string `json:"title"`
-	Body     string `json:"body"`
-	Data     any    `json:"data,omitempty"`
-	Sound    string `json:"sound,omitempty"`
-	Badge    int    `json:"badge,omitempty"`
-	Priority string `json:"priority,omitempty"`
-	TTL      int    `json:"ttl,omitempty"`
+	To                string `json:"to"`
+	Title             string `json:"title"`
+	Body              string `json:"body"`
+	Data              any    `json:"data,omitempty"`
+	Sound             string `json:"sound,omitempty"`
+	Badge             int    `json:"badge,omitempty"`
+	Priority          string `json:"priority,omitempty"`
+	TTL               int    `json:"ttl,omitempty"`
+	ChannelID         string `json:"channelId,omitempty"`
+	InterruptionLevel string `json:"interruptionLevel,omitempty"`
+	CollapseID        string `json:"collapseId,omitempty"`
+	ThreadID          string `json:"threadId,omitempty"`
 }
 
 type expoPushResponse struct {
@@ -46,10 +50,10 @@ type expoReceipt struct {
 }
 
 type Client struct {
-	httpClient  *http.Client
-	pushToken   string
-	pushAPIURL  string
-	receiptURL  string
+	httpClient *http.Client
+	pushToken  string
+	pushAPIURL string
+	receiptURL string
 }
 
 func New(expoPushToken string) *Client {
@@ -62,14 +66,41 @@ func New(expoPushToken string) *Client {
 }
 
 type SendResult struct {
-	Sent        int
-	Failed      int
-	Errors      []string
-	TokenErrors map[string]string
+	Sent           int
+	Failed         int
+	Errors         []string
+	TokenErrors    map[string]string
+	TicketForToken map[string]string
+}
+
+// Receipt is the exported receipt shape used by the alerts worker.
+type Receipt struct {
+	Status  string
+	Message string
+	Code    string
+}
+
+// GetReceiptMap returns receipts keyed by Expo ticket ID.
+func (c *Client) GetReceiptMap(ctx context.Context, ticketIDs []string) (map[string]Receipt, error) {
+	resp, err := c.GetReceipts(ctx, ticketIDs)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]Receipt, len(resp.Data))
+	for id, receipt := range resp.Data {
+		code := ""
+		if details, ok := receipt.Details.(map[string]any); ok {
+			if v, ok := details["error"].(string); ok {
+				code = v
+			}
+		}
+		out[id] = Receipt{Status: receipt.Status, Message: receipt.Message, Code: code}
+	}
+	return out, nil
 }
 
 func (c *Client) SendMessages(ctx context.Context, messages []ExpoPushMessage) (*SendResult, error) {
-	result := &SendResult{TokenErrors: make(map[string]string)}
+	result := &SendResult{TokenErrors: make(map[string]string), TicketForToken: make(map[string]string)}
 
 	chunks := chunkMessages(messages, 100)
 	for _, chunk := range chunks {
@@ -98,6 +129,9 @@ func (c *Client) SendMessages(ctx context.Context, messages []ExpoPushMessage) (
 		for i, r := range pushResp.Data {
 			if r.Status == "ok" {
 				result.Sent++
+				if i < len(chunk) && r.ID != "" {
+					result.TicketForToken[chunk[i].To] = r.ID
+				}
 			} else {
 				result.Failed++
 				result.Errors = append(result.Errors, r.Message)
