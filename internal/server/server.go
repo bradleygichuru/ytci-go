@@ -268,6 +268,7 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 		m.Post("/marketplace/redirects", h.marketplace.RecordRedirect)
 		m.Get("/alerts", h.alerts.List)
 		m.Get("/alerts/{id}", h.alerts.Get)
+		m.Get("/alert-counties", h.alerts.ListCounties)
 		m.Get("/program-updates", h.alerts.ListProgramUpdates)
 
 		m.Group(func(aR chi.Router) {

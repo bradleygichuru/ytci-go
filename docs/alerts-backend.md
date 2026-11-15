@@ -35,6 +35,7 @@ Optional-auth mobile (guests included; ADR-0004 keeps read routes on `/v1/mobile
 - `GET /v1/mobile/alerts` — every active public alert plus 30-day expired/cancelled tombstones. Push preferences never hide the inbox; use `?countyGid=` for the county filter. The response includes `sourceHealth` (`ok`/`degraded`/`unavailable`/`unknown`).
 - `GET /v1/mobile/alerts/{id}`
 - `GET /v1/mobile/program-updates` — global updates plus county-targeted updates for the signed-in user
+- `GET /v1/mobile/alert-counties` — the 47 `kenya_counties` rows (`gid`, `name`, `pCode`) for home-county and watchlist pickers
 
 `alert_preferences` exposes `enabled` (push opt-in), `osPermissionOk`, `minSeverity`, the opt-in
 `categories` array (`Met`, `Safety`, `Security`, `Program`), `programImportantOnly`, quiet hours,

@@ -150,6 +150,33 @@ func healthState(intervalSeconds int, lastSuccess pgtype.Timestamptz, failures i
 	return "ok"
 }
 
+type countyOptionJSON struct {
+	GID   int    `json:"gid"`
+	Name  string `json:"name"`
+	PCode string `json:"pCode,omitempty"`
+}
+
+func (h *AlertsHandler) ListCounties(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.pool.Query(r.Context(), `
+		SELECT gid, adm1_name, COALESCE(adm1_pcode,'')
+		FROM kenya_counties ORDER BY adm1_name`)
+	if err != nil {
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list counties", err)
+		return
+	}
+	defer rows.Close()
+	items := make([]countyOptionJSON, 0, 47)
+	for rows.Next() {
+		var county countyOptionJSON
+		if err := rows.Scan(&county.GID, &county.Name, &county.PCode); err != nil {
+			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to read county", err)
+			return
+		}
+		items = append(items, county)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
 func (h *AlertsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r.Context())
 	id := r.PathValue("id")

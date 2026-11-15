@@ -159,3 +159,26 @@ func TestProgramUpdatesRespectCountyTargeting(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &member))
 	require.Len(t, member.Items, 2)
 }
+
+func TestListAlertCounties(t *testing.T) {
+	pool := db.SetupTestDB(t)
+	ctx := context.Background()
+	_, err := pool.Exec(ctx, `INSERT INTO kenya_counties (gid, adm1_name, adm1_pcode) VALUES
+		(1, 'Nairobi', 'KE047'), (2, 'Mombasa', 'KE001')`)
+	require.NoError(t, err)
+
+	h := NewAlertsHandler(pool)
+	req := httptest.NewRequest(http.MethodGet, "/v1/mobile/alert-counties", nil)
+	rec := httptest.NewRecorder()
+	h.ListCounties(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var body struct {
+		Items []countyOptionJSON `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Len(t, body.Items, 2)
+	assert.Equal(t, "Mombasa", body.Items[0].Name)
+	assert.Equal(t, 2, body.Items[0].GID)
+	assert.Equal(t, "Nairobi", body.Items[1].Name)
+}
