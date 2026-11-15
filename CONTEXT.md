@@ -114,6 +114,24 @@ _Avoid_: Account holder, member, person
 The irreversible operation that deletes the Account and cleans or anonymizes the User's YTCI data. Content that other users can see (stories, comments, itineraries, challenge progress) is anonymized by setting FK columns to NULL. Personal-only data (bucket list, push tokens, app opens, user profile) is hard-deleted. Media in R2 associated with failed or abandoned pre-upload intents is cleaned up best-effort after the transaction commits.
 _Avoid_: Account removal, user purge, sign-up removal
 
+### Marketplace
+
+**Partner Business**:
+An admin-curated business record with one fixed category, a redirect URL, and a publish state. It is not user-generated content and does not take payment in YTC.
+_Avoid_: Vendor, merchant, listing
+
+**Accommodation Property**:
+An admin-curated place to stay with one tier (`luxury`, `midrange`, `budget`) and a handoff URL. It is a separate entity from Partner Business and is not a Marketplace category.
+_Avoid_: Hotel, lodge, stay listing
+
+**eSIM Provider**:
+An admin-managed provider record. At most one published provider may be featured; the mobile API returns only that provider.
+_Avoid_: eSIM ad, sponsor
+
+**Marketplace Redirect**:
+A privacy-safe record of an outbound handoff: entity type, entity id, optional user id, source surface, platform, and timestamp. It stores no URL, query string, or personal data and is not proof of a completed booking.
+_Avoid_: Click tracking, conversion, booking
+
 ### Internal
 
 **Admin API**:

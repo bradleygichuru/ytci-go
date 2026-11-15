@@ -42,7 +42,10 @@ func SetupTestDB(t *testing.T) *pgxpool.Pool {
 	}
 	t.Cleanup(pool.Close)
 
-	migrationPath := filepath.Join("..", "..", "testdata", "migrations")
+	migrationPath, err := findMigrationsDir()
+	if err != nil {
+		t.Fatalf("failed to locate migrations dir: %v", err)
+	}
 	entries, err := os.ReadDir(migrationPath)
 	if err != nil {
 		t.Fatalf("failed to read migrations dir: %v", err)
@@ -64,4 +67,24 @@ func SetupTestDB(t *testing.T) *pgxpool.Pool {
 	}
 
 	return pool
+}
+
+// findMigrationsDir walks up from the test package directory until it finds
+// testdata/migrations, so tests in deeper packages can share the helper.
+func findMigrationsDir() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		candidate := filepath.Join(dir, "testdata", "migrations")
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("testdata/migrations not found")
+		}
+		dir = parent
+	}
 }
