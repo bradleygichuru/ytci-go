@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -66,4 +67,43 @@ func TestIngestKMDEndToEnd(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT status FROM alert_source_runs WHERE source_id='kmd' ORDER BY id DESC LIMIT 1`).Scan(&sourceStatus))
 	assert.Equal(t, "ok", sourceStatus)
 	assert.Contains(t, strings.ToLower(sampleCAP), "nairobi")
+}
+
+func TestFetchSendsConditionalHeaders(t *testing.T) {
+	var gotETag, gotModified string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotETag = r.Header.Get("If-None-Match")
+		gotModified = r.Header.Get("If-Modified-Since")
+		w.WriteHeader(http.StatusNotModified)
+	}))
+	defer srv.Close()
+
+	ing := &Ingester{client: &http.Client{Timeout: time.Second}}
+	_, status, _, _, err := ing.fetch(context.Background(), srv.URL, 1024,
+		`"abc123"`, "Sat, 24 Oct 2026 15:47:00 GMT")
+	require.ErrorIs(t, err, errNotModified)
+	assert.Equal(t, http.StatusNotModified, status)
+	assert.Equal(t, `"abc123"`, gotETag)
+	assert.Equal(t, "Sat, 24 Oct 2026 15:47:00 GMT", gotModified)
+}
+
+func TestDueHonoursPollIntervalAndBackoff(t *testing.T) {
+	pool := db.SetupTestDB(t)
+	ctx := context.Background()
+	store := NewStore(pool)
+	ing := &Ingester{store: store}
+
+	assert.True(t, ing.due(ctx, "kmd", 5*time.Minute), "first check is always due")
+
+	_, err := pool.Exec(ctx, `UPDATE alert_sources SET last_checked_at=now(), consecutive_failures=0 WHERE id='kmd'`)
+	require.NoError(t, err)
+	assert.False(t, ing.due(ctx, "kmd", 5*time.Minute))
+
+	_, err = pool.Exec(ctx, `UPDATE alert_sources SET last_checked_at=now()-interval '10 minutes' WHERE id='kmd'`)
+	require.NoError(t, err)
+	assert.True(t, ing.due(ctx, "kmd", 5*time.Minute))
+
+	_, err = pool.Exec(ctx, `UPDATE alert_sources SET last_checked_at=now()-interval '10 minutes', consecutive_failures=2 WHERE id='kmd'`)
+	require.NoError(t, err)
+	assert.False(t, ing.due(ctx, "kmd", 5*time.Minute), "failures back off beyond the base interval")
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bradleygichuru/ytci-go/internal/handler"
@@ -76,13 +77,16 @@ func (h *AlertsHandler) List(w http.ResponseWriter, r *http.Request) {
 		FROM alerts a
 		LEFT JOIN alert_sources s ON s.id=a.source_id
 		LEFT JOIN alert_read_state rs ON rs.alert_id=a.id AND rs.user_id=$1
-		WHERE a.status='active' AND a.is_public=true AND a.is_test=false
+		WHERE a.is_public=true AND a.is_test=false
+		  AND (a.status='active'
+		       OR (a.status IN ('expired','cancelled') AND a.sent_at > now() - interval '30 days'))
 		  AND ($2::int IS NULL OR NOT EXISTS (SELECT 1 FROM alert_areas x WHERE x.alert_id=a.id)
 		       OR EXISTS (SELECT 1 FROM alert_areas x WHERE x.alert_id=a.id AND x.county_gid=$2))
-		  AND ($1='' OR $3::int IS NULL OR NOT EXISTS (SELECT 1 FROM alert_areas x WHERE x.alert_id=a.id)
-		       OR EXISTS (SELECT 1 FROM alert_areas x WHERE x.alert_id=a.id AND x.county_gid=$3)
+		  AND ($1='' OR ($3::int IS NULL AND cardinality($4::int[]) = 0)
+		       OR NOT EXISTS (SELECT 1 FROM alert_areas x WHERE x.alert_id=a.id)
+		       OR ($3::int IS NOT NULL AND EXISTS (SELECT 1 FROM alert_areas x WHERE x.alert_id=a.id AND x.county_gid=$3))
 		       OR EXISTS (SELECT 1 FROM alert_areas x WHERE x.alert_id=a.id AND x.county_gid = ANY($4::int[])))
-		ORDER BY a.sent_at DESC LIMIT 100`, userID, countyGid, home, watch)
+		ORDER BY (a.status='active') DESC, a.sent_at DESC LIMIT 100`, userID, countyGid, home, watch)
 	if err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list alerts", err)
 		return
@@ -102,7 +106,50 @@ func (h *AlertsHandler) List(w http.ResponseWriter, r *http.Request) {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list alerts", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items, "hasMore": false})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": items, "hasMore": false, "sourceHealth": h.sourceHealth(r),
+	})
+}
+
+func (h *AlertsHandler) sourceHealth(r *http.Request) []map[string]any {
+	rows, err := h.pool.Query(r.Context(), `
+		SELECT id, name, poll_interval_seconds, last_checked_at, last_success_at, consecutive_failures
+		FROM alert_sources WHERE enabled = true ORDER BY id`)
+	if err != nil {
+		return []map[string]any{}
+	}
+	defer rows.Close()
+	out := make([]map[string]any, 0)
+	for rows.Next() {
+		var id, name string
+		var interval, failures int
+		var checked, success pgtype.Timestamptz
+		if err := rows.Scan(&id, &name, &interval, &checked, &success, &failures); err != nil {
+			continue
+		}
+		out = append(out, map[string]any{
+			"id": id, "name": name, "state": healthState(interval, success, failures),
+			"lastCheckedAt": timePtrString(checked), "lastSuccessAt": timePtrString(success),
+		})
+	}
+	return out
+}
+
+func healthState(intervalSeconds int, lastSuccess pgtype.Timestamptz, failures int) string {
+	if !lastSuccess.Valid {
+		return "unknown"
+	}
+	if intervalSeconds <= 0 || failures >= 3 {
+		return "unavailable"
+	}
+	age := time.Since(lastSuccess.Time)
+	if age > time.Duration(intervalSeconds)*6*time.Second {
+		return "unavailable"
+	}
+	if failures > 0 || age > time.Duration(intervalSeconds)*2*time.Second {
+		return "degraded"
+	}
+	return "ok"
 }
 
 func (h *AlertsHandler) Get(w http.ResponseWriter, r *http.Request) {
@@ -119,7 +166,7 @@ func (h *AlertsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		FROM alerts a
 		LEFT JOIN alert_sources s ON s.id=a.source_id
 		LEFT JOIN alert_read_state rs ON rs.alert_id=a.id AND rs.user_id=$2
-		WHERE a.id=$1 AND a.is_public=true`, id, userID)
+		WHERE a.id=$1 AND a.is_public=true AND a.is_test=false`, id, userID)
 	item, err := scanAlert(row)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -136,7 +183,13 @@ func (h *AlertsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		for rows.Next() {
 			var u alertUpdateJSON
-			if err := rows.Scan(&u.Version, &u.MsgType, &u.Changed, &u.SourceSentAt, &u.ReceivedAt); err == nil {
+			var sourceSent, received pgtype.Timestamptz
+			if err := rows.Scan(&u.Version, &u.MsgType, &u.Changed, &sourceSent, &received); err == nil {
+				if sourceSent.Valid {
+					t := sourceSent.Time
+					u.SourceSentAt = &t
+				}
+				u.ReceivedAt = received.Time
 				detail.Updates = append(detail.Updates, u)
 			}
 		}
@@ -175,14 +228,14 @@ func (h *AlertsHandler) GetPreferences(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r.Context())
 	prefs := defaultPreferences()
 	row := h.pool.QueryRow(r.Context(), `
-		SELECT enabled, min_severity, categories, quiet_hours_enabled,
-		       quiet_hours_start::text, quiet_hours_end::text, timezone, critical_override,
-		       home_county_gid, watch_county_gids, follow_current_location,
+		SELECT enabled, os_permission_ok, min_severity, categories, program_important_only,
+		       quiet_hours_enabled, quiet_hours_start::text, quiet_hours_end::text, timezone,
+		       critical_override, home_county_gid, watch_county_gids, follow_current_location,
 		       follow_itineraries, follow_saved_destinations, language
 		FROM alert_preferences WHERE user_id=$1`, userID)
 	var home *int32
 	var watch []int32
-	err := row.Scan(&prefs.Enabled, &prefs.MinSeverity, &prefs.Categories, &prefs.QuietHoursEnabled,
+	err := row.Scan(&prefs.Enabled, &prefs.OSPermissionOK, &prefs.MinSeverity, &prefs.Categories, &prefs.ProgramImportantOnly, &prefs.QuietHoursEnabled,
 		&prefs.QuietHoursStart, &prefs.QuietHoursEnd, &prefs.Timezone, &prefs.CriticalOverride,
 		&home, &watch, &prefs.FollowCurrentLocation, &prefs.FollowItineraries,
 		&prefs.FollowSavedDestinations, &prefs.Language)
@@ -200,8 +253,10 @@ func (h *AlertsHandler) GetPreferences(w http.ResponseWriter, r *http.Request) {
 
 type preferencesJSON struct {
 	Enabled                 bool     `json:"enabled"`
+	OSPermissionOK          bool     `json:"osPermissionOk"`
 	MinSeverity             string   `json:"minSeverity"`
 	Categories              []string `json:"categories"`
+	ProgramImportantOnly    bool     `json:"programImportantOnly"`
 	QuietHoursEnabled       bool     `json:"quietHoursEnabled"`
 	QuietHoursStart         string   `json:"quietHoursStart"`
 	QuietHoursEnd           string   `json:"quietHoursEnd"`
@@ -217,8 +272,8 @@ type preferencesJSON struct {
 
 func defaultPreferences() preferencesJSON {
 	return preferencesJSON{
-		Enabled: true, MinSeverity: "Severe", Categories: []string{"Met", "Safety", "Security"},
-		QuietHoursEnabled: true, QuietHoursStart: "22:00", QuietHoursEnd: "06:00",
+		Enabled: true, OSPermissionOK: true, MinSeverity: "Severe", Categories: []string{"Met", "Safety", "Security"},
+		ProgramImportantOnly: true, QuietHoursEnabled: true, QuietHoursStart: "22:00", QuietHoursEnd: "06:00",
 		Timezone: "Africa/Nairobi", CriticalOverride: true, FollowCurrentLocation: true,
 		WatchCountyGids: []int{}, Language: "en",
 	}
@@ -226,8 +281,10 @@ func defaultPreferences() preferencesJSON {
 
 type preferencesPatch struct {
 	Enabled                 *bool     `json:"enabled"`
+	OSPermissionOK          *bool     `json:"osPermissionOk"`
 	MinSeverity             *string   `json:"minSeverity"`
 	Categories              *[]string `json:"categories"`
+	ProgramImportantOnly    *bool     `json:"programImportantOnly"`
 	QuietHoursEnabled       *bool     `json:"quietHoursEnabled"`
 	QuietHoursStart         *string   `json:"quietHoursStart"`
 	QuietHoursEnd           *string   `json:"quietHoursEnd"`
@@ -267,31 +324,35 @@ func (h *AlertsHandler) UpdatePreferences(w http.ResponseWriter, r *http.Request
 
 	_, err := h.pool.Exec(r.Context(), `
 		INSERT INTO alert_preferences (
-		  user_id, enabled, min_severity, categories, quiet_hours_enabled, quiet_hours_start,
-		  quiet_hours_end, timezone, critical_override, home_county_gid, watch_county_gids,
-		  follow_current_location, follow_itineraries, follow_saved_destinations, language
-		) VALUES ($1, COALESCE($2,true), COALESCE($3,'Severe'), COALESCE($4::text[],ARRAY['Met','Safety','Security']),
-		  COALESCE($5,true), COALESCE($6::time,'22:00'), COALESCE($7::time,'06:00'),
-		  COALESCE($8,'Africa/Nairobi'), COALESCE($9,true), $10, COALESCE($11::int[],'{}'),
-		  COALESCE($12,true), COALESCE($13,false), COALESCE($14,false), COALESCE($15,'en'))
+		  user_id, enabled, os_permission_ok, min_severity, categories, program_important_only,
+		  quiet_hours_enabled, quiet_hours_start, quiet_hours_end, timezone, critical_override,
+		  home_county_gid, watch_county_gids, follow_current_location, follow_itineraries,
+		  follow_saved_destinations, language
+		) VALUES ($1, COALESCE($2,true), COALESCE($3,true), COALESCE($4,'Severe'), COALESCE($5::text[],ARRAY['Met','Safety','Security']),
+		  COALESCE($6,true), COALESCE($7,true), COALESCE($8::time,'22:00'), COALESCE($9::time,'06:00'),
+		  COALESCE($10,'Africa/Nairobi'), COALESCE($11,true), $12, COALESCE($13::int[],'{}'),
+		  COALESCE($14,true), COALESCE($15,false), COALESCE($16,false), COALESCE($17,'en'))
 		ON CONFLICT (user_id) DO UPDATE SET
 		  enabled=COALESCE($2, alert_preferences.enabled),
-		  min_severity=COALESCE($3, alert_preferences.min_severity),
-		  categories=COALESCE($4::text[], alert_preferences.categories),
-		  quiet_hours_enabled=COALESCE($5, alert_preferences.quiet_hours_enabled),
-		  quiet_hours_start=COALESCE($6::time, alert_preferences.quiet_hours_start),
-		  quiet_hours_end=COALESCE($7::time, alert_preferences.quiet_hours_end),
-		  timezone=COALESCE($8, alert_preferences.timezone),
-		  critical_override=COALESCE($9, alert_preferences.critical_override),
-		  home_county_gid=COALESCE($10, alert_preferences.home_county_gid),
-		  watch_county_gids=COALESCE($11::int[], alert_preferences.watch_county_gids),
-		  follow_current_location=COALESCE($12, alert_preferences.follow_current_location),
-		  follow_itineraries=COALESCE($13, alert_preferences.follow_itineraries),
-		  follow_saved_destinations=COALESCE($14, alert_preferences.follow_saved_destinations),
-		  language=COALESCE($15, alert_preferences.language), updated_at=now()`,
-		userID, p.Enabled, p.MinSeverity, categories, p.QuietHoursEnabled, p.QuietHoursStart,
-		p.QuietHoursEnd, p.Timezone, p.CriticalOverride, p.HomeCountyGid, watch,
-		p.FollowCurrentLocation, p.FollowItineraries, p.FollowSavedDestinations, p.Language)
+		  os_permission_ok=COALESCE($3, alert_preferences.os_permission_ok),
+		  min_severity=COALESCE($4, alert_preferences.min_severity),
+		  categories=COALESCE($5::text[], alert_preferences.categories),
+		  program_important_only=COALESCE($6, alert_preferences.program_important_only),
+		  quiet_hours_enabled=COALESCE($7, alert_preferences.quiet_hours_enabled),
+		  quiet_hours_start=COALESCE($8::time, alert_preferences.quiet_hours_start),
+		  quiet_hours_end=COALESCE($9::time, alert_preferences.quiet_hours_end),
+		  timezone=COALESCE($10, alert_preferences.timezone),
+		  critical_override=COALESCE($11, alert_preferences.critical_override),
+		  home_county_gid=COALESCE($12, alert_preferences.home_county_gid),
+		  watch_county_gids=COALESCE($13::int[], alert_preferences.watch_county_gids),
+		  follow_current_location=COALESCE($14, alert_preferences.follow_current_location),
+		  follow_itineraries=COALESCE($15, alert_preferences.follow_itineraries),
+		  follow_saved_destinations=COALESCE($16, alert_preferences.follow_saved_destinations),
+		  language=COALESCE($17, alert_preferences.language), updated_at=now()`,
+		userID, p.Enabled, p.OSPermissionOK, p.MinSeverity, categories, p.ProgramImportantOnly,
+		p.QuietHoursEnabled, p.QuietHoursStart, p.QuietHoursEnd, p.Timezone, p.CriticalOverride,
+		p.HomeCountyGid, watch, p.FollowCurrentLocation, p.FollowItineraries,
+		p.FollowSavedDestinations, p.Language)
 	if err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to save preferences", err)
 		return
@@ -320,6 +381,7 @@ func (h *AlertsHandler) UpdateLocation(w http.ResponseWriter, r *http.Request) {
 
 func (h *AlertsHandler) ListProgramUpdates(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r.Context())
+	home, watch := h.userScope(r, userID)
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT p.id, p.title, p.body, p.priority, p.county_gids, p.image_url, p.link_url,
 		       p.published_at, p.expires_at, rs.read_at
@@ -327,7 +389,10 @@ func (h *AlertsHandler) ListProgramUpdates(w http.ResponseWriter, r *http.Reques
 		LEFT JOIN program_update_read_state rs ON rs.program_update_id=p.id AND rs.user_id=$1
 		WHERE p.status='published' AND (p.published_at IS NULL OR p.published_at <= now())
 		  AND (p.expires_at IS NULL OR p.expires_at > now())
-		ORDER BY p.published_at DESC NULLS LAST LIMIT 100`, userID)
+		  AND (cardinality(p.county_gids) = 0
+		       OR ($2::int IS NOT NULL AND p.county_gids @> ARRAY[$2::int])
+		       OR p.county_gids && $3::int[])
+		ORDER BY p.published_at DESC NULLS LAST LIMIT 100`, userID, home, watch)
 	if err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list program updates", err)
 		return
@@ -338,7 +403,7 @@ func (h *AlertsHandler) ListProgramUpdates(w http.ResponseWriter, r *http.Reques
 		var id, title, body, priority string
 		var counties []int32
 		var image, link *string
-		var published, expires, read *time.Time
+		var published, expires, read pgtype.Timestamptz
 		if err := rows.Scan(&id, &title, &body, &priority, &counties, &image, &link, &published, &expires, &read); err != nil {
 			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to read program update", err)
 			return
@@ -346,7 +411,7 @@ func (h *AlertsHandler) ListProgramUpdates(w http.ResponseWriter, r *http.Reques
 		items = append(items, map[string]any{
 			"id": id, "title": title, "body": body, "priority": priority,
 			"countyGids": int32sToInts(counties), "imageUrl": image, "linkUrl": link,
-			"publishedAt": published, "expiresAt": expires, "readAt": read,
+			"publishedAt": timePtrString(published), "expiresAt": timePtrString(expires), "readAt": timePtrString(read),
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "hasMore": false})
@@ -385,14 +450,24 @@ func (h *AlertsHandler) userScope(r *http.Request, userID string) (*int, []int) 
 func scanAlert(row pgx.Row) (alertJSON, error) {
 	var a alertJSON
 	var countyGids []int32
-	var onset, expires, read *time.Time
+	var sent, onset, expires, read pgtype.Timestamptz
 	err := row.Scan(&a.ID, &a.SourceID, &a.SourceName, &a.Event, &a.Category, &a.Severity,
 		&a.Urgency, &a.Certainty, &a.Status, &a.Headline, &a.Description, &a.Instruction,
-		&a.WebURL, &a.SenderName, &a.SentAt, &onset, &expires, &a.MappingReview, &a.IsTest,
+		&a.WebURL, &a.SenderName, &sent, &onset, &expires, &a.MappingReview, &a.IsTest,
 		&a.Counties, &countyGids, &read)
-	a.OnsetAt = onset
-	a.ExpiresAt = expires
-	a.ReadAt = read
+	a.SentAt = sent.Time
+	if onset.Valid {
+		t := onset.Time
+		a.OnsetAt = &t
+	}
+	if expires.Valid {
+		t := expires.Time
+		a.ExpiresAt = &t
+	}
+	if read.Valid {
+		t := read.Time
+		a.ReadAt = &t
+	}
 	a.CountyGids = int32sToInts(countyGids)
 	if a.Counties == nil {
 		a.Counties = []string{}
@@ -409,6 +484,13 @@ func parseOptionalInt(v string) *int {
 		return nil
 	}
 	return &n
+}
+
+func timePtrString(t pgtype.Timestamptz) any {
+	if !t.Valid {
+		return nil
+	}
+	return t.Time.Format(time.RFC3339)
 }
 
 func toInt32s(in []int) []int32 {

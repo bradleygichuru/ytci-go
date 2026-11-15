@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -60,6 +61,7 @@ func NewIngester(ctx context.Context, store *Store, kmdURL, fcdoURL string) (*In
 
 func (i *Ingester) IngestKMD(ctx context.Context) IngestResult {
 	result := IngestResult{Source: "kmd"}
+	state, _ := i.store.SourceState(ctx, "kmd")
 	runID, err := i.store.StartRun(ctx, "kmd")
 	if err != nil {
 		result.Err = err
@@ -67,7 +69,12 @@ func (i *Ingester) IngestKMD(ctx context.Context) IngestResult {
 	}
 	started := time.Now()
 
-	body, status, err := i.fetch(ctx, i.kmdURL, 2<<20)
+	body, status, etag, lastModified, err := i.fetch(ctx, i.kmdURL, 2<<20, state.ETag, state.LastModified)
+	if errors.Is(err, errNotModified) {
+		i.store.FinishRun(ctx, runID, "not_modified", status, 0, 0, 0, 0, time.Since(started), "")
+		i.store.UpdateSourceHealth(ctx, "kmd", true, status, "")
+		return result
+	}
 	if err != nil {
 		i.store.FinishRun(ctx, runID, "http_error", status, 0, 0, 0, 0, time.Since(started), err.Error())
 		i.store.UpdateSourceHealth(ctx, "kmd", false, status, err.Error())
@@ -87,11 +94,12 @@ func (i *Ingester) IngestKMD(ctx context.Context) IngestResult {
 	if limit > i.maxItems {
 		limit = i.maxItems
 	}
+	seenIDs := make([]string, 0, limit)
 	for _, item := range feed.Items[:limit] {
 		if item.Link == "" {
 			continue
 		}
-		capBody, capStatus, err := i.fetch(ctx, item.Link, i.maxXML)
+		capBody, capStatus, _, _, err := i.fetch(ctx, item.Link, i.maxXML, "", "")
 		if err != nil {
 			slog.Warn("alerts: KMD CAP fetch failed", "link", item.Link, "status", capStatus, "error", err)
 			continue
@@ -105,6 +113,7 @@ func (i *Ingester) IngestKMD(ctx context.Context) IngestResult {
 		if !ok {
 			continue
 		}
+		seenIDs = append(seenIDs, n.SourceIdentifier)
 		mapping, err := i.mapper.MapInfo(ctx, info)
 		if err != nil {
 			slog.Warn("alerts: KMD mapping failed", "identifier", n.SourceIdentifier, "error", err)
@@ -112,7 +121,7 @@ func (i *Ingester) IngestKMD(ctx context.Context) IngestResult {
 		}
 		n.MappingMethod = mapping.Method
 		n.MappingReview = mapping.Review
-		pushEnabled := mapping.Method != MethodUnmapped && !mapping.Review && !n.IsTest
+		pushEnabled := mapping.Method != MethodUnmapped && !mapping.Review && !n.IsTest && n.ExpiresAt != nil
 		upsert, err := i.store.UpsertAlert(ctx, n, mapping.Counties, pushEnabled)
 		if err != nil {
 			slog.Warn("alerts: KMD upsert failed", "identifier", n.SourceIdentifier, "error", err)
@@ -126,13 +135,26 @@ func (i *Ingester) IngestKMD(ctx context.Context) IngestResult {
 		}
 	}
 
-	i.store.FinishRun(ctx, runID, "ok", status, result.Seen, result.Created, result.Updated, int64(len(body)), time.Since(started), "")
+	possibleGap := state.HasSucceeded && len(feed.Items) >= 5 && len(seenIDs) >= 5 &&
+		i.knownBefore(ctx, "kmd", seenIDs, started) == 0
+	if possibleGap {
+		slog.Warn("alerts: possible KMD feed gap; every listed item was new", "items", len(feed.Items))
+	}
+
+	i.store.SaveSourceValidators(ctx, "kmd", etag, lastModified, formatHTTPTime(feed.LastBuildDate))
+	runStatus, runError := "ok", ""
+	if possibleGap {
+		runStatus = "partial"
+		runError = fmt.Sprintf("possible_gap: all %d feed items were new", len(feed.Items))
+	}
+	i.store.FinishRun(ctx, runID, runStatus, status, result.Seen, result.Created, result.Updated, int64(len(body)), time.Since(started), runError)
 	i.store.UpdateSourceHealth(ctx, "kmd", true, status, "")
 	return result
 }
 
 func (i *Ingester) IngestFCDO(ctx context.Context) IngestResult {
 	result := IngestResult{Source: "fcdo"}
+	state, _ := i.store.SourceState(ctx, "fcdo")
 	runID, err := i.store.StartRun(ctx, "fcdo")
 	if err != nil {
 		result.Err = err
@@ -140,7 +162,12 @@ func (i *Ingester) IngestFCDO(ctx context.Context) IngestResult {
 	}
 	started := time.Now()
 
-	body, status, err := i.fetch(ctx, i.fcdoURL, 2<<20)
+	body, status, etag, lastModified, err := i.fetch(ctx, i.fcdoURL, 2<<20, state.ETag, state.LastModified)
+	if errors.Is(err, errNotModified) {
+		i.store.FinishRun(ctx, runID, "not_modified", status, 0, 0, 0, 0, time.Since(started), "")
+		i.store.UpdateSourceHealth(ctx, "fcdo", true, status, "")
+		return result
+	}
 	if err != nil {
 		i.store.FinishRun(ctx, runID, "http_error", status, 0, 0, 0, 0, time.Since(started), err.Error())
 		i.store.UpdateSourceHealth(ctx, "fcdo", false, status, err.Error())
@@ -194,14 +221,21 @@ func (i *Ingester) IngestFCDO(ctx context.Context) IngestResult {
 	if upsert.Updated {
 		result.Updated = 1
 	}
+	i.store.SaveSourceValidators(ctx, "fcdo", etag, lastModified, "")
 	i.store.FinishRun(ctx, runID, "ok", status, 1, result.Created, result.Updated, int64(len(body)), time.Since(started), "")
 	i.store.UpdateSourceHealth(ctx, "fcdo", true, status, "")
 	return result
 }
 
 func (i *Ingester) IngestAll(ctx context.Context) ([]IngestResult, error) {
-	kmd := i.IngestKMD(ctx)
-	fcdo := i.IngestFCDO(ctx)
+	kmd := IngestResult{Source: "kmd"}
+	if i.due(ctx, "kmd", 5*time.Minute) {
+		kmd = i.IngestKMD(ctx)
+	}
+	fcdo := IngestResult{Source: "fcdo"}
+	if i.due(ctx, "fcdo", 15*time.Minute) {
+		fcdo = i.IngestFCDO(ctx)
+	}
 	results := []IngestResult{kmd, fcdo}
 	if kmd.Err != nil && fcdo.Err != nil {
 		return results, fmt.Errorf("both sources failed: %v; %v", kmd.Err, fcdo.Err)
@@ -209,28 +243,83 @@ func (i *Ingester) IngestAll(ctx context.Context) ([]IngestResult, error) {
 	return results, nil
 }
 
-func (i *Ingester) fetch(ctx context.Context, url string, maxBytes int64) ([]byte, int, error) {
+func (i *Ingester) due(ctx context.Context, sourceID string, interval time.Duration) bool {
+	state, err := i.store.SourceState(ctx, sourceID)
+	if err != nil || !state.HasChecked {
+		return true
+	}
+	wait := interval
+	if state.ConsecutiveFailures > 0 {
+		shift := state.ConsecutiveFailures
+		if shift > 4 {
+			shift = 4
+		}
+		wait = interval * time.Duration(1<<shift)
+		if wait > 30*time.Minute {
+			wait = 30 * time.Minute
+		}
+	}
+	// Cron scheduling is not exact; allow a minute of jitter.
+	if wait > time.Minute {
+		wait -= time.Minute
+	}
+	return time.Since(state.LastCheckedAt) >= wait
+}
+
+func (i *Ingester) knownBefore(ctx context.Context, sourceID string, ids []string, since time.Time) int {
+	if len(ids) == 0 {
+		return 0
+	}
+	var n int
+	if err := i.store.Pool().QueryRow(ctx, `
+		SELECT count(*) FROM alert_source_messages
+		WHERE source_id=$1 AND source_identifier = ANY($2) AND first_seen_at < $3`,
+		sourceID, ids, since).Scan(&n); err != nil {
+		return 0
+	}
+	return n
+}
+
+var errNotModified = errors.New("not modified")
+
+func (i *Ingester) fetch(ctx context.Context, url string, maxBytes int64, etag, lastModified string) ([]byte, int, string, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, "", "", err
 	}
 	req.Header.Set("User-Agent", "YTCI-Alerts/1.0 (+https://ytci.example)")
+	if etag != "" {
+		req.Header.Set("If-None-Match", etag)
+	}
+	if lastModified != "" {
+		req.Header.Set("If-Modified-Since", lastModified)
+	}
 	resp, err := i.client.Do(req)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, "", "", err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotModified {
+		return nil, resp.StatusCode, resp.Header.Get("ETag"), resp.Header.Get("Last-Modified"), errNotModified
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, resp.StatusCode, fmt.Errorf("HTTP %d", resp.StatusCode)
+		return nil, resp.StatusCode, "", "", fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
 	if err != nil {
-		return nil, resp.StatusCode, err
+		return nil, resp.StatusCode, "", "", err
 	}
 	if int64(len(body)) > maxBytes {
-		return nil, resp.StatusCode, fmt.Errorf("response exceeds %d bytes", maxBytes)
+		return nil, resp.StatusCode, "", "", fmt.Errorf("response exceeds %d bytes", maxBytes)
 	}
-	return body, resp.StatusCode, nil
+	return body, resp.StatusCode, resp.Header.Get("ETag"), resp.Header.Get("Last-Modified"), nil
+}
+
+func formatHTTPTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(http.TimeFormat)
 }
 
 func normalizeKMD(alert *CAPAlert) (NormalizedAlert, CAPInfo, bool) {

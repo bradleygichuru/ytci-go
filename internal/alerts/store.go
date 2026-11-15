@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -66,6 +67,7 @@ type existingAlert struct {
 	ID          string
 	Severity    string
 	Instruction string
+	OnsetAt     *time.Time
 	ExpiresAt   *time.Time
 	Status      string
 	ContentHash string
@@ -151,6 +153,75 @@ func (s *Store) UpdateSourceHealth(ctx context.Context, sourceID string, success
 		WHERE id = $1`, sourceID, httpStatus, errMsg)
 }
 
+type SourceState struct {
+	ETag                string
+	LastModified        string
+	LastBuildDate       string
+	LastCheckedAt       time.Time
+	HasChecked          bool
+	LastSuccessAt       time.Time
+	HasSucceeded        bool
+	ConsecutiveFailures int
+}
+
+func (s *Store) SourceState(ctx context.Context, sourceID string) (SourceState, error) {
+	var state SourceState
+	var etag, lastModified, lastBuild pgtype.Text
+	var checked, success pgtype.Timestamptz
+	err := s.pool.QueryRow(ctx, `
+		SELECT last_etag, last_modified, last_build_date, last_checked_at, last_success_at,
+		       consecutive_failures
+		FROM alert_sources WHERE id=$1`, sourceID).Scan(
+		&etag, &lastModified, &lastBuild, &checked, &success, &state.ConsecutiveFailures)
+	if err != nil {
+		return state, err
+	}
+	if etag.Valid {
+		state.ETag = etag.String
+	}
+	if lastModified.Valid {
+		state.LastModified = lastModified.String
+	}
+	if lastBuild.Valid {
+		state.LastBuildDate = lastBuild.String
+	}
+	if checked.Valid {
+		state.LastCheckedAt = checked.Time
+		state.HasChecked = true
+	}
+	if success.Valid {
+		state.LastSuccessAt = success.Time
+		state.HasSucceeded = true
+	}
+	return state, nil
+}
+
+func (s *Store) SaveSourceValidators(ctx context.Context, sourceID, etag, lastModified, lastBuildDate string) {
+	_, _ = s.pool.Exec(ctx, `
+		UPDATE alert_sources SET last_etag=NULLIF($2,''), last_modified=NULLIF($3,''),
+		    last_build_date=NULLIF($4,''), updated_at=now()
+		WHERE id=$1`, sourceID, etag, lastModified, lastBuildDate)
+}
+
+// RecentDeliveryAt returns the most recent delivery attempt for an alert. It is
+// used to hold material-update pushes to one per six hours.
+func (s *Store) RecentDeliveryAt(ctx context.Context, tx pgx.Tx, alertID string) (*time.Time, error) {
+	var last pgtype.Timestamptz
+	err := tx.QueryRow(ctx, `
+		SELECT GREATEST(COALESCE(max(sent_at), 'epoch'::timestamptz),
+		                COALESCE(max(created_at), 'epoch'::timestamptz))
+		FROM alert_deliveries
+		WHERE alert_id=$1 AND status IN ('queued','sending','sent')`, alertID).Scan(&last)
+	if err != nil || !last.Valid {
+		return nil, err
+	}
+	t := last.Time
+	if t.Equal(time.Unix(0, 0).UTC()) || t.Year() <= 1 {
+		return nil, nil
+	}
+	return &t, nil
+}
+
 func (s *Store) UpsertAlert(ctx context.Context, n NormalizedAlert, areas []CountyMatch, pushEnabled bool) (UpsertResult, error) {
 	if n.SourceID == "" || n.SourceIdentifier == "" {
 		return UpsertResult{}, fmt.Errorf("source and source identifier are required")
@@ -231,7 +302,15 @@ func (s *Store) UpsertAlert(ctx context.Context, n NormalizedAlert, areas []Coun
 		if n.MsgType == "Cancel" {
 			reason = "cancel"
 		}
-		if material && pushEnabled {
+		fanout := material && pushEnabled
+		if fanout && reason == "update" && SeverityRank(n.Severity) <= SeverityRank(existing.Severity) {
+			// Material updates push at most once per six hours. Cancellations and
+			// severity escalations bypass this gate.
+			if last, err := s.RecentDeliveryAt(ctx, tx, existing.ID); err == nil && last != nil && time.Since(*last) < 6*time.Hour {
+				fanout = false
+			}
+		}
+		if fanout {
 			_, err = tx.Exec(ctx, `INSERT INTO alert_fanout_jobs (alert_id, reason, content_hash)
 				VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`, existing.ID, reason, n.ContentHash)
 			if err != nil {
@@ -297,7 +376,7 @@ func (n NormalizedAlert) Status() string {
 
 func (s *Store) findExisting(ctx context.Context, sourceID, sourceIdentifier, reference string) (*existingAlert, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, severity, COALESCE(instruction,''), expires_at, status, content_hash,
+		SELECT id, severity, COALESCE(instruction,''), onset_at, expires_at, status, content_hash,
 		       COALESCE(array_agg(a.county_gid) FILTER (WHERE a.county_gid IS NOT NULL), '{}')
 		FROM alerts
 		LEFT JOIN alert_areas a ON a.alert_id = alerts.id
@@ -318,7 +397,7 @@ func (s *Store) findExisting(ctx context.Context, sourceID, sourceIdentifier, re
 	}
 
 	rows, err = s.pool.Query(ctx, `
-		SELECT id, severity, COALESCE(instruction,''), expires_at, status, content_hash,
+		SELECT id, severity, COALESCE(instruction,''), onset_at, expires_at, status, content_hash,
 		       COALESCE(array_agg(a.county_gid) FILTER (WHERE a.county_gid IS NOT NULL), '{}')
 		FROM alerts
 		LEFT JOIN alert_areas a ON a.alert_id = alerts.id
@@ -336,7 +415,7 @@ func scanExisting(rows pgx.Rows) (*existingAlert, error) {
 		return nil, pgx.ErrNoRows
 	}
 	var e existingAlert
-	if err := rows.Scan(&e.ID, &e.Severity, &e.Instruction, &e.ExpiresAt, &e.Status, &e.ContentHash, &e.AreaGIDs); err != nil {
+	if err := rows.Scan(&e.ID, &e.Severity, &e.Instruction, &e.OnsetAt, &e.ExpiresAt, &e.Status, &e.ContentHash, &e.AreaGIDs); err != nil {
 		return nil, err
 	}
 	return &e, rows.Err()
@@ -405,6 +484,12 @@ func isMaterial(existing *existingAlert, n NormalizedAlert, areas []CountyMatch)
 		return true
 	}
 	if existing.Instruction != n.Instruction {
+		return true
+	}
+	if (existing.OnsetAt == nil) != (n.OnsetAt == nil) {
+		return true
+	}
+	if existing.OnsetAt != nil && n.OnsetAt != nil && !existing.OnsetAt.Equal(*n.OnsetAt) {
 		return true
 	}
 	if (existing.ExpiresAt == nil) != (n.ExpiresAt == nil) {

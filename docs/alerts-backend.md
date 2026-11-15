@@ -12,7 +12,7 @@ The alerts domain is additive to the existing campaign push path. It ingests off
 - `internal/alerts/store.go` — alert upsert, idempotency ledger, areas, update history, fan-out jobs.
 - `internal/alerts/fanout.go` — matching, delivery scheduling, Expo send, receipts, token deactivation.
 - `internal/handler/expo/alerts.go` — mobile/public alert and preference endpoints.
-- `internal/handler/admin/alerts.go` — admin Program Update create/list/publish/expire.
+- `internal/handler/admin/alerts.go` — admin Program Update create/list/publish/expire and source/job health.
 - `cmd/alerts/main.go` — `ingest` cron binary and `worker` binary.
 
 ## Run
@@ -31,15 +31,15 @@ DATABASE_URL=... EXPO_PUSH_TOKEN=... ./bin/alerts worker
 
 ## Endpoints
 
-Public:
-- `GET /v1/public/alerts`
-- `GET /v1/public/alerts/{id}`
-- `GET /v1/public/program-updates`
-
-Optional-auth mobile:
-- `GET /v1/mobile/alerts`
+Optional-auth mobile (guests included; ADR-0004 keeps read routes on `/v1/mobile` rather than duplicating them under `/v1/public`):
+- `GET /v1/mobile/alerts` — active alerts plus 30-day expired/cancelled tombstones, scoped to home/watch when signed in; the response includes `sourceHealth` (`ok`/`degraded`/`unavailable`/`unknown`) for the inbox
 - `GET /v1/mobile/alerts/{id}`
-- `GET /v1/mobile/program-updates`
+- `GET /v1/mobile/program-updates` — global updates plus county-targeted updates for the signed-in user
+
+`alert_preferences` exposes `enabled` (push opt-in), `osPermissionOk`, `minSeverity`, the opt-in
+`categories` array (`Met`, `Safety`, `Security`, `Program`), `programImportantOnly`, quiet hours,
+home/watch counties, `followCurrentLocation`, and language. Push payload `data` carries only
+`alertId`, `severity`, `sourceId`, and `countyGid`.
 
 Authenticated mobile:
 - `POST /v1/mobile/alerts/{id}/read`
@@ -52,14 +52,22 @@ Admin:
 - `GET/POST /v1/admin/program-updates`
 - `POST /v1/admin/program-updates/{id}/publish`
 - `POST /v1/admin/program-updates/{id}/expire`
+- `GET /v1/admin/alerts/health`
 
 ## Deliberate v1 limits
 
 - FCDO is stored as a national advisory and is **not pushed** (`alert_sources.push_enabled=false`).
+- Quiet-hours suppression is decided at fan-out time and the delivery is left `skipped_quiet_hours`; per #242 there is no delayed morning push. The inbox remains the record.
+- Non-Extreme pushes are capped at 4/day and 2/hour per user; capped deliveries are recorded as `skipped_preference` and remain in the inbox.
+- The client-reported OS permission (`osPermissionOk`) gates push; legal consent is still `user_profiles.consent_notifications`.
+- Push eligibility requires a non-null `expires_at`; alerts without an expiry stay inbox-only.
 - Program Updates are in-app only in this slice; pushing Important updates belongs with the campaign-notification unification work (#248).
-- KMD RSS has no conditional GET support; the ingester uses the GUID set/content hash and the 5-item feed limit. FCDO conditional GET can be added when ETag persistence is wired into `alert_sources`.
+- The ingester persists `ETag` and `Last-Modified` on `alert_sources` and sends conditional requests; KMD's RSS may ignore them, so dedupe also relies on the CAP identifier and content hash.
+- Failed polls back off exponentially from the source interval, capped at 30 minutes.
+- When every item in a full KMD feed is new after a prior success, the run is marked `partial` with `possible_gap` so the inbox can show the source as degraded rather than implying an all-clear.
 - Guest push token registration is schema-ready (`push_tokens.user_id` nullable, `installation_id`) but the public registration/fan-out path is left for the mobile slice.
-- The production schema migration lives on the TanStack branch `feat/alerts-schema` (`0017_alerts.sql`); the backend test schema is `testdata/migrations/0013_alerts.sql`.
+- The production schema migrations live on the TanStack branch `feat/alerts-schema` (`0017_alerts.sql`, `0018_alert_os_permission.sql`); the backend test schema is `testdata/migrations/0013_alerts.sql`.
+- Program Update push and guest installation fan-out are deliberately deferred to the mobile/campaign unification slices (#247/#248).
 
 ## Tests
 

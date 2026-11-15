@@ -129,11 +129,15 @@ func (w *Worker) sendOne(ctx context.Context, j job) {
 	messages := make([]ExpoPushMessage, len(tokens))
 	for i, tok := range tokens {
 		msg := ExpoPushMessage{To: tok, Title: j.title, Body: j.body, Sound: "default"}
+		dataMap := map[string]any{}
 		if j.data != "" {
-			var dataMap map[string]any
-			if err := json.Unmarshal([]byte(j.data), &dataMap); err == nil {
-				msg.Data = dataMap
-			}
+			_ = json.Unmarshal([]byte(j.data), &dataMap)
+		}
+		if j.imageURL != "" {
+			dataMap["imageUrl"] = j.imageURL
+		}
+		if len(dataMap) > 0 {
+			msg.Data = dataMap
 		}
 		messages[i] = msg
 	}

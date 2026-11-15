@@ -31,6 +31,15 @@ func TestAlertsListAndPreferences(t *testing.T) {
 	_, err = pool.Exec(ctx, `INSERT INTO alert_areas (alert_id, county_gid, method, is_primary) VALUES ($1,1,'area_desc',true)`, alertID)
 	require.NoError(t, err)
 
+	_, err = pool.Exec(ctx, `INSERT INTO alerts
+		(source_id, source_identifier, event, severity, urgency, certainty, headline, status, sent_at, expires_at, content_hash, mapping_method)
+		VALUES ('kmd','expired-1','Old rainfall','Severe','Expected','Likely','Old rainfall watch','expired', now() - interval '1 day', now() - interval '1 hour', 'hash-expired', 'area_desc')`)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO alerts
+		(source_id, source_identifier, event, severity, urgency, certainty, sent_at, content_hash, is_test)
+		VALUES ('kmd','test-1','Test alert','Severe','Expected','Likely', now(), 'hash-test', true)`)
+	require.NoError(t, err)
+
 	userID := "00000000-0000-0000-0000-000000000001"
 	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email) VALUES ($1,'Test','test@example.com')`, userID)
 	require.NoError(t, err)
@@ -44,13 +53,18 @@ func TestAlertsListAndPreferences(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var list struct {
-		Items []alertJSON `json:"items"`
+		Items        []alertJSON      `json:"items"`
+		SourceHealth []map[string]any `json:"sourceHealth"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &list))
-	require.Len(t, list.Items, 1)
+	require.Len(t, list.Items, 2)
 	assert.Equal(t, "Severe", list.Items[0].Severity)
+	assert.Equal(t, "active", list.Items[0].Status)
 	assert.Equal(t, []string{"Nairobi"}, list.Items[0].Counties)
 	assert.Equal(t, []int{1}, list.Items[0].CountyGids)
+	assert.Equal(t, "expired", list.Items[1].Status, "expired tombstones stay readable")
+	require.NotEmpty(t, list.SourceHealth)
+	assert.Equal(t, "unknown", list.SourceHealth[0]["state"])
 
 	req = httptest.NewRequest(http.MethodGet, "/v1/mobile/alert-preferences", nil)
 	req = req.WithContext(context.WithValue(req.Context(), middleware.CtxUserID, userID))
@@ -61,7 +75,7 @@ func TestAlertsListAndPreferences(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &prefs))
 	assert.Equal(t, "Severe", prefs.MinSeverity)
 
-	body := `{"minSeverity":"Moderate","homeCountyGid":1,"watchCountyGids":[1]}`
+	body := `{"minSeverity":"Moderate","homeCountyGid":1,"watchCountyGids":[1],"programImportantOnly":false}`
 	req = httptest.NewRequest(http.MethodPatch, "/v1/mobile/alert-preferences", strings.NewReader(body))
 	req = req.WithContext(context.WithValue(req.Context(), middleware.CtxUserID, userID))
 	rec = httptest.NewRecorder()
@@ -73,6 +87,7 @@ func TestAlertsListAndPreferences(t *testing.T) {
 	require.NotNil(t, updated.HomeCountyGid)
 	assert.Equal(t, 1, *updated.HomeCountyGid)
 	assert.Equal(t, []int{1}, updated.WatchCountyGids)
+	assert.False(t, updated.ProgramImportantOnly)
 }
 
 func TestAlertReadState(t *testing.T) {
@@ -99,4 +114,46 @@ func TestAlertReadState(t *testing.T) {
 	var readAt *time.Time
 	require.NoError(t, pool.QueryRow(ctx, `SELECT read_at FROM alert_read_state WHERE user_id=$1 AND alert_id=$2`, userID, alertID).Scan(&readAt))
 	require.NotNil(t, readAt)
+}
+
+func TestProgramUpdatesRespectCountyTargeting(t *testing.T) {
+	pool := db.SetupTestDB(t)
+	ctx := context.Background()
+	_, err := pool.Exec(ctx, `INSERT INTO kenya_counties (gid, adm1_name, adm1_pcode, geom)
+		VALUES (1, 'Nairobi', 'KE047', ST_GeomFromText('MULTIPOLYGON(((36.7 -1.2, 36.9 -1.2, 36.9 -1.4, 36.7 -1.4, 36.7 -1.2)))', 4326))`)
+	require.NoError(t, err)
+
+	userID := "00000000-0000-0000-0000-000000000004"
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email) VALUES ($1,'Targeted','targeted@example.com')`, userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO alert_preferences (user_id, home_county_gid) VALUES ($1,1)`, userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO program_updates (title, body, priority, status, county_gids, published_at, created_by)
+		VALUES ('Nairobi cleanup','Nairobi only','Normal','published',ARRAY[1],now(),$1),
+		       ('App update','Everyone','Normal','published','{}',now(),$1)`, userID)
+	require.NoError(t, err)
+
+	h := NewAlertsHandler(pool)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/mobile/program-updates", nil)
+	rec := httptest.NewRecorder()
+	h.ListProgramUpdates(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var guest struct {
+		Items []map[string]any `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &guest))
+	require.Len(t, guest.Items, 1)
+	assert.Equal(t, "App update", guest.Items[0]["title"])
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/mobile/program-updates", nil)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.CtxUserID, userID))
+	rec = httptest.NewRecorder()
+	h.ListProgramUpdates(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var member struct {
+		Items []map[string]any `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &member))
+	require.Len(t, member.Items, 2)
 }

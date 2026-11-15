@@ -31,6 +31,7 @@ const (
 	MethodPolygon  = "polygon"
 	MethodAreaDesc = "area_desc"
 	MethodRegion   = "region"
+	MethodMixed    = "mixed"
 	MethodNational = "national"
 	MethodManual   = "manual"
 	MethodUnmapped = "unmapped"

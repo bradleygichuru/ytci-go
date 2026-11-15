@@ -177,7 +177,7 @@ func (w *Worker) fanout(ctx context.Context, alertID, reason string) (int, error
 		JOIN push_tokens pt ON pt.user_id::text = p.user_id AND pt.is_active = true
 		LEFT JOIN user_alert_location l
 		  ON l.user_id = p.user_id AND l.updated_at > now() - interval '24 hours'
-		WHERE up.consent_notifications = true AND p.enabled = true`)
+		WHERE up.consent_notifications = true AND p.enabled = true AND p.os_permission_ok = true`)
 	if err != nil {
 		return 0, err
 	}
@@ -223,6 +223,11 @@ func (w *Worker) fanout(ctx context.Context, alertID, reason string) (int, error
 		}, prefs, now)
 		status := "queued"
 		deliverAfter := now
+		if allowed && w.capExceeded(ctx, userID, alert.Severity) {
+			status = "skipped_preference"
+			allowed = false
+			why = "cap"
+		}
 		switch {
 		case why == "expired":
 			status = "skipped_expired"
@@ -254,7 +259,10 @@ func (w *Worker) fanout(ctx context.Context, alertID, reason string) (int, error
 
 func matchAlert(alert alertRow, areas []int32, home *int32, watch []int32, location *int32, followLocation bool) (string, *int32) {
 	if len(areas) == 0 {
-		return "national", nil
+		if home != nil || len(watch) > 0 || (followLocation && location != nil) {
+			return "national", nil
+		}
+		return "", nil
 	}
 	if home != nil && containsGID(areas, *home) {
 		return "home", home
@@ -269,6 +277,24 @@ func matchAlert(alert alertRow, areas []int32, home *int32, watch []int32, locat
 		return "location", location
 	}
 	return "", nil
+}
+
+func (w *Worker) capExceeded(ctx context.Context, userID, severity string) bool {
+	if SeverityRank(severity) >= 4 {
+		return false
+	}
+	var day, hour int
+	err := w.store.Pool().QueryRow(ctx, `
+		SELECT count(DISTINCT d.alert_id) FILTER (WHERE d.created_at > now() - interval '24 hours'),
+		       count(DISTINCT d.alert_id) FILTER (WHERE d.created_at > now() - interval '1 hour')
+		FROM alert_deliveries d
+		JOIN alerts a ON a.id = d.alert_id
+		WHERE d.user_id=$1 AND d.status IN ('queued','sent') AND a.severity <> 'Extreme'`,
+		userID).Scan(&day, &hour)
+	if err != nil {
+		return false
+	}
+	return day >= 4 || hour >= 2
 }
 
 func containsGID(areas []int32, gid int32) bool {
@@ -301,8 +327,8 @@ func (w *Worker) loadAlert(ctx context.Context, id string) (alertRow, error) {
 
 func (w *Worker) sendDue(ctx context.Context) error {
 	rows, err := w.store.Pool().Query(ctx, `
-		SELECT d.id, d.alert_id, d.user_id, pt.token, a.severity, a.event, a.headline,
-		       COALESCE(a.instruction,a.description,''), a.expires_at, a.status
+		SELECT d.id, d.alert_id, d.user_id, pt.token, a.source_id, a.severity, a.event, a.headline,
+		       COALESCE(a.instruction,a.description,''), a.expires_at, a.status, d.county_gid
 		FROM alert_deliveries d
 		JOIN alerts a ON a.id=d.alert_id
 		JOIN push_tokens pt ON pt.id=d.push_token_id
@@ -313,17 +339,18 @@ func (w *Worker) sendDue(ctx context.Context) error {
 	}
 	defer rows.Close()
 	type due struct {
-		id                                                      int64
-		alertID, userID, token, severity, event, headline, body string
-		status                                                  string
-		expires                                                 *time.Time
+		id                                                                int64
+		alertID, userID, token, sourceID, severity, event, headline, body string
+		status                                                            string
+		expires                                                           *time.Time
+		countyGID                                                         *int32
 	}
 	var items []due
 	for rows.Next() {
 		var d due
 		var expires pgtype.Timestamptz
-		if err := rows.Scan(&d.id, &d.alertID, &d.userID, &d.token, &d.severity,
-			&d.event, &d.headline, &d.body, &expires, &d.status); err != nil {
+		if err := rows.Scan(&d.id, &d.alertID, &d.userID, &d.token, &d.sourceID, &d.severity,
+			&d.event, &d.headline, &d.body, &expires, &d.status, &d.countyGID); err != nil {
 			return err
 		}
 		if expires.Valid {

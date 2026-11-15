@@ -72,3 +72,59 @@ func TestStoreUpsertAlertAndFanout(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM alert_deliveries WHERE alert_id=$1 AND reason='home'`, result.ID).Scan(&count))
 	assert.Equal(t, 1, count)
 }
+
+func TestUpdatePushCooldownAndBypass(t *testing.T) {
+	pool := db.SetupTestDB(t)
+	ctx := context.Background()
+	_, err := pool.Exec(ctx, `INSERT INTO kenya_counties (gid, adm1_name, adm1_pcode, geom)
+		VALUES (1, 'Nairobi', 'KE047', ST_GeomFromText('MULTIPOLYGON(((36.7 -1.2, 36.9 -1.2, 36.9 -1.4, 36.7 -1.4, 36.7 -1.2)))', 4326))`)
+	require.NoError(t, err)
+
+	store := NewStore(pool)
+	expires := time.Now().Add(6 * time.Hour).UTC()
+	n := NormalizedAlert{
+		SourceID: "kmd", SourceIdentifier: "cooldown-1", MsgType: "Alert",
+		Category: "Met", Categories: []string{"Met"}, Event: "Heavy rainfall",
+		Severity: "Severe", Urgency: "Expected", Certainty: "Likely", Language: "en",
+		Headline: "Heavy rainfall expected", Instruction: "Move to higher ground.",
+		SentAt: time.Now().UTC(), ExpiresAt: &expires, ContentHash: "cooldown-hash-1",
+		RawAreaDesc: "Nairobi", MappingMethod: MethodAreaDesc,
+	}
+	created, err := store.UpsertAlert(ctx, n, []CountyMatch{{County: County{GID: 1, Name: "Nairobi"}, Method: MethodAreaDesc}}, true)
+	require.NoError(t, err)
+
+	var tokenID string
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO push_tokens (token, platform) VALUES ('ExponentPushToken[cooldown]', 'android') RETURNING id`).Scan(&tokenID))
+	_, err = pool.Exec(ctx, `INSERT INTO alert_deliveries (alert_id, user_id, push_token_id, reason, status, sent_at)
+		VALUES ($1, 'cooldown-user', $2, 'home', 'sent', now())`, created.ID, tokenID)
+	require.NoError(t, err)
+
+	jobCount := func() int {
+		var c int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM alert_fanout_jobs WHERE alert_id=$1`, created.ID).Scan(&c))
+		return c
+	}
+	require.Equal(t, 1, jobCount())
+
+	instruction := n
+	instruction.Instruction = "Move to higher ground immediately."
+	instruction.ContentHash = "cooldown-hash-2"
+	update, err := store.UpsertAlert(ctx, instruction, []CountyMatch{{County: County{GID: 1, Name: "Nairobi"}, Method: MethodAreaDesc}}, true)
+	require.NoError(t, err)
+	require.True(t, update.Material)
+	require.Equal(t, 1, jobCount(), "instruction-only update within six hours must not push")
+
+	escalated := instruction
+	escalated.Severity = "Extreme"
+	escalated.ContentHash = "cooldown-hash-3"
+	_, err = store.UpsertAlert(ctx, escalated, []CountyMatch{{County: County{GID: 1, Name: "Nairobi"}, Method: MethodAreaDesc}}, true)
+	require.NoError(t, err)
+	require.Equal(t, 2, jobCount(), "severity escalation must break the cooldown")
+
+	cancelled := escalated
+	cancelled.MsgType = "Cancel"
+	cancelled.ContentHash = "cooldown-hash-4"
+	_, err = store.UpsertAlert(ctx, cancelled, []CountyMatch{{County: County{GID: 1, Name: "Nairobi"}, Method: MethodAreaDesc}}, true)
+	require.NoError(t, err)
+	require.Equal(t, 3, jobCount(), "cancellation must break the cooldown")
+}

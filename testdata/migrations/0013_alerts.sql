@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS alerts (
     content_hash            text NOT NULL,
     raw_area_desc           text,
     mapping_method          text CHECK (mapping_method IN
-                              ('polygon','area_desc','region','national','manual','unmapped')),
+                              ('polygon','area_desc','region','mixed','national','manual','unmapped')),
     mapping_review          boolean NOT NULL DEFAULT false,
     cap_references          text[] NOT NULL DEFAULT '{}',
     is_test                 boolean NOT NULL DEFAULT false,
@@ -128,9 +128,11 @@ CREATE INDEX IF NOT EXISTS alert_updates_alert_idx ON alert_updates (alert_id, v
 CREATE TABLE IF NOT EXISTS alert_preferences (
     user_id                   text PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     enabled                   boolean NOT NULL DEFAULT true,
+    os_permission_ok          boolean NOT NULL DEFAULT true,
     min_severity              text NOT NULL DEFAULT 'Severe'
                                 CHECK (min_severity IN ('Extreme','Severe','Moderate','Minor')),
     categories                text[] NOT NULL DEFAULT ARRAY['Met','Safety','Security'],
+    program_important_only    boolean NOT NULL DEFAULT true,
     quiet_hours_enabled       boolean NOT NULL DEFAULT true,
     quiet_hours_start         time NOT NULL DEFAULT '22:00',
     quiet_hours_end           time NOT NULL DEFAULT '06:00',

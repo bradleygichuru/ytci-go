@@ -209,6 +209,7 @@ func mountAdminRoutes(sub chi.Router, h *handlers, r2client r2.Store, jwks *midd
 		aR.Post("/program-updates", h.programUpdates.Create)
 		aR.Post("/program-updates/{id}/publish", h.programUpdates.Publish)
 		aR.Post("/program-updates/{id}/expire", h.programUpdates.Expire)
+		aR.Get("/alerts/health", h.programUpdates.Health)
 
 		aR.Get("/analytics/summary", h.analytics.Summary)
 		aR.Get("/analytics/reports", h.analytics.ReportsList)
@@ -358,9 +359,6 @@ func mountPublicRoutes(pub chi.Router, h *handlers, r2client r2.Store) {
 	pub.Get("/challenges", h.challenge.ListMobile)
 	pub.Get("/conservation", h.conserv.ListMobile)
 	pub.Get("/companion", expo.GetCompanion)
-	pub.Get("/alerts", h.alerts.List)
-	pub.Get("/alerts/{id}", h.alerts.Get)
-	pub.Get("/program-updates", h.alerts.ListProgramUpdates)
 
 	pub.Get("/marketplace/businesses", h.marketplace.ListBusinesses)
 	pub.Get("/marketplace/businesses/{slug}", h.marketplace.GetBusiness)

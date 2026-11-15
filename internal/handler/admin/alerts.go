@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bradleygichuru/ytci-go/internal/handler"
@@ -91,8 +92,7 @@ func (h *ProgramUpdateHandler) List(w http.ResponseWriter, r *http.Request) {
 		var counties []int32
 		var categories []string
 		var image, link *string
-		var published, expires *time.Time
-		var created, updated time.Time
+		var published, expires, created, updated pgtype.Timestamptz
 		if err := rows.Scan(&id, &title, &body, &priority, &status, &counties, &categories,
 			&image, &link, &published, &expires, &created, &updated); err != nil {
 			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to read program update", err)
@@ -101,8 +101,8 @@ func (h *ProgramUpdateHandler) List(w http.ResponseWriter, r *http.Request) {
 		items = append(items, map[string]any{
 			"id": id, "title": title, "body": body, "priority": priority, "status": status,
 			"countyGids": int32sToInts(counties), "categories": categories,
-			"imageUrl": image, "linkUrl": link, "publishedAt": published, "expiresAt": expires,
-			"createdAt": created, "updatedAt": updated,
+			"imageUrl": image, "linkUrl": link, "publishedAt": adminTime(published), "expiresAt": adminTime(expires),
+			"createdAt": adminTime(created), "updatedAt": adminTime(updated),
 		})
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -115,6 +115,54 @@ func (h *ProgramUpdateHandler) Publish(w http.ResponseWriter, r *http.Request) {
 
 func (h *ProgramUpdateHandler) Expire(w http.ResponseWriter, r *http.Request) {
 	h.setStatus(w, r, "expired", "")
+}
+
+func (h *ProgramUpdateHandler) Health(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.pool.Query(r.Context(), `
+		SELECT id, name, last_checked_at, last_success_at, consecutive_failures,
+		       last_http_status, last_error, push_enabled
+		FROM alert_sources ORDER BY id`)
+	if err != nil {
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to load source health", err)
+		return
+	}
+	defer rows.Close()
+	sources := make([]map[string]any, 0)
+	for rows.Next() {
+		var id, name string
+		var checked, success pgtype.Timestamptz
+		var failures int
+		var httpStatus *int
+		var lastError *string
+		var pushEnabled bool
+		if err := rows.Scan(&id, &name, &checked, &success, &failures, &httpStatus, &lastError, &pushEnabled); err != nil {
+			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to read source health", err)
+			return
+		}
+		sources = append(sources, map[string]any{
+			"id": id, "name": name, "lastCheckedAt": adminTime(checked),
+			"lastSuccessAt": adminTime(success), "consecutiveFailures": failures,
+			"lastHttpStatus": httpStatus, "lastError": lastError, "pushEnabled": pushEnabled,
+		})
+	}
+
+	var worker pgtype.Timestamptz
+	_ = h.pool.QueryRow(r.Context(), `SELECT last_seen_at FROM alert_worker_heartbeat WHERE worker='alerts-worker'`).Scan(&worker)
+	var pending, running, dead, queued, sent, failed int
+	_ = h.pool.QueryRow(r.Context(), `SELECT
+		count(*) FILTER (WHERE status='pending'), count(*) FILTER (WHERE status='running'),
+		count(*) FILTER (WHERE status='dead') FROM alert_fanout_jobs`).Scan(&pending, &running, &dead)
+	_ = h.pool.QueryRow(r.Context(), `SELECT
+		count(*) FILTER (WHERE status='queued'), count(*) FILTER (WHERE status='sent'),
+		count(*) FILTER (WHERE status='failed') FROM alert_deliveries`).Scan(&queued, &sent, &failed)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"sources":          sources,
+		"workerLastSeenAt": adminTime(worker),
+		"jobs":             map[string]int{"pending": pending, "running": running, "dead": dead},
+		"deliveries":       map[string]int{"queued": queued, "sent": sent, "failed": failed},
+	})
 }
 
 func (h *ProgramUpdateHandler) setStatus(w http.ResponseWriter, r *http.Request, status, extraSet string) {
@@ -131,6 +179,13 @@ func (h *ProgramUpdateHandler) setStatus(w http.ResponseWriter, r *http.Request,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"id": id, "status": status})
+}
+
+func adminTime(t pgtype.Timestamptz) any {
+	if !t.Valid {
+		return nil
+	}
+	return t.Time.Format(time.RFC3339)
 }
 
 func intsToInt32(in []int) []int32 {

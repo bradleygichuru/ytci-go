@@ -64,7 +64,10 @@ func (m *Mapper) MapInfo(ctx context.Context, info CAPInfo) (AreaMapping, error)
 	}
 
 	method := text.Method
-	if len(text.Counties) == 0 && len(polygonMatches) > 0 {
+	switch {
+	case len(text.Counties) > 0 && len(polygonMatches) > 0:
+		method = MethodMixed
+	case len(text.Counties) == 0 && len(polygonMatches) > 0:
 		method = MethodPolygon
 	}
 	if len(merged) == 0 {
