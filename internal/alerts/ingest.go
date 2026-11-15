@@ -150,7 +150,11 @@ func (i *Ingester) IngestKMD(ctx context.Context) IngestResult {
 		runError = fmt.Sprintf("possible_gap: all %d feed items were new", len(feed.Items))
 	}
 	i.store.FinishRun(ctx, runID, runStatus, status, result.Seen, result.Created, result.Updated, int64(len(body)), time.Since(started), runError)
-	i.store.UpdateSourceHealth(ctx, "kmd", true, status, "")
+	if possibleGap {
+		i.store.UpdateSourceHealth(ctx, "kmd", false, status, runError)
+	} else {
+		i.store.UpdateSourceHealth(ctx, "kmd", true, status, "")
+	}
 	return result
 }
 
@@ -332,11 +336,17 @@ func normalizeKMD(alert *CAPAlert) (NormalizedAlert, CAPInfo, bool) {
 		if !strings.EqualFold(alert.MsgType, "Cancel") {
 			return NormalizedAlert{}, CAPInfo{}, false
 		}
+		isTest := !strings.EqualFold(alert.Status, "Actual")
+		if scope := strings.TrimSpace(alert.Scope); scope != "" && !strings.EqualFold(scope, "Public") {
+			isTest = true
+		}
 		sum := sha256.Sum256([]byte(alert.Identifier + "|Cancel|" + alert.References))
 		return NormalizedAlert{
 			SourceID: "kmd", SourceIdentifier: alert.Identifier, MsgType: "Cancel",
-			Categories: []string{}, SentAt: alert.Sent,
-			ContentHash: hex.EncodeToString(sum[:]), RawAreaDesc: "",
+			Category: "Other", Categories: []string{}, Event: "Cancelled alert",
+			Severity: "Unknown", Urgency: "Unknown", Certainty: "Unknown", Language: "en",
+			Headline: "Alert cancelled", Description: "The official source withdrew this alert.",
+			SentAt: alert.Sent, IsTest: isTest, ContentHash: hex.EncodeToString(sum[:]),
 			MappingMethod: MethodManual, CapReferences: splitReferences(alert.References),
 			ReferenceIdentifier: referenceIdentifier(alert.References),
 		}, CAPInfo{}, true

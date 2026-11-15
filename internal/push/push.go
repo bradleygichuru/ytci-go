@@ -112,6 +112,9 @@ type SendResult struct {
 	Errors         []string
 	TokenErrors    map[string]string
 	TicketForToken map[string]string
+	// TicketForIndex is keyed by the position in the SendMessages input, so
+	// multiple messages to the same device keep distinct tickets.
+	TicketForIndex map[int]string
 }
 
 // Receipt is the exported receipt shape used by the alerts worker.
@@ -141,8 +144,13 @@ func (c *Client) GetReceiptMap(ctx context.Context, ticketIDs []string) (map[str
 }
 
 func (c *Client) SendMessages(ctx context.Context, messages []ExpoPushMessage) (*SendResult, error) {
-	result := &SendResult{TokenErrors: make(map[string]string), TicketForToken: make(map[string]string)}
+	result := &SendResult{
+		TokenErrors:    make(map[string]string),
+		TicketForToken: make(map[string]string),
+		TicketForIndex: make(map[int]string),
+	}
 
+	offset := 0
 	chunks := chunkMessages(messages, 100)
 	for _, chunk := range chunks {
 		body, _ := json.Marshal(chunk)
@@ -172,6 +180,7 @@ func (c *Client) SendMessages(ctx context.Context, messages []ExpoPushMessage) (
 				result.Sent++
 				if i < len(chunk) && r.ID != "" {
 					result.TicketForToken[chunk[i].To] = r.ID
+					result.TicketForIndex[offset+i] = r.ID
 				}
 			} else {
 				result.Failed++
@@ -181,6 +190,7 @@ func (c *Client) SendMessages(ctx context.Context, messages []ExpoPushMessage) (
 				}
 			}
 		}
+		offset += len(chunk)
 	}
 
 	return result, nil

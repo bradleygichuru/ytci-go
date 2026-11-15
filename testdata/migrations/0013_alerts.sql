@@ -128,7 +128,7 @@ CREATE INDEX IF NOT EXISTS alert_updates_alert_idx ON alert_updates (alert_id, v
 CREATE TABLE IF NOT EXISTS alert_preferences (
     user_id                   text PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     enabled                   boolean NOT NULL DEFAULT true,
-    os_permission_ok          boolean NOT NULL DEFAULT true,
+    os_permission_ok          boolean NOT NULL DEFAULT false,
     min_severity              text NOT NULL DEFAULT 'Severe'
                                 CHECK (min_severity IN ('Extreme','Severe','Moderate','Minor')),
     categories                text[] NOT NULL DEFAULT ARRAY['Met'],
@@ -253,6 +253,13 @@ ALTER TABLE push_tokens ADD COLUMN IF NOT EXISTS installation_id text;
 ALTER TABLE push_tokens ADD COLUMN IF NOT EXISTS last_registered_at timestamptz;
 ALTER TABLE push_tokens ADD COLUMN IF NOT EXISTS deactivated_at timestamptz;
 ALTER TABLE push_tokens ADD COLUMN IF NOT EXISTS deactivation_reason text;
+
+INSERT INTO alert_preferences (user_id, home_county_gid)
+SELECT up.user_id, kc.gid
+FROM user_profiles up
+LEFT JOIN kenya_counties kc ON lower(kc.adm1_name) = lower(trim(up.county))
+WHERE up.consent_notifications = true
+ON CONFLICT (user_id) DO NOTHING;
 
 INSERT INTO alert_sources
     (id, name, kind, feed_url, homepage_url, trust_level, poll_interval_seconds, enabled, push_enabled)

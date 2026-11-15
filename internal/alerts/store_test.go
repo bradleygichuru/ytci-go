@@ -59,7 +59,7 @@ func TestStoreUpsertAlertAndFanout(t *testing.T) {
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO user_profiles (user_id, consent_notifications, created_by) VALUES ($1, true, $1)`, userID)
 	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO alert_preferences (user_id, home_county_gid) VALUES ($1, 1)`, userID)
+	_, err = pool.Exec(ctx, `INSERT INTO alert_preferences (user_id, home_county_gid, os_permission_ok) VALUES ($1, 1, true)`, userID)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO push_tokens (user_id, token, platform) VALUES ($1::uuid, 'ExponentPushToken[test]', 'android')`, userID)
 	require.NoError(t, err)
@@ -179,4 +179,30 @@ func TestCancelByCAPReferencePreservesRecord(t *testing.T) {
 	var linked string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT alert_id FROM alert_source_messages WHERE source_identifier='cancel-2'`).Scan(&linked))
 	assert.Equal(t, created.ID, linked)
+}
+
+func TestOrphanCancelCreatesTombstoneNotActiveAlert(t *testing.T) {
+	pool := db.SetupTestDB(t)
+	ctx := context.Background()
+	store := NewStore(pool)
+
+	cancel, _, ok := normalizeKMD(&CAPAlert{
+		Identifier: "orphan-cancel", Sender: "director@meteo.go.ke", Sent: time.Now().UTC(),
+		Status: "Actual", MsgType: "Cancel", Scope: "Public",
+		References: "director@meteo.go.ke,missing-alert," + time.Now().UTC().Format(time.RFC3339),
+	})
+	require.True(t, ok)
+	result, err := store.UpsertAlert(ctx, cancel, nil, true)
+	require.NoError(t, err)
+	assert.Equal(t, "cancelled", result.Status)
+
+	var status string
+	var cancelledAt *time.Time
+	require.NoError(t, pool.QueryRow(ctx, `SELECT status, cancelled_at FROM alerts WHERE id=$1`, result.ID).Scan(&status, &cancelledAt))
+	assert.Equal(t, "cancelled", status)
+	require.NotNil(t, cancelledAt)
+
+	var jobs int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM alert_fanout_jobs WHERE alert_id=$1`, result.ID).Scan(&jobs))
+	assert.Zero(t, jobs, "an orphan cancel has no recipients to notify")
 }

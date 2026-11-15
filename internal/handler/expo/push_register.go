@@ -47,6 +47,20 @@ func (h *PushRegisterHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if userID != "" {
+		if _, err := h.pool.Exec(r.Context(),
+			`INSERT INTO alert_preferences (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`,
+			userID); err != nil {
+			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create alert preferences", err)
+			return
+		}
+		_, _ = h.pool.Exec(r.Context(), `
+			UPDATE alert_preferences p SET home_county_gid = kc.gid, updated_at = now()
+			FROM user_profiles up
+			JOIN kenya_counties kc ON lower(kc.adm1_name) = lower(trim(up.county))
+			WHERE p.user_id=$1 AND up.user_id=$1 AND p.home_county_gid IS NULL`, userID)
+	}
+
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"status": "registered"})
 }

@@ -74,6 +74,8 @@ func TestAlertsListAndPreferences(t *testing.T) {
 	var prefs preferencesJSON
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &prefs))
 	assert.Equal(t, "Severe", prefs.MinSeverity)
+	assert.Equal(t, "22:00", prefs.QuietHoursStart)
+	assert.False(t, prefs.OSPermissionOK)
 
 	body := `{"minSeverity":"Moderate","homeCountyGid":1,"watchCountyGids":[1],"programImportantOnly":false}`
 	req = httptest.NewRequest(http.MethodPatch, "/v1/mobile/alert-preferences", strings.NewReader(body))

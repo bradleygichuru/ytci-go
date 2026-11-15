@@ -66,7 +66,6 @@ func (h *AlertsHandler) List(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r.Context())
 	countyGid := parseOptionalInt(r.URL.Query().Get("countyGid"))
 
-	home, watch := h.userScope(r, userID)
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT a.id, a.source_id, COALESCE(s.name,''), a.event, a.category, a.severity,
 		       a.urgency, a.certainty, a.status, COALESCE(a.headline,''), COALESCE(a.description,''),
@@ -83,11 +82,7 @@ func (h *AlertsHandler) List(w http.ResponseWriter, r *http.Request) {
 		       OR (a.status IN ('expired','cancelled') AND a.sent_at > now() - interval '30 days'))
 		  AND ($2::int IS NULL OR NOT EXISTS (SELECT 1 FROM alert_areas x WHERE x.alert_id=a.id)
 		       OR EXISTS (SELECT 1 FROM alert_areas x WHERE x.alert_id=a.id AND x.county_gid=$2))
-		  AND ($1='' OR ($3::int IS NULL AND cardinality($4::int[]) = 0)
-		       OR NOT EXISTS (SELECT 1 FROM alert_areas x WHERE x.alert_id=a.id)
-		       OR ($3::int IS NOT NULL AND EXISTS (SELECT 1 FROM alert_areas x WHERE x.alert_id=a.id AND x.county_gid=$3))
-		       OR EXISTS (SELECT 1 FROM alert_areas x WHERE x.alert_id=a.id AND x.county_gid = ANY($4::int[])))
-		ORDER BY (a.status='active') DESC, a.sent_at DESC LIMIT 100`, userID, countyGid, home, watch)
+		ORDER BY (a.status='active') DESC, a.sent_at DESC LIMIT 100`, userID, countyGid)
 	if err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list alerts", err)
 		return
@@ -236,7 +231,7 @@ func (h *AlertsHandler) GetPreferences(w http.ResponseWriter, r *http.Request) {
 	prefs := defaultPreferences()
 	row := h.pool.QueryRow(r.Context(), `
 		SELECT enabled, os_permission_ok, min_severity, categories, program_important_only,
-		       quiet_hours_enabled, quiet_hours_start::text, quiet_hours_end::text, timezone,
+		       quiet_hours_enabled, to_char(quiet_hours_start,'HH24:MI'), to_char(quiet_hours_end,'HH24:MI'), timezone,
 		       critical_override, home_county_gid, watch_county_gids, follow_current_location,
 		       follow_itineraries, follow_saved_destinations, language
 		FROM alert_preferences WHERE user_id=$1`, userID)
@@ -279,7 +274,7 @@ type preferencesJSON struct {
 
 func defaultPreferences() preferencesJSON {
 	return preferencesJSON{
-		Enabled: true, OSPermissionOK: true, MinSeverity: "Severe", Categories: []string{"Met"},
+		Enabled: true, OSPermissionOK: false, MinSeverity: "Severe", Categories: []string{"Met"},
 		ProgramImportantOnly: true, QuietHoursEnabled: true, QuietHoursStart: "22:00", QuietHoursEnd: "06:00",
 		Timezone: "Africa/Nairobi", CriticalOverride: false, FollowCurrentLocation: true,
 		WatchCountyGids: []int{}, Language: "en",
@@ -369,7 +364,7 @@ func (h *AlertsHandler) UpdatePreferences(w http.ResponseWriter, r *http.Request
 		  quiet_hours_enabled, quiet_hours_start, quiet_hours_end, timezone, critical_override,
 		  home_county_gid, watch_county_gids, follow_current_location, follow_itineraries,
 		  follow_saved_destinations, language
-		) VALUES ($1, COALESCE($2,true), COALESCE($3,true), COALESCE($4,'Severe'), COALESCE($5::text[],ARRAY['Met']),
+		) VALUES ($1, COALESCE($2,true), COALESCE($3,false), COALESCE($4,'Severe'), COALESCE($5::text[],ARRAY['Met']),
 		  COALESCE($6,true), COALESCE($7,true), COALESCE($8::time,'22:00'), COALESCE($9::time,'06:00'),
 		  COALESCE($10,'Africa/Nairobi'), COALESCE($11,false), $12, COALESCE($13::int[],'{}'),
 		  COALESCE($14,true), COALESCE($15,false), COALESCE($16,false), COALESCE($17,'en'))
@@ -476,7 +471,9 @@ func (h *AlertsHandler) userScope(r *http.Request, userID string) (*int, []int) 
 	}
 	var home *int32
 	var watch []int32
-	_ = h.pool.QueryRow(r.Context(), `SELECT home_county_gid, watch_county_gids FROM alert_preferences WHERE user_id=$1`, userID).Scan(&home, &watch)
+	if err := h.pool.QueryRow(r.Context(), `SELECT home_county_gid, watch_county_gids FROM alert_preferences WHERE user_id=$1`, userID).Scan(&home, &watch); err != nil && err != pgx.ErrNoRows {
+		slog.Warn("alerts: failed to read user scope", "user", userID, "error", err)
+	}
 	if home == nil && len(watch) == 0 {
 		return nil, nil
 	}

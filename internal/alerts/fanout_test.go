@@ -91,10 +91,13 @@ func (c *captureSender) SendMessages(ctx context.Context, messages []push.ExpoPu
 	result := &push.SendResult{
 		TokenErrors:    map[string]string{},
 		TicketForToken: map[string]string{},
+		TicketForIndex: map[int]string{},
 	}
 	for i, message := range messages {
 		result.Sent++
-		result.TicketForToken[message.To] = "ticket-" + strconv.Itoa(i)
+		ticket := "ticket-" + strconv.Itoa(i)
+		result.TicketForToken[message.To] = ticket
+		result.TicketForIndex[i] = ticket
 	}
 	return result, nil
 }

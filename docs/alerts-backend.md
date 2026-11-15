@@ -32,7 +32,7 @@ DATABASE_URL=... EXPO_PUSH_TOKEN=... ./bin/alerts worker
 ## Endpoints
 
 Optional-auth mobile (guests included; ADR-0004 keeps read routes on `/v1/mobile` rather than duplicating them under `/v1/public`):
-- `GET /v1/mobile/alerts` — active alerts plus 30-day expired/cancelled tombstones, scoped to home/watch when signed in; the response includes `sourceHealth` (`ok`/`degraded`/`unavailable`/`unknown`) for the inbox
+- `GET /v1/mobile/alerts` — every active public alert plus 30-day expired/cancelled tombstones. Push preferences never hide the inbox; use `?countyGid=` for the county filter. The response includes `sourceHealth` (`ok`/`degraded`/`unavailable`/`unknown`).
 - `GET /v1/mobile/alerts/{id}`
 - `GET /v1/mobile/program-updates` — global updates plus county-targeted updates for the signed-in user
 
@@ -59,7 +59,8 @@ Admin:
 - FCDO is stored as a national advisory and is **not pushed** (`alert_sources.push_enabled=false`).
 - Quiet-hours suppression is decided at fan-out time and the delivery is left `skipped_quiet_hours`; per #242 there is no delayed morning push. The inbox remains the record.
 - Non-Extreme pushes are capped at 4/day and 2/hour per user; capped deliveries are recorded as `skipped_preference` and remain in the inbox.
-- The client-reported OS permission (`osPermissionOk`) gates push; legal consent is still `user_profiles.consent_notifications`.
+- The client-reported OS permission (`osPermissionOk`) gates push and defaults to `false` (fail closed). The mobile client must PATCH it to `true` after the OS prompt; legal consent is still `user_profiles.consent_notifications`.
+- Token registration creates an `alert_preferences` row and seeds the home county from `user_profiles.county` when it matches a county; the schema migration backfills existing consenting users.
 - New accounts default to Weather (`Met`) push only at Severe+, with Security, Safety, and Program off. Quiet hours are 22:00–06:00; Extreme always bypasses and Severe overnight is opt-in (`criticalOverride`).
 - Push eligibility requires a non-null `expires_at`; alerts without an expiry stay inbox-only. A cancellation is push-eligible even without an expiry because it targets readers who already received the original.
 - `alert_sources.push_enabled` gates KMD fan-out; FCDO remains in-app only.

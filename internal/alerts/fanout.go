@@ -154,8 +154,16 @@ func (w *Worker) fanout(ctx context.Context, alertID, reason string) (int, error
 	}
 	if alert.Status == "cancelled" {
 		tag, err := w.store.Pool().Exec(ctx, `
-			UPDATE alert_deliveries SET status='queued', deliver_after=now(), attempts=0
-			WHERE alert_id=$1 AND status IN ('sent','failed')`, alertID)
+			UPDATE alert_deliveries d SET status='queued', deliver_after=now(), attempts=0
+			FROM alert_preferences p, user_profiles up, push_tokens pt
+			WHERE d.alert_id=$1 AND d.status IN ('sent','failed')
+			  AND p.user_id=d.user_id AND up.user_id=d.user_id AND pt.id=d.push_token_id
+			  AND up.consent_notifications=true AND p.enabled=true AND p.os_permission_ok=true
+			  AND pt.is_active=true
+			  AND (p.home_county_gid IS NOT NULL OR cardinality(p.watch_county_gids) > 0
+			       OR EXISTS (SELECT 1 FROM user_alert_location l
+			                  WHERE l.user_id=p.user_id AND l.updated_at > now() - interval '24 hours'
+			                    AND up.consent_location=true))`, alertID)
 		if err != nil {
 			return 0, err
 		}
@@ -182,7 +190,7 @@ func (w *Worker) fanout(ctx context.Context, alertID, reason string) (int, error
 
 	rows, err := w.store.Pool().Query(ctx, `
 		SELECT p.user_id, pt.id, pt.token, p.enabled, p.min_severity, p.categories,
-		       p.quiet_hours_enabled, p.quiet_hours_start::text, p.quiet_hours_end::text,
+		       p.quiet_hours_enabled, to_char(p.quiet_hours_start,'HH24:MI'), to_char(p.quiet_hours_end,'HH24:MI'),
 		       p.timezone, p.critical_override, p.home_county_gid, p.watch_county_gids,
 		       p.follow_current_location, l.county_gid,
 		       COALESCE(up.consent_notifications, false)
@@ -191,6 +199,7 @@ func (w *Worker) fanout(ctx context.Context, alertID, reason string) (int, error
 		JOIN push_tokens pt ON pt.user_id::text = p.user_id AND pt.is_active = true
 		LEFT JOIN user_alert_location l
 		  ON l.user_id = p.user_id AND l.updated_at > now() - interval '24 hours'
+		  AND up.consent_location = true
 		WHERE up.consent_notifications = true AND p.enabled = true AND p.os_permission_ok = true`)
 	if err != nil {
 		return 0, err
@@ -345,7 +354,7 @@ func (w *Worker) sendDue(ctx context.Context) error {
 		       COALESCE(a.instruction,a.description,''), a.expires_at, a.status, d.county_gid
 		FROM alert_deliveries d
 		JOIN alerts a ON a.id=d.alert_id
-		JOIN push_tokens pt ON pt.id=d.push_token_id
+		JOIN push_tokens pt ON pt.id=d.push_token_id AND pt.is_active = true
 		WHERE d.status='queued' AND d.deliver_after <= now()
 		  AND a.status IN ('active','cancelled')
 		ORDER BY d.created_at LIMIT $1`, w.batch)
@@ -393,7 +402,7 @@ func (w *Worker) sendDue(ctx context.Context) error {
 	// Build messages before marking rows in flight, so an unbuildable message
 	// never leaves a delivery stuck in 'sending'.
 	messages := make([]push.ExpoPushMessage, 0, len(items))
-	byToken := make(map[string][]due)
+	messageDeliveries := make([]due, 0, len(items))
 	for _, d := range items {
 		title := strings.TrimSpace(d.headline)
 		if title == "" {
@@ -430,7 +439,7 @@ func (w *Worker) sendDue(ctx context.Context) error {
 			ChannelID: "safety_alerts", InterruptionLevel: interruption,
 			CollapseID: "alert:" + d.alertID, ThreadID: "alerts",
 		}))
-		byToken[d.token] = append(byToken[d.token], d)
+		messageDeliveries = append(messageDeliveries, d)
 	}
 	if len(messages) == 0 {
 		return nil
@@ -446,20 +455,18 @@ func (w *Worker) sendDue(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	sentTokens := make(map[string]bool, len(result.TicketForToken))
-	for token, ticket := range result.TicketForToken {
-		sentTokens[token] = true
-		for _, d := range byToken[token] {
-			_, _ = w.store.Pool().Exec(ctx, `UPDATE alert_deliveries SET status='sent', sent_at=now(), expo_ticket_id=$2 WHERE id=$1`, d.id, ticket)
-		}
-	}
-	for token, deliveries := range byToken {
-		if sentTokens[token] {
+	for index, ticket := range result.TicketForIndex {
+		if index < 0 || index >= len(messageDeliveries) {
 			continue
 		}
-		for _, d := range deliveries {
-			_, _ = w.store.Pool().Exec(ctx, `UPDATE alert_deliveries SET status='failed', error_code='TICKET_ERROR' WHERE id=$1`, d.id)
+		d := messageDeliveries[index]
+		_, _ = w.store.Pool().Exec(ctx, `UPDATE alert_deliveries SET status='sent', sent_at=now(), expo_ticket_id=$2 WHERE id=$1`, d.id, ticket)
+	}
+	for index, d := range messageDeliveries {
+		if _, ok := result.TicketForIndex[index]; ok {
+			continue
 		}
+		_, _ = w.store.Pool().Exec(ctx, `UPDATE alert_deliveries SET status='failed', error_code='TICKET_ERROR' WHERE id=$1`, d.id)
 	}
 	for token := range result.TokenErrors {
 		_, _ = w.store.Pool().Exec(ctx, `UPDATE push_tokens SET is_active=false, deactivated_at=now(), deactivation_reason='DeviceNotRegistered' WHERE token=$1`, token)

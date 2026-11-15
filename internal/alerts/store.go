@@ -350,9 +350,12 @@ func (s *Store) UpsertAlert(ctx context.Context, n NormalizedAlert, areas []Coun
 		  source_id, source_identifier, source_url, msg_type, status, category, categories,
 		  event, severity, urgency, certainty, language, headline, description, instruction,
 		  web_url, contact, sender, sender_name, sent_at, effective_at, onset_at, expires_at,
-		  content_hash, raw_area_desc, mapping_method, mapping_review, cap_references, is_test
-		) VALUES ($1,$2,$3,$4,'active',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
-		  $19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
+		  content_hash, raw_area_desc, mapping_method, mapping_review, cap_references, is_test,
+		  cancelled_at
+		) VALUES ($1,$2,$3,$4,
+		  CASE WHEN $4='Cancel' THEN 'cancelled' ELSE 'active' END,
+		  $5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,
+		  CASE WHEN $4='Cancel' THEN now() ELSE NULL END)
 		RETURNING id`,
 		n.SourceID, n.SourceIdentifier, n.SourceURL, n.MsgType, n.Category, n.Categories,
 		n.Event, n.Severity, n.Urgency, n.Certainty, n.Language, n.Headline, n.Description,
@@ -371,7 +374,7 @@ func (s *Store) UpsertAlert(ctx context.Context, n NormalizedAlert, areas []Coun
 	}
 	_, _ = tx.Exec(ctx, `INSERT INTO alert_source_messages (source_id, source_identifier, alert_id, content_hash)
 		VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`, n.SourceID, n.SourceIdentifier, id, n.ContentHash)
-	if pushEnabled && !n.IsTest {
+	if pushEnabled && !n.IsTest && n.MsgType != "Cancel" {
 		_, err = tx.Exec(ctx, `INSERT INTO alert_fanout_jobs (alert_id, reason, content_hash)
 			VALUES ($1,'new',$2) ON CONFLICT DO NOTHING`, id, n.ContentHash)
 		if err != nil {
@@ -381,7 +384,11 @@ func (s *Store) UpsertAlert(ctx context.Context, n NormalizedAlert, areas []Coun
 	if err := tx.Commit(ctx); err != nil {
 		return UpsertResult{}, err
 	}
-	return UpsertResult{ID: id, Created: true, Material: true, Status: "active"}, nil
+	status := "active"
+	if n.MsgType == "Cancel" {
+		status = "cancelled"
+	}
+	return UpsertResult{ID: id, Created: true, Material: true, Status: status}, nil
 }
 
 func (s *Store) findExisting(ctx context.Context, sourceID, sourceIdentifier, reference string) (*existingAlert, error) {
