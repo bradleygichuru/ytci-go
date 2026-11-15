@@ -69,7 +69,7 @@ Admin:
 - Failed polls back off exponentially from the source interval, capped at 30 minutes.
 - When every item in a full KMD feed is new after a prior success, the run is marked `partial` with `possible_gap` so the inbox can show the source as degraded rather than implying an all-clear.
 - Guest push token registration is schema-ready (`push_tokens.user_id` nullable, `installation_id`) but the public registration/fan-out path is left for the mobile slice.
-- The production schema migrations live on the TanStack branch `feat/alerts-schema` (`0017_alerts.sql`, `0018_alert_os_permission.sql`); the backend test schema is `testdata/migrations/0013_alerts.sql`.
+- The production schema migrations live on the TanStack branch `feat/alerts-schema` (`0018_alerts.sql` through `0023_alert_preference_backfill.sql`, renumbered after the marketplace `0017` migration from #29); the backend test schema is `testdata/migrations/0013_alerts.sql`.
 - Program Update push and guest installation fan-out are deliberately deferred to the mobile/campaign unification slices (#247/#248).
 
 ## Tests
