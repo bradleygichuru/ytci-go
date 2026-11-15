@@ -38,6 +38,7 @@ func TestShouldPushSevereOverridesQuietHours(t *testing.T) {
 	now := time.Date(2026, 11, 15, 23, 0, 0, 0, eat())
 	alert := AlertPolicyInput{Severity: "Severe", Category: "Met", Status: "active"}
 	prefs := defaultPolicy()
+	prefs.CriticalOverride = true
 
 	allowed, reason, _ := ShouldPush(alert, prefs, now)
 	assert.True(t, allowed)

@@ -162,6 +162,7 @@ type SourceState struct {
 	LastSuccessAt       time.Time
 	HasSucceeded        bool
 	ConsecutiveFailures int
+	PushEnabled         bool
 }
 
 func (s *Store) SourceState(ctx context.Context, sourceID string) (SourceState, error) {
@@ -170,9 +171,10 @@ func (s *Store) SourceState(ctx context.Context, sourceID string) (SourceState, 
 	var checked, success pgtype.Timestamptz
 	err := s.pool.QueryRow(ctx, `
 		SELECT last_etag, last_modified, last_build_date, last_checked_at, last_success_at,
-		       consecutive_failures
+		       consecutive_failures, push_enabled
 		FROM alert_sources WHERE id=$1`, sourceID).Scan(
-		&etag, &lastModified, &lastBuild, &checked, &success, &state.ConsecutiveFailures)
+		&etag, &lastModified, &lastBuild, &checked, &success, &state.ConsecutiveFailures,
+		&state.PushEnabled)
 	if err != nil {
 		return state, err
 	}
@@ -235,10 +237,6 @@ func (s *Store) UpsertAlert(ctx context.Context, n NormalizedAlert, areas []Coun
 	if n.CapReferences == nil {
 		n.CapReferences = []string{}
 	}
-	if n.Status() == "" {
-		return UpsertResult{}, fmt.Errorf("invalid status")
-	}
-
 	existing, err := s.findExisting(ctx, n.SourceID, n.SourceIdentifier, n.ReferenceIdentifier)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return UpsertResult{}, err
@@ -261,21 +259,48 @@ func (s *Store) UpsertAlert(ctx context.Context, n NormalizedAlert, areas []Coun
 			return UpsertResult{ID: existing.ID, Status: existing.Status}, nil
 		}
 
-		status := "active"
 		if n.MsgType == "Cancel" {
-			status = "cancelled"
+			// A cancellation withdraws the existing record. Keep its content and
+			// areas so the tombstone remains readable.
+			_, err = tx.Exec(ctx, `
+				UPDATE alerts SET status='cancelled', cancelled_at=now(), msg_type='Cancel',
+				  sent_at=$2, content_hash=$3, updated_at=now()
+				WHERE id=$1`, existing.ID, n.SentAt, n.ContentHash)
+			if err != nil {
+				return UpsertResult{}, err
+			}
+			version, err := nextVersion(ctx, tx, existing.ID)
+			if err != nil {
+				return UpsertResult{}, err
+			}
+			if err := insertUpdate(ctx, tx, existing.ID, version, n); err != nil {
+				return UpsertResult{}, err
+			}
+			_, _ = tx.Exec(ctx, `INSERT INTO alert_source_messages (source_id, source_identifier, alert_id, content_hash)
+				VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`, n.SourceID, n.SourceIdentifier, existing.ID, n.ContentHash)
+			if pushEnabled {
+				_, err = tx.Exec(ctx, `INSERT INTO alert_fanout_jobs (alert_id, reason, content_hash)
+					VALUES ($1,'cancel',$2) ON CONFLICT DO NOTHING`, existing.ID, n.ContentHash)
+				if err != nil {
+					return UpsertResult{}, err
+				}
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return UpsertResult{}, err
+			}
+			return UpsertResult{ID: existing.ID, Updated: true, Material: true, Status: "cancelled"}, nil
 		}
+
 		_, err = tx.Exec(ctx, `
 			UPDATE alerts SET
-			  source_url=$2, msg_type=$3, status=$4, category=$5, categories=$6, event=$7,
-			  severity=$8, urgency=$9, certainty=$10, language=$11, headline=$12,
-			  description=$13, instruction=$14, web_url=$15, contact=$16, sender=$17,
-			  sender_name=$18, sent_at=$19, effective_at=$20, onset_at=$21, expires_at=$22,
-			  content_hash=$23, raw_area_desc=$24, mapping_method=$25, mapping_review=$26,
-			  cap_references=$27, is_test=$28, updated_at=now(),
-			  cancelled_at = CASE WHEN $4 = 'cancelled' THEN now() ELSE cancelled_at END
+			  source_url=$2, msg_type=$3, status='active', category=$4, categories=$5, event=$6,
+			  severity=$7, urgency=$8, certainty=$9, language=$10, headline=$11,
+			  description=$12, instruction=$13, web_url=$14, contact=$15, sender=$16,
+			  sender_name=$17, sent_at=$18, effective_at=$19, onset_at=$20, expires_at=$21,
+			  content_hash=$22, raw_area_desc=$23, mapping_method=$24, mapping_review=$25,
+			  cap_references=$26, is_test=$27, updated_at=now()
 			WHERE id=$1`,
-			existing.ID, n.SourceURL, n.MsgType, status, n.Category, n.Categories, n.Event,
+			existing.ID, n.SourceURL, n.MsgType, n.Category, n.Categories, n.Event,
 			n.Severity, n.Urgency, n.Certainty, n.Language, n.Headline, n.Description,
 			n.Instruction, n.WebURL, n.Contact, n.Sender, n.SenderName, n.SentAt,
 			n.EffectiveAt, n.OnsetAt, n.ExpiresAt, n.ContentHash, n.RawAreaDesc,
@@ -298,21 +323,17 @@ func (s *Store) UpsertAlert(ctx context.Context, n NormalizedAlert, areas []Coun
 			VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`, n.SourceID, n.SourceIdentifier, existing.ID, n.ContentHash)
 
 		material := isMaterial(existing, n, areas)
-		reason := "update"
-		if n.MsgType == "Cancel" {
-			reason = "cancel"
-		}
 		fanout := material && pushEnabled
-		if fanout && reason == "update" && SeverityRank(n.Severity) <= SeverityRank(existing.Severity) {
-			// Material updates push at most once per six hours. Cancellations and
-			// severity escalations bypass this gate.
+		if fanout && SeverityRank(n.Severity) <= SeverityRank(existing.Severity) {
+			// Material updates push at most once per six hours. Severity
+			// escalations bypass this gate.
 			if last, err := s.RecentDeliveryAt(ctx, tx, existing.ID); err == nil && last != nil && time.Since(*last) < 6*time.Hour {
 				fanout = false
 			}
 		}
 		if fanout {
 			_, err = tx.Exec(ctx, `INSERT INTO alert_fanout_jobs (alert_id, reason, content_hash)
-				VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`, existing.ID, reason, n.ContentHash)
+				VALUES ($1,'update',$2) ON CONFLICT DO NOTHING`, existing.ID, n.ContentHash)
 			if err != nil {
 				return UpsertResult{}, err
 			}
@@ -320,7 +341,7 @@ func (s *Store) UpsertAlert(ctx context.Context, n NormalizedAlert, areas []Coun
 		if err := tx.Commit(ctx); err != nil {
 			return UpsertResult{}, err
 		}
-		return UpsertResult{ID: existing.ID, Updated: true, Material: material, Status: status}, nil
+		return UpsertResult{ID: existing.ID, Updated: true, Material: material, Status: "active"}, nil
 	}
 
 	var id string
@@ -363,46 +384,23 @@ func (s *Store) UpsertAlert(ctx context.Context, n NormalizedAlert, areas []Coun
 	return UpsertResult{ID: id, Created: true, Material: true, Status: "active"}, nil
 }
 
-func (n NormalizedAlert) Status() string {
-	switch n.MsgType {
-	case "Cancel":
-		return "cancelled"
-	case "Alert", "Update", "":
-		return "active"
-	default:
-		return "active"
+func (s *Store) findExisting(ctx context.Context, sourceID, sourceIdentifier, reference string) (*existingAlert, error) {
+	existing, err := s.findBySourceIdentifier(ctx, sourceID, sourceIdentifier)
+	if err == nil || !errors.Is(err, pgx.ErrNoRows) || reference == "" {
+		return existing, err
 	}
+	// CAP updates may carry a new identifier while referencing the original.
+	return s.findBySourceIdentifier(ctx, sourceID, reference)
 }
 
-func (s *Store) findExisting(ctx context.Context, sourceID, sourceIdentifier, reference string) (*existingAlert, error) {
+func (s *Store) findBySourceIdentifier(ctx context.Context, sourceID, identifier string) (*existingAlert, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, severity, COALESCE(instruction,''), onset_at, expires_at, status, content_hash,
 		       COALESCE(array_agg(a.county_gid) FILTER (WHERE a.county_gid IS NOT NULL), '{}')
 		FROM alerts
 		LEFT JOIN alert_areas a ON a.alert_id = alerts.id
 		WHERE source_id=$1 AND source_identifier = $2
-		GROUP BY alerts.id`, sourceID, sourceIdentifier)
-	if err != nil {
-		return nil, err
-	}
-	existing, err := scanExisting(rows)
-	if err == nil {
-		return existing, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return nil, err
-	}
-	if reference == "" {
-		return nil, pgx.ErrNoRows
-	}
-
-	rows, err = s.pool.Query(ctx, `
-		SELECT id, severity, COALESCE(instruction,''), onset_at, expires_at, status, content_hash,
-		       COALESCE(array_agg(a.county_gid) FILTER (WHERE a.county_gid IS NOT NULL), '{}')
-		FROM alerts
-		LEFT JOIN alert_areas a ON a.alert_id = alerts.id
-		WHERE source_id=$1 AND source_identifier = $2
-		GROUP BY alerts.id`, sourceID, reference)
+		GROUP BY alerts.id`, sourceID, identifier)
 	if err != nil {
 		return nil, err
 	}

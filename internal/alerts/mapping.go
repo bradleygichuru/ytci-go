@@ -37,6 +37,14 @@ const (
 	MethodUnmapped = "unmapped"
 )
 
+var (
+	areaSepRE     = regexp.MustCompile(`[,;:/]`)
+	andSepRE      = regexp.MustCompile(`(?i)\s+(?:and|&)\s+`)
+	countyWordRE  = regexp.MustCompile(`\b(county|counties|region|regions)\b`)
+	countryWordRE = regexp.MustCompile(`\b(of the country|country|kenya)\b`)
+	nonNameRE     = regexp.MustCompile(`[^a-z0-9' -]`)
+)
+
 var countyAliases = map[string]string{
 	"tanariver":       "Tana River",
 	"taita taveta":    "Taita-Taveta",
@@ -177,10 +185,10 @@ func (i *CountyIndex) lookup(norm string) (County, bool) {
 }
 
 func splitAreaDesc(areaDesc string) []string {
-	parts := regexp.MustCompile(`[,;:/]`).Split(areaDesc, -1)
+	parts := areaSepRE.Split(areaDesc, -1)
 	var out []string
 	for _, part := range parts {
-		for _, token := range regexp.MustCompile(`(?i)\s+(?:and|&)\s+`).Split(part, -1) {
+		for _, token := range andSepRE.Split(part, -1) {
 			if strings.TrimSpace(token) != "" {
 				out = append(out, token)
 			}
@@ -192,9 +200,9 @@ func splitAreaDesc(areaDesc string) []string {
 func normalizeName(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
 	value = strings.NewReplacer("’", "'", "–", "-", "—", "-").Replace(value)
-	value = regexp.MustCompile(`\b(county|counties|region|regions)\b`).ReplaceAllString(value, " ")
-	value = regexp.MustCompile(`\b(of the country|country|kenya)\b`).ReplaceAllString(value, " ")
-	value = regexp.MustCompile(`[^a-z0-9' -]`).ReplaceAllString(value, " ")
+	value = countyWordRE.ReplaceAllString(value, " ")
+	value = countryWordRE.ReplaceAllString(value, " ")
+	value = nonNameRE.ReplaceAllString(value, " ")
 	return strings.Join(strings.Fields(value), " ")
 }
 

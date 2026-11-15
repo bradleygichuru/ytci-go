@@ -65,6 +65,47 @@ func New(expoPushToken string) *Client {
 	}
 }
 
+// MessageSpec is the one place campaign and alert pushes assemble an Expo
+// message, so data and image handling cannot drift between synchronous and
+// scheduled sends.
+type MessageSpec struct {
+	To                string
+	Title             string
+	Body              string
+	Data              map[string]any
+	ImageURL          string
+	Sound             string
+	Badge             int
+	Priority          string
+	TTL               int
+	ChannelID         string
+	InterruptionLevel string
+	CollapseID        string
+	ThreadID          string
+}
+
+func BuildMessage(spec MessageSpec) ExpoPushMessage {
+	data := spec.Data
+	if spec.ImageURL != "" {
+		copied := make(map[string]any, len(data)+1)
+		for k, v := range data {
+			copied[k] = v
+		}
+		copied["imageUrl"] = spec.ImageURL
+		data = copied
+	}
+	sound := spec.Sound
+	if sound == "" {
+		sound = "default"
+	}
+	return ExpoPushMessage{
+		To: spec.To, Title: spec.Title, Body: spec.Body, Data: data, Sound: sound,
+		Badge: spec.Badge, Priority: spec.Priority, TTL: spec.TTL,
+		ChannelID: spec.ChannelID, InterruptionLevel: spec.InterruptionLevel,
+		CollapseID: spec.CollapseID, ThreadID: spec.ThreadID,
+	}
+}
+
 type SendResult struct {
 	Sent           int
 	Failed         int

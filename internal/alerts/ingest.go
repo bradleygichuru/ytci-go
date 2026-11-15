@@ -121,7 +121,9 @@ func (i *Ingester) IngestKMD(ctx context.Context) IngestResult {
 		}
 		n.MappingMethod = mapping.Method
 		n.MappingReview = mapping.Review
-		pushEnabled := mapping.Method != MethodUnmapped && !mapping.Review && !n.IsTest && n.ExpiresAt != nil
+		pushEnabled := state.PushEnabled && !n.IsTest &&
+			(n.MsgType == "Cancel" ||
+				(mapping.Method != MethodUnmapped && !mapping.Review && n.ExpiresAt != nil))
 		upsert, err := i.store.UpsertAlert(ctx, n, mapping.Counties, pushEnabled)
 		if err != nil {
 			slog.Warn("alerts: KMD upsert failed", "identifier", n.SourceIdentifier, "error", err)
@@ -323,8 +325,21 @@ func formatHTTPTime(t time.Time) string {
 }
 
 func normalizeKMD(alert *CAPAlert) (NormalizedAlert, CAPInfo, bool) {
-	if alert == nil || alert.Identifier == "" || len(alert.Infos) == 0 {
+	if alert == nil || alert.Identifier == "" {
 		return NormalizedAlert{}, CAPInfo{}, false
+	}
+	if len(alert.Infos) == 0 {
+		if !strings.EqualFold(alert.MsgType, "Cancel") {
+			return NormalizedAlert{}, CAPInfo{}, false
+		}
+		sum := sha256.Sum256([]byte(alert.Identifier + "|Cancel|" + alert.References))
+		return NormalizedAlert{
+			SourceID: "kmd", SourceIdentifier: alert.Identifier, MsgType: "Cancel",
+			Categories: []string{}, SentAt: alert.Sent,
+			ContentHash: hex.EncodeToString(sum[:]), RawAreaDesc: "",
+			MappingMethod: MethodManual, CapReferences: splitReferences(alert.References),
+			ReferenceIdentifier: referenceIdentifier(alert.References),
+		}, CAPInfo{}, true
 	}
 	info := alert.Infos[0]
 	for _, candidate := range alert.Infos {
@@ -338,12 +353,21 @@ func normalizeKMD(alert *CAPAlert) (NormalizedAlert, CAPInfo, bool) {
 		categories = []string{"Met"}
 	}
 	category := categories[0]
-	msgType := alert.MsgType
+	msgType := strings.TrimSpace(alert.MsgType)
 	if msgType == "" {
 		msgType = "Alert"
 	}
 	status := alert.Status
 	isTest := !strings.EqualFold(status, "Actual")
+	if scope := strings.TrimSpace(alert.Scope); scope != "" && !strings.EqualFold(scope, "Public") {
+		isTest = true
+	}
+	switch msgType {
+	case "Alert", "Update", "Cancel":
+	default:
+		// Ack/Error and unknown message types are not public alerts.
+		isTest = true
+	}
 	references := splitReferences(alert.References)
 	refID := referenceIdentifier(alert.References)
 
@@ -353,11 +377,19 @@ func normalizeKMD(alert *CAPAlert) (NormalizedAlert, CAPInfo, bool) {
 			areaDescs = append(areaDescs, area.AreaDesc)
 		}
 	}
+	type areaHash struct {
+		Desc     string   `json:"desc"`
+		Polygons []string `json:"polygons,omitempty"`
+	}
+	areas := make([]areaHash, 0, len(info.Areas))
+	for _, area := range info.Areas {
+		areas = append(areas, areaHash{Desc: area.AreaDesc, Polygons: area.Polygons})
+	}
 	hashInput, _ := json.Marshal(struct {
-		Event, Severity, Urgency, Certainty, Headline, Description, Instruction string
-		Expires                                                                 *time.Time
-		Areas                                                                   []string
-	}{info.Event, info.Severity, info.Urgency, info.Certainty, info.Headline, info.Description, info.Instruction, info.Expires, areaDescs})
+		MsgType, Event, Severity, Urgency, Certainty, Headline, Description, Instruction string
+		Onset, Expires                                                                   *time.Time
+		Areas                                                                            []areaHash
+	}{msgType, info.Event, info.Severity, info.Urgency, info.Certainty, info.Headline, info.Description, info.Instruction, info.Onset, info.Expires, areas})
 	sum := sha256.Sum256(hashInput)
 
 	return NormalizedAlert{

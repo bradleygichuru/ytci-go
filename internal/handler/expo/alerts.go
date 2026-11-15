@@ -3,6 +3,7 @@ package expo
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -24,28 +25,28 @@ func NewAlertsHandler(pool *pgxpool.Pool) *AlertsHandler {
 }
 
 type alertJSON struct {
-	ID            string     `json:"id"`
-	SourceID      string     `json:"sourceId"`
-	SourceName    string     `json:"sourceName"`
-	Event         string     `json:"event"`
-	Category      string     `json:"category"`
-	Severity      string     `json:"severity"`
-	Urgency       string     `json:"urgency"`
-	Certainty     string     `json:"certainty"`
-	Status        string     `json:"status"`
-	Headline      string     `json:"headline"`
-	Description   string     `json:"description,omitempty"`
-	Instruction   string     `json:"instruction,omitempty"`
-	WebURL        string     `json:"webUrl,omitempty"`
-	SenderName    string     `json:"senderName"`
-	SentAt        time.Time  `json:"sentAt"`
-	OnsetAt       *time.Time `json:"onsetAt,omitempty"`
-	ExpiresAt     *time.Time `json:"expiresAt,omitempty"`
-	Counties      []string   `json:"counties"`
-	CountyGids    []int      `json:"countyGids"`
-	MappingReview bool       `json:"mappingReview"`
-	ReadAt        *time.Time `json:"readAt,omitempty"`
-	IsTest        bool       `json:"isTest"`
+	ID            string   `json:"id"`
+	SourceID      string   `json:"sourceId"`
+	SourceName    string   `json:"sourceName"`
+	Event         string   `json:"event"`
+	Category      string   `json:"category"`
+	Severity      string   `json:"severity"`
+	Urgency       string   `json:"urgency"`
+	Certainty     string   `json:"certainty"`
+	Status        string   `json:"status"`
+	Headline      string   `json:"headline"`
+	Description   string   `json:"description,omitempty"`
+	Instruction   string   `json:"instruction,omitempty"`
+	WebURL        string   `json:"webUrl,omitempty"`
+	SenderName    string   `json:"senderName"`
+	SentAt        string   `json:"sentAt"`
+	OnsetAt       *string  `json:"onsetAt,omitempty"`
+	ExpiresAt     *string  `json:"expiresAt,omitempty"`
+	Counties      []string `json:"counties"`
+	CountyGids    []int    `json:"countyGids"`
+	MappingReview bool     `json:"mappingReview"`
+	ReadAt        *string  `json:"readAt,omitempty"`
+	IsTest        bool     `json:"isTest"`
 }
 
 type alertDetailJSON struct {
@@ -54,11 +55,11 @@ type alertDetailJSON struct {
 }
 
 type alertUpdateJSON struct {
-	Version      int        `json:"version"`
-	MsgType      string     `json:"msgType"`
-	Changed      []string   `json:"changedFields"`
-	SourceSentAt *time.Time `json:"sourceSentAt,omitempty"`
-	ReceivedAt   time.Time  `json:"receivedAt"`
+	Version      int      `json:"version"`
+	MsgType      string   `json:"msgType"`
+	Changed      []string `json:"changedFields"`
+	SourceSentAt *string  `json:"sourceSentAt,omitempty"`
+	ReceivedAt   string   `json:"receivedAt"`
 }
 
 func (h *AlertsHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -116,6 +117,7 @@ func (h *AlertsHandler) sourceHealth(r *http.Request) []map[string]any {
 		SELECT id, name, poll_interval_seconds, last_checked_at, last_success_at, consecutive_failures
 		FROM alert_sources WHERE enabled = true ORDER BY id`)
 	if err != nil {
+		slog.Warn("alerts: failed to load source health", "error", err)
 		return []map[string]any{}
 	}
 	defer rows.Close()
@@ -125,6 +127,7 @@ func (h *AlertsHandler) sourceHealth(r *http.Request) []map[string]any {
 		var interval, failures int
 		var checked, success pgtype.Timestamptz
 		if err := rows.Scan(&id, &name, &interval, &checked, &success, &failures); err != nil {
+			slog.Warn("alerts: failed to read source health row", "error", err)
 			continue
 		}
 		out = append(out, map[string]any{
@@ -180,18 +183,22 @@ func (h *AlertsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT version, msg_type, changed_fields, source_sent_at, received_at
 		FROM alert_updates WHERE alert_id=$1 ORDER BY version DESC`, id)
-	if err == nil {
+	if err != nil {
+		slog.Warn("alerts: failed to load alert updates", "alert", id, "error", err)
+	} else {
 		for rows.Next() {
 			var u alertUpdateJSON
 			var sourceSent, received pgtype.Timestamptz
-			if err := rows.Scan(&u.Version, &u.MsgType, &u.Changed, &sourceSent, &received); err == nil {
-				if sourceSent.Valid {
-					t := sourceSent.Time
-					u.SourceSentAt = &t
-				}
-				u.ReceivedAt = received.Time
-				detail.Updates = append(detail.Updates, u)
+			if err := rows.Scan(&u.Version, &u.MsgType, &u.Changed, &sourceSent, &received); err != nil {
+				slog.Warn("alerts: failed to read alert update", "alert", id, "error", err)
+				continue
 			}
+			if sourceSent.Valid {
+				formatted := sourceSent.Time.Format(time.RFC3339)
+				u.SourceSentAt = &formatted
+			}
+			u.ReceivedAt = received.Time.Format(time.RFC3339)
+			detail.Updates = append(detail.Updates, u)
 		}
 		rows.Close()
 	}
@@ -272,9 +279,9 @@ type preferencesJSON struct {
 
 func defaultPreferences() preferencesJSON {
 	return preferencesJSON{
-		Enabled: true, OSPermissionOK: true, MinSeverity: "Severe", Categories: []string{"Met", "Safety", "Security"},
+		Enabled: true, OSPermissionOK: true, MinSeverity: "Severe", Categories: []string{"Met"},
 		ProgramImportantOnly: true, QuietHoursEnabled: true, QuietHoursStart: "22:00", QuietHoursEnd: "06:00",
-		Timezone: "Africa/Nairobi", CriticalOverride: true, FollowCurrentLocation: true,
+		Timezone: "Africa/Nairobi", CriticalOverride: false, FollowCurrentLocation: true,
 		WatchCountyGids: []int{}, Language: "en",
 	}
 }
@@ -309,9 +316,43 @@ func (h *AlertsHandler) UpdatePreferences(w http.ResponseWriter, r *http.Request
 		handler.WriteError(w, http.StatusBadRequest, "WATCHLIST_LIMIT", "watchlist supports at most 5 counties")
 		return
 	}
-	if p.MinSeverity != nil && !validSeverity(*p.MinSeverity) {
-		handler.WriteError(w, http.StatusBadRequest, "INVALID_SEVERITY", "invalid minimum severity")
-		return
+	if p.MinSeverity != nil {
+		canonical, ok := canonicalSeverity(*p.MinSeverity)
+		if !ok {
+			handler.WriteError(w, http.StatusBadRequest, "INVALID_SEVERITY", "invalid minimum severity")
+			return
+		}
+		p.MinSeverity = &canonical
+	}
+	if p.Categories != nil {
+		canonical := make([]string, 0, len(*p.Categories))
+		for _, category := range *p.Categories {
+			value, ok := canonicalCategory(category)
+			if !ok {
+				handler.WriteError(w, http.StatusBadRequest, "INVALID_CATEGORY", "invalid alert category")
+				return
+			}
+			canonical = append(canonical, value)
+		}
+		p.Categories = &canonical
+	}
+	if p.QuietHoursStart != nil {
+		if _, err := time.Parse("15:04", *p.QuietHoursStart); err != nil {
+			handler.WriteError(w, http.StatusBadRequest, "INVALID_TIME", "quietHoursStart must be HH:MM")
+			return
+		}
+	}
+	if p.QuietHoursEnd != nil {
+		if _, err := time.Parse("15:04", *p.QuietHoursEnd); err != nil {
+			handler.WriteError(w, http.StatusBadRequest, "INVALID_TIME", "quietHoursEnd must be HH:MM")
+			return
+		}
+	}
+	if p.Timezone != nil {
+		if _, err := time.LoadLocation(*p.Timezone); err != nil {
+			handler.WriteError(w, http.StatusBadRequest, "INVALID_TIMEZONE", "invalid timezone")
+			return
+		}
 	}
 	var categories any
 	if p.Categories != nil {
@@ -328,9 +369,9 @@ func (h *AlertsHandler) UpdatePreferences(w http.ResponseWriter, r *http.Request
 		  quiet_hours_enabled, quiet_hours_start, quiet_hours_end, timezone, critical_override,
 		  home_county_gid, watch_county_gids, follow_current_location, follow_itineraries,
 		  follow_saved_destinations, language
-		) VALUES ($1, COALESCE($2,true), COALESCE($3,true), COALESCE($4,'Severe'), COALESCE($5::text[],ARRAY['Met','Safety','Security']),
+		) VALUES ($1, COALESCE($2,true), COALESCE($3,true), COALESCE($4,'Severe'), COALESCE($5::text[],ARRAY['Met']),
 		  COALESCE($6,true), COALESCE($7,true), COALESCE($8::time,'22:00'), COALESCE($9::time,'06:00'),
-		  COALESCE($10,'Africa/Nairobi'), COALESCE($11,true), $12, COALESCE($13::int[],'{}'),
+		  COALESCE($10,'Africa/Nairobi'), COALESCE($11,false), $12, COALESCE($13::int[],'{}'),
 		  COALESCE($14,true), COALESCE($15,false), COALESCE($16,false), COALESCE($17,'en'))
 		ON CONFLICT (user_id) DO UPDATE SET
 		  enabled=COALESCE($2, alert_preferences.enabled),
@@ -455,18 +496,18 @@ func scanAlert(row pgx.Row) (alertJSON, error) {
 		&a.Urgency, &a.Certainty, &a.Status, &a.Headline, &a.Description, &a.Instruction,
 		&a.WebURL, &a.SenderName, &sent, &onset, &expires, &a.MappingReview, &a.IsTest,
 		&a.Counties, &countyGids, &read)
-	a.SentAt = sent.Time
+	a.SentAt = sent.Time.Format(time.RFC3339)
 	if onset.Valid {
-		t := onset.Time
-		a.OnsetAt = &t
+		formatted := onset.Time.Format(time.RFC3339)
+		a.OnsetAt = &formatted
 	}
 	if expires.Valid {
-		t := expires.Time
-		a.ExpiresAt = &t
+		formatted := expires.Time.Format(time.RFC3339)
+		a.ExpiresAt = &formatted
 	}
 	if read.Valid {
-		t := read.Time
-		a.ReadAt = &t
+		formatted := read.Time.Format(time.RFC3339)
+		a.ReadAt = &formatted
 	}
 	a.CountyGids = int32sToInts(countyGids)
 	if a.Counties == nil {
@@ -509,11 +550,32 @@ func int32sToInts(in []int32) []int {
 	return out
 }
 
-func validSeverity(v string) bool {
-	switch strings.Title(strings.ToLower(v)) {
-	case "Extreme", "Severe", "Moderate", "Minor":
-		return true
+func canonicalSeverity(v string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "extreme":
+		return "Extreme", true
+	case "severe":
+		return "Severe", true
+	case "moderate":
+		return "Moderate", true
+	case "minor":
+		return "Minor", true
 	default:
-		return false
+		return "", false
+	}
+}
+
+func canonicalCategory(v string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "met", "weather":
+		return "Met", true
+	case "safety":
+		return "Safety", true
+	case "security":
+		return "Security", true
+	case "program":
+		return "Program", true
+	default:
+		return "", false
 	}
 }

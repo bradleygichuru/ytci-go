@@ -128,3 +128,55 @@ func TestUpdatePushCooldownAndBypass(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 3, jobCount(), "cancellation must break the cooldown")
 }
+
+func TestCancelByCAPReferencePreservesRecord(t *testing.T) {
+	pool := db.SetupTestDB(t)
+	ctx := context.Background()
+	_, err := pool.Exec(ctx, `INSERT INTO kenya_counties (gid, adm1_name, adm1_pcode, geom)
+		VALUES (1, 'Nairobi', 'KE047', ST_GeomFromText('MULTIPOLYGON(((36.7 -1.2, 36.9 -1.2, 36.9 -1.4, 36.7 -1.4, 36.7 -1.2)))', 4326))`)
+	require.NoError(t, err)
+
+	store := NewStore(pool)
+	expires := time.Now().Add(6 * time.Hour).UTC()
+	original := NormalizedAlert{
+		SourceID: "kmd", SourceIdentifier: "original-1", MsgType: "Alert",
+		Category: "Met", Categories: []string{"Met"}, Event: "Heavy rainfall",
+		Severity: "Severe", Urgency: "Expected", Certainty: "Likely", Language: "en",
+		Headline: "Heavy rainfall expected", Instruction: "Move to higher ground.",
+		SentAt: time.Now().UTC(), ExpiresAt: &expires, ContentHash: "original-hash",
+		RawAreaDesc: "Nairobi", MappingMethod: MethodAreaDesc,
+	}
+	created, err := store.UpsertAlert(ctx, original, []CountyMatch{{County: County{GID: 1, Name: "Nairobi"}, Method: MethodAreaDesc}}, true)
+	require.NoError(t, err)
+
+	cancel, _, ok := normalizeKMD(&CAPAlert{
+		Identifier: "cancel-2", Sender: "director@meteo.go.ke", Sent: time.Now().UTC(),
+		Status: "Actual", MsgType: "Cancel", Scope: "Public",
+		References: "director@meteo.go.ke,original-1," + time.Now().UTC().Format(time.RFC3339),
+	})
+	require.True(t, ok)
+	result, err := store.UpsertAlert(ctx, cancel, nil, true)
+	require.NoError(t, err)
+	assert.Equal(t, created.ID, result.ID, "the cancel must update the original alert, not create a second row")
+	assert.Equal(t, "cancelled", result.Status)
+
+	var count int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM alerts`).Scan(&count))
+	assert.Equal(t, 1, count)
+
+	var status, headline, severity string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT status, headline, severity FROM alerts WHERE id=$1`, created.ID).Scan(&status, &headline, &severity))
+	assert.Equal(t, "cancelled", status)
+	assert.Equal(t, "Heavy rainfall expected", headline, "the tombstone keeps the original content")
+	assert.Equal(t, "Severe", severity)
+
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM alert_areas WHERE alert_id=$1`, created.ID).Scan(&count))
+	assert.Equal(t, 1, count, "areas survive the cancellation")
+
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM alert_fanout_jobs WHERE alert_id=$1 AND reason='cancel'`, created.ID).Scan(&count))
+	assert.Equal(t, 1, count)
+
+	var linked string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT alert_id FROM alert_source_messages WHERE source_identifier='cancel-2'`).Scan(&linked))
+	assert.Equal(t, created.ID, linked)
+}

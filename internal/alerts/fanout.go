@@ -11,15 +11,22 @@ import (
 	"github.com/bradleygichuru/ytci-go/internal/push"
 )
 
+// PushSender is the Expo surface the alerts worker needs. It is an interface so
+// delivery and payload tests can inspect messages without an HTTP call.
+type PushSender interface {
+	SendMessages(ctx context.Context, messages []push.ExpoPushMessage) (*push.SendResult, error)
+	GetReceiptMap(ctx context.Context, ticketIDs []string) (map[string]push.Receipt, error)
+}
+
 type Worker struct {
 	store    *Store
-	push     *push.Client
+	push     PushSender
 	interval time.Duration
 	batch    int
 	dryRun   bool
 }
 
-func NewWorker(store *Store, pushClient *push.Client) *Worker {
+func NewWorker(store *Store, pushClient PushSender) *Worker {
 	return &Worker{store: store, push: pushClient, interval: 15 * time.Second, batch: 100}
 }
 
@@ -75,6 +82,13 @@ func (w *Worker) expire(ctx context.Context) error {
 	_, err := w.store.Pool().Exec(ctx, `
 		UPDATE alerts SET status='expired', updated_at=now()
 		WHERE status='active' AND expires_at IS NOT NULL AND expires_at < now()`)
+	if err != nil {
+		return err
+	}
+	_, err = w.store.Pool().Exec(ctx, `
+		UPDATE alert_deliveries d SET status='skipped_expired'
+		FROM alerts a
+		WHERE d.alert_id=a.id AND d.status='queued' AND a.status='expired'`)
 	return err
 }
 
@@ -138,9 +152,6 @@ func (w *Worker) fanout(ctx context.Context, alertID, reason string) (int, error
 	if err != nil {
 		return 0, err
 	}
-	if alert.ExpiresAt != nil && !alert.ExpiresAt.After(time.Now()) {
-		return 0, nil
-	}
 	if alert.Status == "cancelled" {
 		tag, err := w.store.Pool().Exec(ctx, `
 			UPDATE alert_deliveries SET status='queued', deliver_after=now(), attempts=0
@@ -149,6 +160,9 @@ func (w *Worker) fanout(ctx context.Context, alertID, reason string) (int, error
 			return 0, err
 		}
 		return int(tag.RowsAffected()), nil
+	}
+	if alert.ExpiresAt != nil && !alert.ExpiresAt.After(time.Now()) {
+		return 0, nil
 	}
 	if alert.Status != "active" {
 		return 0, nil
@@ -264,8 +278,8 @@ func matchAlert(alert alertRow, areas []int32, home *int32, watch []int32, locat
 		}
 		return "", nil
 	}
-	if home != nil && containsGID(areas, *home) {
-		return "home", home
+	if followLocation && location != nil && containsGID(areas, *location) {
+		return "location", location
 	}
 	for _, gid := range watch {
 		if containsGID(areas, gid) {
@@ -273,8 +287,8 @@ func matchAlert(alert alertRow, areas []int32, home *int32, watch []int32, locat
 			return "watch", &g
 		}
 	}
-	if followLocation && location != nil && containsGID(areas, *location) {
-		return "location", location
+	if home != nil && containsGID(areas, *home) {
+		return "home", home
 	}
 	return "", nil
 }
@@ -332,7 +346,8 @@ func (w *Worker) sendDue(ctx context.Context) error {
 		FROM alert_deliveries d
 		JOIN alerts a ON a.id=d.alert_id
 		JOIN push_tokens pt ON pt.id=d.push_token_id
-		WHERE d.status='queued' AND d.deliver_after <= now() AND a.status IN ('active','cancelled')
+		WHERE d.status='queued' AND d.deliver_after <= now()
+		  AND a.status IN ('active','cancelled')
 		ORDER BY d.created_at LIMIT $1`, w.batch)
 	if err != nil {
 		return err
@@ -346,6 +361,7 @@ func (w *Worker) sendDue(ctx context.Context) error {
 		countyGID                                                         *int32
 	}
 	var items []due
+	now := time.Now()
 	for rows.Next() {
 		var d due
 		var expires pgtype.Timestamptz
@@ -357,18 +373,15 @@ func (w *Worker) sendDue(ctx context.Context) error {
 			t := expires.Time
 			d.expires = &t
 		}
+		if d.status != "cancelled" && d.expires != nil && !d.expires.After(now) {
+			_, _ = w.store.Pool().Exec(ctx, `UPDATE alert_deliveries SET status='skipped_expired' WHERE id=$1`, d.id)
+			continue
+		}
 		items = append(items, d)
 	}
 	if len(items) == 0 {
 		return nil
 	}
-
-	// Mark sending before the HTTP call.
-	ids := make([]int64, 0, len(items))
-	for _, d := range items {
-		ids = append(ids, d.id)
-	}
-	_, _ = w.store.Pool().Exec(ctx, `UPDATE alert_deliveries SET status='sending', attempts=attempts+1 WHERE id = ANY($1::bigint[])`, ids)
 
 	if w.dryRun || w.push == nil {
 		for _, d := range items {
@@ -377,6 +390,8 @@ func (w *Worker) sendDue(ctx context.Context) error {
 		return nil
 	}
 
+	// Build messages before marking rows in flight, so an unbuildable message
+	// never leaves a delivery stuck in 'sending'.
 	messages := make([]push.ExpoPushMessage, 0, len(items))
 	byToken := make(map[string][]due)
 	for _, d := range items {
@@ -386,7 +401,11 @@ func (w *Worker) sendDue(ctx context.Context) error {
 		}
 		body := truncate(d.body, 180)
 		ttl := 86400
-		if d.expires != nil {
+		if d.status == "cancelled" {
+			title = "Cancelled: " + title
+			body = "The official source withdrew this warning. Open the record for details."
+			ttl = 3600
+		} else if d.expires != nil {
 			sec := int(time.Until(*d.expires).Seconds())
 			if sec <= 0 {
 				continue
@@ -395,34 +414,50 @@ func (w *Worker) sendDue(ctx context.Context) error {
 				ttl = sec
 			}
 		}
-		channel := "safety_alerts"
 		interruption := "active"
 		if SeverityRank(d.severity) >= 3 {
 			interruption = "timeSensitive"
 		}
-		messages = append(messages, push.ExpoPushMessage{
-			To: d.token, Title: title, Body: body, Sound: "default",
-			Data:     map[string]any{"alertId": d.alertID, "severity": d.severity},
+		data := map[string]any{
+			"alertId": d.alertID, "severity": d.severity, "sourceId": d.sourceID,
+		}
+		if d.countyGID != nil {
+			data["countyGid"] = *d.countyGID
+		}
+		messages = append(messages, push.BuildMessage(push.MessageSpec{
+			To: d.token, Title: title, Body: body, Data: data,
 			Priority: priorityFor(d.severity), TTL: ttl,
-			ChannelID: channel, InterruptionLevel: interruption,
+			ChannelID: "safety_alerts", InterruptionLevel: interruption,
 			CollapseID: "alert:" + d.alertID, ThreadID: "alerts",
-		})
+		}))
 		byToken[d.token] = append(byToken[d.token], d)
 	}
 	if len(messages) == 0 {
 		return nil
 	}
+
+	ids := make([]int64, 0, len(items))
+	for _, d := range items {
+		ids = append(ids, d.id)
+	}
+	_, _ = w.store.Pool().Exec(ctx, `UPDATE alert_deliveries SET status='sending', attempts=attempts+1 WHERE id = ANY($1::bigint[])`, ids)
+
 	result, err := w.push.SendMessages(ctx, messages)
 	if err != nil {
 		return err
 	}
+	sentTokens := make(map[string]bool, len(result.TicketForToken))
 	for token, ticket := range result.TicketForToken {
+		sentTokens[token] = true
 		for _, d := range byToken[token] {
 			_, _ = w.store.Pool().Exec(ctx, `UPDATE alert_deliveries SET status='sent', sent_at=now(), expo_ticket_id=$2 WHERE id=$1`, d.id, ticket)
 		}
 	}
-	for _, d := range items {
-		if _, ok := result.TicketForToken[d.token]; !ok {
+	for token, deliveries := range byToken {
+		if sentTokens[token] {
+			continue
+		}
+		for _, d := range deliveries {
 			_, _ = w.store.Pool().Exec(ctx, `UPDATE alert_deliveries SET status='failed', error_code='TICKET_ERROR' WHERE id=$1`, d.id)
 		}
 	}
@@ -445,16 +480,20 @@ func (w *Worker) checkReceipts(ctx context.Context) error {
 		return err
 	}
 	defer rows.Close()
+	type receiptTarget struct {
+		deliveryID int64
+		tokenID    string
+	}
 	ids := make([]string, 0)
-	byTicket := make(map[string]int64)
+	byTicket := make(map[string]receiptTarget)
 	for rows.Next() {
-		var id int64
-		var ticket, tokenID string
-		if err := rows.Scan(&id, &ticket, &tokenID); err != nil {
+		var target receiptTarget
+		var ticket string
+		if err := rows.Scan(&target.deliveryID, &ticket, &target.tokenID); err != nil {
 			return err
 		}
 		ids = append(ids, ticket)
-		byTicket[ticket] = id
+		byTicket[ticket] = target
 	}
 	if len(ids) == 0 {
 		return nil
@@ -463,13 +502,23 @@ func (w *Worker) checkReceipts(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	for ticket, receipt := range receipts {
-		id := byTicket[ticket]
-		_, _ = w.store.Pool().Exec(ctx, `UPDATE alert_deliveries SET expo_receipt_status=$2, error_code=NULLIF($3,''), error_message=NULLIF($4,''), receipt_checked_at=now() WHERE id=$1`, id, receipt.Status, receipt.Code, receipt.Message)
+	for ticket, target := range byTicket {
+		receipt, ok := receipts[ticket]
+		if !ok {
+			// Expo did not return a receipt; mark it checked so this batch does
+			// not starve the queue, and leave the status explicit.
+			_, _ = w.store.Pool().Exec(ctx, `UPDATE alert_deliveries
+				SET expo_receipt_status='unknown', receipt_checked_at=now() WHERE id=$1`, target.deliveryID)
+			continue
+		}
+		_, _ = w.store.Pool().Exec(ctx, `UPDATE alert_deliveries
+			SET expo_receipt_status=$2, error_code=NULLIF($3,''), error_message=NULLIF($4,''),
+			    receipt_checked_at=now() WHERE id=$1`,
+			target.deliveryID, receipt.Status, receipt.Code, receipt.Message)
 		if receipt.Code == "DeviceNotRegistered" {
-			var tokenID string
-			_ = w.store.Pool().QueryRow(ctx, `SELECT push_token_id FROM alert_deliveries WHERE id=$1`, id).Scan(&tokenID)
-			_, _ = w.store.Pool().Exec(ctx, `UPDATE push_tokens SET is_active=false, deactivated_at=now(), deactivation_reason='DeviceNotRegistered' WHERE id=$1`, tokenID)
+			_, _ = w.store.Pool().Exec(ctx, `UPDATE push_tokens
+				SET is_active=false, deactivated_at=now(), deactivation_reason='DeviceNotRegistered'
+				WHERE id=$1`, target.tokenID)
 		}
 	}
 	return nil
@@ -483,8 +532,9 @@ func priorityFor(severity string) string {
 }
 
 func truncate(s string, n int) string {
-	if len(s) <= n {
+	runes := []rune(s)
+	if len(runes) <= n {
 		return s
 	}
-	return strings.TrimSpace(s[:n-1]) + "…"
+	return strings.TrimSpace(string(runes[:n-1])) + "…"
 }

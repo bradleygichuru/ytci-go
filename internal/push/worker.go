@@ -126,20 +126,15 @@ func (w *Worker) sendOne(ctx context.Context, j job) {
 		return
 	}
 
+	var data map[string]any
+	if j.data != "" {
+		_ = json.Unmarshal([]byte(j.data), &data)
+	}
 	messages := make([]ExpoPushMessage, len(tokens))
 	for i, tok := range tokens {
-		msg := ExpoPushMessage{To: tok, Title: j.title, Body: j.body, Sound: "default"}
-		dataMap := map[string]any{}
-		if j.data != "" {
-			_ = json.Unmarshal([]byte(j.data), &dataMap)
-		}
-		if j.imageURL != "" {
-			dataMap["imageUrl"] = j.imageURL
-		}
-		if len(dataMap) > 0 {
-			msg.Data = dataMap
-		}
-		messages[i] = msg
+		messages[i] = BuildMessage(MessageSpec{
+			To: tok, Title: j.title, Body: j.body, Data: data, ImageURL: j.imageURL,
+		})
 	}
 
 	result, err := w.client.SendMessages(ctx, messages)

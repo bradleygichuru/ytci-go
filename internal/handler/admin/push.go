@@ -72,16 +72,15 @@ func (h *PushHandler) Send(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := map[string]any{}
+	var data map[string]any
 	if req.Data != "" {
 		_ = json.Unmarshal([]byte(req.Data), &data)
 	}
-	if req.ImageURL != "" {
-		data["imageUrl"] = req.ImageURL
-	}
 	messages := make([]push.ExpoPushMessage, len(tokens))
 	for i, tok := range tokens {
-		messages[i] = push.ExpoPushMessage{To: tok, Title: req.Title, Body: req.Body, Data: data, Sound: "default"}
+		messages[i] = push.BuildMessage(push.MessageSpec{
+			To: tok, Title: req.Title, Body: req.Body, Data: data, ImageURL: req.ImageURL,
+		})
 	}
 
 	result, err := h.client.SendMessages(r.Context(), messages)

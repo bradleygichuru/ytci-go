@@ -2,13 +2,16 @@ package alerts
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/bradleygichuru/ytci-go/internal/db"
+	"github.com/bradleygichuru/ytci-go/internal/push"
 )
 
 func TestMatchAlertRequiresAnAnchor(t *testing.T) {
@@ -28,8 +31,8 @@ func TestMatchAlertRequiresAnAnchor(t *testing.T) {
 
 	location := int32(2)
 	reason, gid = matchAlert(alert, []int32{1, 2}, &home, []int32{3}, &location, true)
-	assert.Equal(t, "home", reason, "reason priority is home, then watch, then location")
-	assert.Equal(t, int32(1), *gid)
+	assert.Equal(t, "location", reason, "reason priority is location, then watch, then home")
+	assert.Equal(t, int32(2), *gid)
 }
 
 func TestCapExceededCountsAlertsNotTokens(t *testing.T) {
@@ -77,4 +80,90 @@ func TestCapExceededCountsAlertsNotTokens(t *testing.T) {
 	_, err = pool.Exec(ctx, `UPDATE alert_deliveries SET created_at=now() WHERE alert_id = ANY($1)`, ids[1:3])
 	require.NoError(t, err)
 	assert.True(t, worker.capExceeded(ctx, "cap-user", "Severe"), "two alerts in an hour hit the hourly cap")
+}
+
+type captureSender struct {
+	messages []push.ExpoPushMessage
+}
+
+func (c *captureSender) SendMessages(ctx context.Context, messages []push.ExpoPushMessage) (*push.SendResult, error) {
+	c.messages = append(c.messages, messages...)
+	result := &push.SendResult{
+		TokenErrors:    map[string]string{},
+		TicketForToken: map[string]string{},
+	}
+	for i, message := range messages {
+		result.Sent++
+		result.TicketForToken[message.To] = "ticket-" + strconv.Itoa(i)
+	}
+	return result, nil
+}
+
+func (c *captureSender) GetReceiptMap(ctx context.Context, ticketIDs []string) (map[string]push.Receipt, error) {
+	return map[string]push.Receipt{}, nil
+}
+
+func seedQueuedDelivery(t *testing.T, pool *pgxpool.Pool, expiresAt time.Time) (alertID, deliveryID string) {
+	t.Helper()
+	ctx := context.Background()
+	err := pool.QueryRow(ctx, `
+		INSERT INTO alerts (source_id, source_identifier, event, severity, urgency, certainty,
+		  headline, description, instruction, sent_at, expires_at, content_hash)
+		VALUES ('kmd',$1,'Heavy rainfall','Severe','Expected','Likely','Heavy rainfall expected',
+		  'Avoid flooded roads.','Move to higher ground.',now(),$2,$3) RETURNING id`,
+		"payload-"+expiresAt.Format("20060102T150405"), expiresAt, "hash-"+expiresAt.Format("20060102T150405")).Scan(&alertID)
+	require.NoError(t, err)
+
+	var tokenID string
+	require.NoError(t, pool.QueryRow(ctx, `
+		INSERT INTO push_tokens (token, platform) VALUES ($1,'android') RETURNING id`,
+		"ExponentPushToken[payload-"+expiresAt.Format("20060102T150405")+"]").Scan(&tokenID))
+	require.NoError(t, pool.QueryRow(ctx, `
+		INSERT INTO alert_deliveries (alert_id, user_id, push_token_id, county_gid, reason, status, deliver_after)
+		VALUES ($1,'payload-user',$2,1,'home','queued',now()) RETURNING id`, alertID, tokenID).Scan(&deliveryID))
+	return alertID, deliveryID
+}
+
+func TestSendDuePayloadContractAndTTL(t *testing.T) {
+	pool := db.SetupTestDB(t)
+	ctx := context.Background()
+	alertID, deliveryID := seedQueuedDelivery(t, pool, time.Now().Add(90*time.Minute))
+
+	sender := &captureSender{}
+	worker := NewWorker(NewStore(pool), sender)
+	require.NoError(t, worker.sendDue(ctx))
+
+	require.Len(t, sender.messages, 1)
+	message := sender.messages[0]
+	data, ok := message.Data.(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, alertID, data["alertId"])
+	assert.Equal(t, "Severe", data["severity"])
+	assert.Equal(t, "kmd", data["sourceId"])
+	assert.Equal(t, int32(1), data["countyGid"])
+	assert.Equal(t, "safety_alerts", message.ChannelID)
+	assert.Equal(t, "high", message.Priority)
+	assert.Equal(t, "timeSensitive", message.InterruptionLevel)
+	assert.Greater(t, message.TTL, 0)
+	assert.LessOrEqual(t, message.TTL, 90*60, "TTL must not outlive expires")
+
+	var status, ticket string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT status, expo_ticket_id FROM alert_deliveries WHERE id=$1`, deliveryID).Scan(&status, &ticket))
+	assert.Equal(t, "sent", status)
+	assert.NotEmpty(t, ticket)
+}
+
+func TestSendDueSkipsExpiredAlerts(t *testing.T) {
+	pool := db.SetupTestDB(t)
+	ctx := context.Background()
+	_, deliveryID := seedQueuedDelivery(t, pool, time.Now().Add(-time.Minute))
+
+	sender := &captureSender{}
+	worker := NewWorker(NewStore(pool), sender)
+	require.NoError(t, worker.sendDue(ctx))
+
+	assert.Empty(t, sender.messages)
+	var status string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT status FROM alert_deliveries WHERE id=$1`, deliveryID).Scan(&status))
+	assert.Equal(t, "skipped_expired", status)
 }

@@ -60,7 +60,9 @@ Admin:
 - Quiet-hours suppression is decided at fan-out time and the delivery is left `skipped_quiet_hours`; per #242 there is no delayed morning push. The inbox remains the record.
 - Non-Extreme pushes are capped at 4/day and 2/hour per user; capped deliveries are recorded as `skipped_preference` and remain in the inbox.
 - The client-reported OS permission (`osPermissionOk`) gates push; legal consent is still `user_profiles.consent_notifications`.
-- Push eligibility requires a non-null `expires_at`; alerts without an expiry stay inbox-only.
+- New accounts default to Weather (`Met`) push only at Severe+, with Security, Safety, and Program off. Quiet hours are 22:00–06:00; Extreme always bypasses and Severe overnight is opt-in (`criticalOverride`).
+- Push eligibility requires a non-null `expires_at`; alerts without an expiry stay inbox-only. A cancellation is push-eligible even without an expiry because it targets readers who already received the original.
+- `alert_sources.push_enabled` gates KMD fan-out; FCDO remains in-app only.
 - Program Updates are in-app only in this slice; pushing Important updates belongs with the campaign-notification unification work (#248).
 - The ingester persists `ETag` and `Last-Modified` on `alert_sources` and sends conditional requests; KMD's RSS may ignore them, so dedupe also relies on the CAP identifier and content hash.
 - Failed polls back off exponentially from the source interval, capped at 30 minutes.

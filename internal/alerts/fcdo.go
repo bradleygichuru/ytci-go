@@ -32,7 +32,11 @@ type fcdoDocument struct {
 	} `json:"details"`
 }
 
-var htmlTagRE = regexp.MustCompile(`(?s)<[^>]*>`)
+var (
+	htmlTagRE      = regexp.MustCompile(`(?s)<[^>]*>`)
+	htmlParaEndRE  = regexp.MustCompile(`(?i)</p\s*>`)
+	htmlBreakTagRE = regexp.MustCompile(`(?i)<br\s*/?>`)
+)
 
 func ParseFCDO(r io.Reader) (*FCDOAdvice, error) {
 	var doc fcdoDocument
@@ -67,8 +71,8 @@ func ParseFCDO(r io.Reader) (*FCDOAdvice, error) {
 func htmlToText(in string) string {
 	in = html.UnescapeString(in)
 	// Preserve paragraph boundaries before stripping tags.
-	in = regexp.MustCompile(`(?i)</p\s*>`).ReplaceAllString(in, "\n\n")
-	in = regexp.MustCompile(`(?i)<br\s*/?>`).ReplaceAllString(in, "\n")
+	in = htmlParaEndRE.ReplaceAllString(in, "\n\n")
+	in = htmlBreakTagRE.ReplaceAllString(in, "\n")
 	in = htmlTagRE.ReplaceAllString(in, " ")
 	lines := strings.Split(in, "\n")
 	out := make([]string, 0, len(lines))

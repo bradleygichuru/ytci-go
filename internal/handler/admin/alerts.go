@@ -2,9 +2,11 @@ package admin
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -147,14 +149,20 @@ func (h *ProgramUpdateHandler) Health(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var worker pgtype.Timestamptz
-	_ = h.pool.QueryRow(r.Context(), `SELECT last_seen_at FROM alert_worker_heartbeat WHERE worker='alerts-worker'`).Scan(&worker)
+	if err := h.pool.QueryRow(r.Context(), `SELECT last_seen_at FROM alert_worker_heartbeat WHERE worker='alerts-worker'`).Scan(&worker); err != nil && err != pgx.ErrNoRows {
+		slog.Warn("alerts: failed to read worker heartbeat", "error", err)
+	}
 	var pending, running, dead, queued, sent, failed int
-	_ = h.pool.QueryRow(r.Context(), `SELECT
+	if err := h.pool.QueryRow(r.Context(), `SELECT
 		count(*) FILTER (WHERE status='pending'), count(*) FILTER (WHERE status='running'),
-		count(*) FILTER (WHERE status='dead') FROM alert_fanout_jobs`).Scan(&pending, &running, &dead)
-	_ = h.pool.QueryRow(r.Context(), `SELECT
+		count(*) FILTER (WHERE status='dead') FROM alert_fanout_jobs`).Scan(&pending, &running, &dead); err != nil {
+		slog.Warn("alerts: failed to read job health", "error", err)
+	}
+	if err := h.pool.QueryRow(r.Context(), `SELECT
 		count(*) FILTER (WHERE status='queued'), count(*) FILTER (WHERE status='sent'),
-		count(*) FILTER (WHERE status='failed') FROM alert_deliveries`).Scan(&queued, &sent, &failed)
+		count(*) FILTER (WHERE status='failed') FROM alert_deliveries`).Scan(&queued, &sent, &failed); err != nil {
+		slog.Warn("alerts: failed to read delivery health", "error", err)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
