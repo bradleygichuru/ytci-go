@@ -32,7 +32,7 @@ DATABASE_URL=... EXPO_PUSH_TOKEN=... ./bin/alerts worker
 ## Endpoints
 
 Optional-auth mobile (guests included; ADR-0004 keeps read routes on `/v1/mobile` rather than duplicating them under `/v1/public`):
-- `GET /v1/mobile/alerts` — every active public alert plus 30-day expired/cancelled tombstones. Push preferences never hide the inbox; use `?countyGid=` for the county filter. The response includes `sourceHealth` (`ok`/`degraded`/`unavailable`/`unknown`).
+- `GET /v1/mobile/alerts` — every active public alert plus 30-day expired/cancelled tombstones. Push preferences never hide the inbox; use `?countyGid=` for the county filter. The response includes `sourceHealth` (`ok`/`degraded`/`unavailable`/`unknown`) and per-alert `hasUpdates` (true when the source has issued a version beyond the first).
 - `GET /v1/mobile/alerts/{id}`
 - `GET /v1/mobile/program-updates` — global updates plus county-targeted updates for the signed-in user
 - `GET /v1/mobile/alert-counties` — the 47 `kenya_counties` rows (`gid`, `name`, `pCode`) for home-county and watchlist pickers

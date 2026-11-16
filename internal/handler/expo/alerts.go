@@ -47,6 +47,7 @@ type alertJSON struct {
 	MappingReview bool     `json:"mappingReview"`
 	ReadAt        *string  `json:"readAt,omitempty"`
 	Reason        *string  `json:"reason,omitempty"`
+	HasUpdates    bool     `json:"hasUpdates"`
 	IsTest        bool     `json:"isTest"`
 }
 
@@ -77,7 +78,8 @@ func (h *AlertsHandler) List(w http.ResponseWriter, r *http.Request) {
 		       rs.read_at,
 		       (SELECT d.reason FROM alert_deliveries d
 		        WHERE d.alert_id=a.id AND d.user_id=$1::text AND d.status IN ('queued','sent')
-		        ORDER BY d.created_at DESC LIMIT 1)
+		        ORDER BY d.created_at DESC LIMIT 1),
+		       EXISTS (SELECT 1 FROM alert_updates u WHERE u.alert_id=a.id AND u.version > 1)
 		FROM alerts a
 		LEFT JOIN alert_sources s ON s.id=a.source_id
 		LEFT JOIN alert_read_state rs ON rs.alert_id=a.id AND rs.user_id=$1::text
@@ -198,7 +200,8 @@ func (h *AlertsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		       rs.read_at,
 		       (SELECT d.reason FROM alert_deliveries d
 		        WHERE d.alert_id=a.id AND d.user_id=$2::text AND d.status IN ('queued','sent')
-		        ORDER BY d.created_at DESC LIMIT 1)
+		        ORDER BY d.created_at DESC LIMIT 1),
+		       EXISTS (SELECT 1 FROM alert_updates u WHERE u.alert_id=a.id AND u.version > 1)
 		FROM alerts a
 		LEFT JOIN alert_sources s ON s.id=a.source_id
 		LEFT JOIN alert_read_state rs ON rs.alert_id=a.id AND rs.user_id=$2::text
@@ -538,7 +541,7 @@ func scanAlert(row pgx.Row) (alertJSON, error) {
 	err := row.Scan(&a.ID, &a.SourceID, &a.SourceName, &a.Event, &a.Category, &a.Severity,
 		&a.Urgency, &a.Certainty, &a.Status, &a.Headline, &a.Description, &a.Instruction,
 		&a.WebURL, &a.SenderName, &sent, &onset, &expires, &a.MappingReview, &a.IsTest,
-		&a.Counties, &countyGids, &read, &reason)
+		&a.Counties, &countyGids, &read, &reason, &a.HasUpdates)
 	a.SentAt = sent.Time.Format(time.RFC3339)
 	if onset.Valid {
 		formatted := onset.Time.Format(time.RFC3339)

@@ -30,6 +30,9 @@ func TestAlertsListAndPreferences(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT id FROM alerts WHERE source_identifier='alert-1'`).Scan(&alertID))
 	_, err = pool.Exec(ctx, `INSERT INTO alert_areas (alert_id, county_gid, method, is_primary) VALUES ($1,1,'area_desc',true)`, alertID)
 	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO alert_updates (alert_id,version,source_identifier,msg_type,content_hash,changed_fields,snapshot,source_sent_at)
+		VALUES ($1,2,'alert-1','Update','hash-2','{content}','{}',now())`, alertID)
+	require.NoError(t, err)
 
 	_, err = pool.Exec(ctx, `INSERT INTO alerts
 		(source_id, source_identifier, event, severity, urgency, certainty, headline, status, sent_at, expires_at, content_hash, mapping_method)
@@ -83,6 +86,7 @@ func TestAlertsListAndPreferences(t *testing.T) {
 	assert.Equal(t, "active", list.Items[0].Status)
 	assert.Equal(t, []string{"Nairobi"}, list.Items[0].Counties)
 	assert.Equal(t, []int{1}, list.Items[0].CountyGids)
+	assert.True(t, list.Items[0].HasUpdates)
 	require.NotNil(t, list.Items[0].Reason)
 	assert.Equal(t, "home", *list.Items[0].Reason)
 	assert.Equal(t, "expired", list.Items[1].Status, "expired tombstones stay readable")
