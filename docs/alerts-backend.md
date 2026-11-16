@@ -82,3 +82,17 @@ go test ./internal/alerts ./internal/handler/expo ./internal/handler/admin -coun
 ```
 
 The integration tests use a PostGIS testcontainer and cover migration application, CAP ingest end-to-end, upsert/idempotency/material updates, fan-out preference matching, alert list/read/preferences, and admin Program Update create/publish/list.
+
+## Production checklist
+
+The alert code path is verified locally, but ingest and delivery do not run by themselves. Before enabling the feature:
+
+1. Apply migrations `0018`–`0025` from the TanStack schema branch, including `0021_alert_mapping_mixed` and `0025_text_user_ids`.
+2. Seed all 47 OCHA COD-AB ADM1 rows into `kenya_counties`, including polygons. `NewIngester` fails closed when the table is empty.
+3. Schedule `./bin/alerts ingest` every 5 minutes for KMD and every 15 minutes for FCDO, or run a scheduler that honours the source intervals.
+4. Run `./bin/alerts worker` continuously for fan-out, send, and receipt polling. It needs `DATABASE_URL` and `EXPO_PUSH_TOKEN`.
+5. Configure the Expo project’s FCM V1 service account for Firebase project `ytci-f93bf`, and include `android/app/google-services.json` in the Android build.
+6. Watch `GET /v1/admin/alerts/health` for poll failures, `possible_gap`, and mapping-review queues.
+7. Send one live KMD smoke alert to a real test device and confirm the OS notification, tap, and cold start.
+
+Expo’s `interruptionLevel` enum is hyphenated: use `time-sensitive`, not CAP’s `timeSensitive`. The fan-out composer already does.
