@@ -80,6 +80,7 @@ func ResolveProgramTargets(ctx context.Context, pool *pgxpool.Pool, audience Tar
 		           OR p.home_county_gid = ANY($1)
 		           OR p.watch_county_gids && $1)
 		      AND ($2::text = '' OR p.language = $2)
+		      AND (COALESCE(cardinality($6::text[]), 0) = 0 OR p.categories && $6)
 		      AND ($3::boolean OR p.program_important_only = false)
 		      AND (COALESCE(cardinality($4::text[]), 0) = 0
 		           OR (up.preferences IS NOT NULL
@@ -87,7 +88,8 @@ func ResolveProgramTargets(ctx context.Context, pool *pgxpool.Pool, audience Tar
 		               AND (up.preferences::jsonb) ?| $4::text[])))
 		  )
 		ORDER BY pt.id`,
-		audience.CountyGIDs, audience.Language, audience.Important, audience.Interests, audience.Guests)
+		audience.CountyGIDs, audience.Language, audience.Important, audience.Interests,
+		audience.Guests, audience.Categories)
 	if err != nil {
 		return nil, err
 	}

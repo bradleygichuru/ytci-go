@@ -67,6 +67,10 @@ func TestResolveProgramTargetsHonoursConsentCategoryAndCounty(t *testing.T) {
 	insertUser("00000000-0000-0000-0000-000000000012", "Mombasa Normal", 2, true, false, `["beaches"]`)
 	insertUser("00000000-0000-0000-0000-000000000013", "Program Off", 1, false, false, `["wildlife"]`)
 	insertUser("00000000-0000-0000-0000-000000000014", "Nairobi Normal", 1, true, false, `["wildlife"]`)
+	insertUser("00000000-0000-0000-0000-000000000015", "Security Only", 2, true, false, `["security"]`)
+	_, err = pool.Exec(ctx, `UPDATE alert_preferences SET categories=ARRAY['Program','Security']
+		WHERE user_id='00000000-0000-0000-0000-000000000015'`)
+	require.NoError(t, err)
 
 	_, err = pool.Exec(ctx, `INSERT INTO push_tokens (user_id, token, platform) VALUES (NULL,'guest-token','android')`)
 	require.NoError(t, err)
@@ -78,16 +82,20 @@ func TestResolveProgramTargetsHonoursConsentCategoryAndCounty(t *testing.T) {
 
 	targets, err = ResolveProgramTargets(ctx, pool, TargetAudience{Important: true})
 	require.NoError(t, err)
-	assert.Len(t, targets, 3)
+	assert.Len(t, targets, 4)
 
 	targets, err = ResolveProgramTargets(ctx, pool, TargetAudience{Interests: []string{"beaches"}, Important: true})
 	require.NoError(t, err)
 	require.Len(t, targets, 1)
 	assert.Equal(t, "token-00000000-0000-0000-0000-000000000012", targets[0].Token)
 
+	targets, err = ResolveProgramTargets(ctx, pool, TargetAudience{Important: true, Categories: []string{"Met"}})
+	require.NoError(t, err)
+	assert.Len(t, targets, 3, "category targeting excludes users without a matching preference")
+
 	targets, err = ResolveProgramTargets(ctx, pool, TargetAudience{Guests: true})
 	require.NoError(t, err)
-	require.Len(t, targets, 3)
+	require.Len(t, targets, 4)
 	tokens := make([]string, 0, len(targets))
 	for _, target := range targets {
 		tokens = append(tokens, target.Token)
