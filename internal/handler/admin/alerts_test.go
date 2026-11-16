@@ -22,7 +22,7 @@ func TestProgramUpdateCreatePublishList(t *testing.T) {
 	_, err := pool.Exec(ctx, `INSERT INTO users (id, name, email) VALUES ($1,'Admin','admin@example.com')`, userID)
 	require.NoError(t, err)
 
-	h := NewProgramUpdateHandler(pool)
+	h := NewProgramUpdateHandler(pool, nil)
 	body := `{"title":"Cleanup moved","body":"The Kilifi cleanup starts at 08:00.","priority":"Important","countyGids":[1]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/admin/program-updates", strings.NewReader(body))
 	req = req.WithContext(context.WithValue(req.Context(), middleware.CtxUserID, userID))

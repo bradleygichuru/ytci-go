@@ -166,7 +166,7 @@ func (h *EventsHandler) GetMobile(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r.Context())
 
 	var (
-		id, title, organizer, county, eventDate, etype, createdAt string
+		id, title, organizer, county, eventDate, etype, createdAt  string
 		endDate, description, contactEmail, contactPhone, imageURL *string
 		venue, endTimeRaw, startTime, entryFee, organizerAvatarURL *string
 		locationLat, locationLng                                   *float64
@@ -284,7 +284,7 @@ func (h *EventsHandler) GetPublic(w http.ResponseWriter, r *http.Request) {
 	eventID := r.PathValue("id")
 
 	var (
-		id, title, organizer, county, eventDate, etype, createdAt string
+		id, title, organizer, county, eventDate, etype, createdAt  string
 		endDate, description, contactEmail, contactPhone, imageURL *string
 		venue, endTimeRaw, startTime, entryFee, organizerAvatarURL *string
 		locationLat, locationLng                                   *float64
@@ -633,7 +633,9 @@ func (h *EventsHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 func (h *EventsHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 	eventID := r.PathValue("id")
-	var req struct{ Status string `json:"status"` }
+	var req struct {
+		Status string `json:"status"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
 		return

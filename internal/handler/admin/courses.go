@@ -50,25 +50,25 @@ func (h *CourseHandler) List(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type item struct {
-		ID              string           `json:"id"`
-		Title           string           `json:"title"`
-		Description     *string          `json:"description"`
-		Category        *string          `json:"category,omitempty"`
-		Difficulty      string           `json:"difficulty"`
-		Status          string           `json:"status"`
-		ImageURL        *string          `json:"imageUrl"`
-		PassThreshold   *int             `json:"passThreshold"`
-		BadgeName       *string          `json:"badgeName"`
-		BadgeIconURL        *string          `json:"badgeIconUrl"`
-		CertificateEnabled  *bool            `json:"certificateEnabled,omitempty"`
-		CertificateTemplate *string          `json:"certificateTemplate,omitempty"`
-		CreatedAt           string           `json:"createdAt"`
-		UpdatedAt       string           `json:"updatedAt"`
-		Lessons         json.RawMessage  `json:"lessons"`
-		LessonCount     int              `json:"lessonCount"`
-		QuizQuestions   json.RawMessage  `json:"quizQuestions"`
-		EnrollmentCount int              `json:"enrollmentCount"`
-		CompletionCount int              `json:"completionCount"`
+		ID                  string          `json:"id"`
+		Title               string          `json:"title"`
+		Description         *string         `json:"description"`
+		Category            *string         `json:"category,omitempty"`
+		Difficulty          string          `json:"difficulty"`
+		Status              string          `json:"status"`
+		ImageURL            *string         `json:"imageUrl"`
+		PassThreshold       *int            `json:"passThreshold"`
+		BadgeName           *string         `json:"badgeName"`
+		BadgeIconURL        *string         `json:"badgeIconUrl"`
+		CertificateEnabled  *bool           `json:"certificateEnabled,omitempty"`
+		CertificateTemplate *string         `json:"certificateTemplate,omitempty"`
+		CreatedAt           string          `json:"createdAt"`
+		UpdatedAt           string          `json:"updatedAt"`
+		Lessons             json.RawMessage `json:"lessons"`
+		LessonCount         int             `json:"lessonCount"`
+		QuizQuestions       json.RawMessage `json:"quizQuestions"`
+		EnrollmentCount     int             `json:"enrollmentCount"`
+		CompletionCount     int             `json:"completionCount"`
 	}
 	var items []item
 	for rows.Next() {

@@ -100,8 +100,8 @@ func (h *AnalyticsHandler) Export(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]string{
-		"reportId": reportID,
-		"status":   "generating",
+		"reportId":  reportID,
+		"status":    "generating",
 		"createdAt": time.Now().UTC().Format(time.RFC3339),
 	})
 }

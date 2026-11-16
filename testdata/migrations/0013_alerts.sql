@@ -236,10 +236,32 @@ CREATE TABLE IF NOT EXISTS program_updates (
     published_at      timestamptz,
     expires_at        timestamptz,
     created_by        text NOT NULL,
+    source            text NOT NULL DEFAULT 'admin',
+    source_id         text,
     created_at        timestamptz NOT NULL DEFAULT now(),
     updated_at        timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS program_updates_status_idx ON program_updates (status, published_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS program_updates_campaign_source_idx
+    ON program_updates (source, source_id) WHERE source = 'campaign' AND source_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS program_update_deliveries (
+    id                 bigserial PRIMARY KEY,
+    program_update_id  uuid NOT NULL REFERENCES program_updates(id) ON DELETE CASCADE,
+    user_id            text NOT NULL DEFAULT '',
+    push_token_id      uuid NOT NULL REFERENCES push_tokens(id) ON DELETE CASCADE,
+    status             text NOT NULL DEFAULT 'queued'
+                         CHECK (status IN ('queued','sent','failed','skipped')),
+    expo_ticket_id     text,
+    error_code         text,
+    sent_at            timestamptz,
+    created_at         timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (program_update_id, push_token_id)
+);
+CREATE INDEX IF NOT EXISTS program_update_deliveries_user_idx
+    ON program_update_deliveries (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS program_update_deliveries_update_idx
+    ON program_update_deliveries (program_update_id);
 
 CREATE TABLE IF NOT EXISTS program_update_read_state (
     user_id           text NOT NULL REFERENCES users(id) ON DELETE CASCADE,

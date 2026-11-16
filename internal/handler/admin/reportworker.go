@@ -14,8 +14,8 @@ import (
 )
 
 type ReportWorker struct {
-	pool   *pgxpool.Pool
-	done   chan struct{}
+	pool *pgxpool.Pool
+	done chan struct{}
 }
 
 func NewReportWorker(pool *pgxpool.Pool) *ReportWorker {

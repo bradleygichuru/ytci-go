@@ -65,13 +65,14 @@ Admin:
 - New accounts default to Weather (`Met`) push only at Severe+, with Security, Safety, and Program off. Quiet hours are 22:00–06:00; Extreme always bypasses and Severe overnight is opt-in (`criticalOverride`).
 - Push eligibility requires a non-null `expires_at`; alerts without an expiry stay inbox-only. A cancellation is push-eligible even without an expiry because it targets readers who already received the original.
 - `alert_sources.push_enabled` gates KMD fan-out; FCDO remains in-app only.
-- Program Updates are in-app only in this slice; pushing Important updates belongs with the campaign-notification unification work (#248).
+- Campaign sends now create a Program Update and use the Program audience. `push_notifications.target_audience` accepts JSON: `{"countyGids":[1,2],"interests":["wildlife"],"language":"en","guests":false,"important":false}`. Guests only receive global campaigns in v1.
+- Program Update publish sends immediately through the Program channel (`program_updates`) with quiet-hours and cap suppression; sent/skipped rows are recorded in `program_update_deliveries`. Program Expo receipts are not polled yet.
 - The ingester persists `ETag` and `Last-Modified` on `alert_sources` and sends conditional requests; KMD's RSS may ignore them, so dedupe also relies on the CAP identifier and content hash.
 - Failed polls back off exponentially from the source interval, capped at 30 minutes.
 - When every item in a full KMD feed is new after a prior success, the run is marked `partial` with `possible_gap` so the inbox can show the source as degraded rather than implying an all-clear.
 - Guest push token registration is schema-ready (`push_tokens.user_id` nullable, `installation_id`) but the public registration/fan-out path is left for the mobile slice.
 - The production schema migrations live on the TanStack branch `feat/alerts-schema` (`0018_alerts.sql` through `0023_alert_preference_backfill.sql`, renumbered after the marketplace `0017` migration from #29); the backend test schema is `testdata/migrations/0013_alerts.sql`.
-- Program Update push and guest installation fan-out are deliberately deferred to the mobile/campaign unification slices (#247/#248).
+- Guest installation registration/fan-out remains deferred; guest tokens are schema-ready and receive global campaigns only.
 
 ## Tests
 

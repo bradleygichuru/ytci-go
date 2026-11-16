@@ -12,14 +12,16 @@ import (
 
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 	"github.com/bradleygichuru/ytci-go/internal/middleware"
+	"github.com/bradleygichuru/ytci-go/internal/push"
 )
 
 type ProgramUpdateHandler struct {
-	pool *pgxpool.Pool
+	pool   *pgxpool.Pool
+	client *push.Client
 }
 
-func NewProgramUpdateHandler(pool *pgxpool.Pool) *ProgramUpdateHandler {
-	return &ProgramUpdateHandler{pool: pool}
+func NewProgramUpdateHandler(pool *pgxpool.Pool, client *push.Client) *ProgramUpdateHandler {
+	return &ProgramUpdateHandler{pool: pool, client: client}
 }
 
 type programUpdateRequest struct {
@@ -112,7 +114,47 @@ func (h *ProgramUpdateHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ProgramUpdateHandler) Publish(w http.ResponseWriter, r *http.Request) {
-	h.setStatus(w, r, "published", "published_at=COALESCE(published_at, now()), ")
+	id := r.PathValue("id")
+	var update push.ProgramPush
+	var counties []int32
+	var linkURL string
+	var expires pgtype.Timestamptz
+	err := h.pool.QueryRow(r.Context(), `
+		UPDATE program_updates
+		SET status='published', published_at=COALESCE(published_at, now()), updated_at=now()
+		WHERE id=$1 AND status IN ('draft','scheduled')
+		RETURNING title, body, priority, county_gids,
+		          COALESCE(image_url,''), COALESCE(link_url,''), expires_at`, id).Scan(
+		&update.Title, &update.Body, &update.Priority, &counties,
+		&update.ImageURL, &linkURL, &expires)
+	if err == pgx.ErrNoRows {
+		var status string
+		if err := h.pool.QueryRow(r.Context(), `SELECT status FROM program_updates WHERE id=$1`, id).Scan(&status); err != nil {
+			handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "program update not found")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "status": status, "sent": 0})
+		return
+	}
+	if err != nil {
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to publish program update", err)
+		return
+	}
+	update.ID = id
+	update.CountyGIDs = int32sToInts(counties)
+	if expires.Valid {
+		t := expires.Time
+		update.ExpiresAt = &t
+	}
+	update.Route = "/alerts/program/" + id
+	sent, err := push.SendProgramUpdate(r.Context(), h.pool, h.client, update)
+	if err != nil {
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to send program update", err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "status": "published", "sent": sent})
 }
 
 func (h *ProgramUpdateHandler) Expire(w http.ResponseWriter, r *http.Request) {

@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -51,60 +50,36 @@ func (h *PushHandler) Send(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokens, err := h.resolveTokens(r.Context())
+	programUpdate, err := push.UpsertCampaignProgramUpdate(
+		r.Context(), h.pool, notificationID, req.Title, req.Body, req.ImageURL,
+		req.Data, req.TargetAudience, userID,
+	)
 	if err != nil {
-		h.pool.Exec(r.Context(),
+		_, _ = h.pool.Exec(r.Context(),
 			`UPDATE push_notifications SET status = 'failed' WHERE id = $1`, notificationID)
-		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to resolve tokens", err)
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create program update", err)
 		return
 	}
 
-	if len(tokens) == 0 {
-		h.pool.Exec(r.Context(),
-			`UPDATE push_notifications SET status = 'sent', sent_at = now(), recipient_count = 0 WHERE id = $1`,
-			notificationID)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]string{
-			"notificationId": notificationID,
-			"recipientCount": "0",
-		})
-		return
-	}
-
-	var data map[string]any
-	if req.Data != "" {
-		_ = json.Unmarshal([]byte(req.Data), &data)
-	}
-	messages := make([]push.ExpoPushMessage, len(tokens))
-	for i, tok := range tokens {
-		messages[i] = push.BuildMessage(push.MessageSpec{
-			To: tok, Title: req.Title, Body: req.Body, Data: data, ImageURL: req.ImageURL,
-		})
-	}
-
-	result, err := h.client.SendMessages(r.Context(), messages)
+	sent, err := push.SendProgramUpdate(r.Context(), h.pool, h.client, programUpdate)
 	if err != nil {
-		h.pool.Exec(r.Context(),
+		_, _ = h.pool.Exec(r.Context(),
 			`UPDATE push_notifications SET status = 'failed' WHERE id = $1`, notificationID)
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "push delivery failed", err)
 		return
 	}
 
-	h.pool.Exec(r.Context(),
+	_, _ = h.pool.Exec(r.Context(),
 		`UPDATE push_notifications SET status = 'sent', sent_at = now(), recipient_count = $2 WHERE id = $1`,
-		notificationID, result.Sent)
+		notificationID, sent)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]any{
-		"notificationId": notificationID,
-		"recipientCount": result.Sent,
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"notificationId":  notificationID,
+		"programUpdateId": programUpdate.ID,
+		"recipientCount":  sent,
 	})
-}
-
-func (h *PushHandler) resolveTokens(ctx context.Context) ([]string, error) {
-	return push.ResolveActiveTokens(ctx, h.pool)
 }
 
 func (h *PushHandler) Schedule(w http.ResponseWriter, r *http.Request) {

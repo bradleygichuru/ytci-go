@@ -133,7 +133,7 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 		marketplace:      expo.NewMarketplaceHandler(pool, r2client),
 		marketplaceAdmin: admin.NewMarketplaceAdminHandler(pool, r2client),
 		alerts:           expo.NewAlertsHandler(pool),
-		programUpdates:   admin.NewProgramUpdateHandler(pool),
+		programUpdates:   admin.NewProgramUpdateHandler(pool, pushClient),
 	}
 	if pushClient != nil {
 		h.pushAdmin = admin.NewPushHandler(pool, pushClient)

@@ -50,21 +50,21 @@ func (h *ConservationAdminHandler) List(w http.ResponseWriter, r *http.Request) 
 	defer rows.Close()
 
 	type item struct {
-		ID                  string  `json:"id"`
-		Title               string  `json:"title"`
-		Organizer           string  `json:"organizer"`
-		EventDate           *string `json:"eventDate,omitempty"`
-		Status              string  `json:"status"`
-		CurrentParticipants int     `json:"currentParticipants"`
+		ID                  string   `json:"id"`
+		Title               string   `json:"title"`
+		Organizer           string   `json:"organizer"`
+		EventDate           *string  `json:"eventDate,omitempty"`
+		Status              string   `json:"status"`
+		CurrentParticipants int      `json:"currentParticipants"`
 		Lng                 *float64 `json:"lng"`
 		Lat                 *float64 `json:"lat"`
-		ImpactMetric        *string `json:"impactMetric,omitempty"`
-		ImpactTarget        *int    `json:"impactTarget,omitempty"`
-		ImpactActual        *int    `json:"impactActual,omitempty"`
-		MeasurementUnit     *string `json:"measurementUnit,omitempty"`
-		ProgressDriver      string  `json:"progressDriver"`
-		BadgeName           *string `json:"badgeName,omitempty"`
-		BadgeIconURL        *string `json:"badgeIconUrl,omitempty"`
+		ImpactMetric        *string  `json:"impactMetric,omitempty"`
+		ImpactTarget        *int     `json:"impactTarget,omitempty"`
+		ImpactActual        *int     `json:"impactActual,omitempty"`
+		MeasurementUnit     *string  `json:"measurementUnit,omitempty"`
+		ProgressDriver      string   `json:"progressDriver"`
+		BadgeName           *string  `json:"badgeName,omitempty"`
+		BadgeIconURL        *string  `json:"badgeIconUrl,omitempty"`
 	}
 	var items []item
 	for rows.Next() {

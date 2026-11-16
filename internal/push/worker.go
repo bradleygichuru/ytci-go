@@ -2,7 +2,6 @@ package push
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"time"
 
@@ -84,7 +83,8 @@ func (w *Worker) cleanupTicker(ctx context.Context) {
 
 func (w *Worker) processScheduled(ctx context.Context) {
 	rows, err := w.pool.Query(ctx,
-		`SELECT id, title, body, COALESCE(image_url, ''), COALESCE(data, ''), COALESCE(target_audience, '')
+		`SELECT id, title, body, COALESCE(image_url, ''), COALESCE(data, ''),
+		        COALESCE(target_audience, ''), COALESCE(sent_by::text, '')
 		 FROM push_notifications
 		 WHERE scheduled_at <= now() AND status = 'scheduled'
 		 ORDER BY scheduled_at
@@ -99,7 +99,7 @@ func (w *Worker) processScheduled(ctx context.Context) {
 	var jobs []job
 	for rows.Next() {
 		var j job
-		if err := rows.Scan(&j.id, &j.title, &j.body, &j.imageURL, &j.data, &j.targetAudience); err != nil {
+		if err := rows.Scan(&j.id, &j.title, &j.body, &j.imageURL, &j.data, &j.targetAudience, &j.sentBy); err != nil {
 			slog.Error("push worker: scan", "error", err)
 			continue
 		}
@@ -119,54 +119,26 @@ func (w *Worker) sendOne(ctx context.Context, j job) {
 		return
 	}
 
-	tokens := w.resolveTokens(ctx)
-	if len(tokens) == 0 {
-		w.pool.Exec(ctx,
-			`UPDATE push_notifications SET status = 'sent', sent_at = now(), recipient_count = 0 WHERE id = $1`, j.id)
+	programUpdate, err := UpsertCampaignProgramUpdate(
+		ctx, w.pool, j.id, j.title, j.body, j.imageURL, j.data, j.targetAudience, j.sentBy,
+	)
+	if err != nil {
+		slog.Error("push worker: create program update", "id", j.id, "error", err)
+		w.pool.Exec(ctx, `UPDATE push_notifications SET status = 'failed' WHERE id = $1`, j.id)
 		return
 	}
 
-	var data map[string]any
-	if j.data != "" {
-		_ = json.Unmarshal([]byte(j.data), &data)
-	}
-	messages := make([]ExpoPushMessage, len(tokens))
-	for i, tok := range tokens {
-		messages[i] = BuildMessage(MessageSpec{
-			To: tok, Title: j.title, Body: j.body, Data: data, ImageURL: j.imageURL,
-		})
-	}
-
-	result, err := w.client.SendMessages(ctx, messages)
+	sent, err := SendProgramUpdate(ctx, w.pool, w.client, programUpdate)
 	if err != nil {
 		slog.Error("push worker: send", "id", j.id, "error", err)
 		w.pool.Exec(ctx, `UPDATE push_notifications SET status = 'failed' WHERE id = $1`, j.id)
 		return
 	}
 
-	summaryErrMsgs := make([]string, len(result.Errors))
-	copy(summaryErrMsgs, result.Errors)
-
 	w.pool.Exec(ctx,
 		`UPDATE push_notifications SET status = 'sent', sent_at = now(), recipient_count = $2 WHERE id = $1`,
-		j.id, result.Sent)
-	slog.Info("push sent", "id", j.id, "sent", result.Sent, "failed", result.Failed, "errors", summaryErrMsgs)
-
-	for token := range result.TokenErrors {
-		if _, err := w.pool.Exec(ctx,
-			`UPDATE push_tokens SET is_active = false WHERE token = $1`, token); err != nil {
-			slog.Warn("push worker: failed to deactivate token", "token", token, "error", err)
-		}
-	}
-}
-
-func (w *Worker) resolveTokens(ctx context.Context) []string {
-	tokens, err := ResolveActiveTokens(ctx, w.pool)
-	if err != nil {
-		slog.Error("push worker: resolve tokens", "error", err)
-		return nil
-	}
-	return tokens
+		j.id, sent)
+	slog.Info("push sent", "id", j.id, "sent", sent, "programUpdate", programUpdate.ID)
 }
 
 type job struct {
@@ -176,4 +148,5 @@ type job struct {
 	imageURL       string
 	data           string
 	targetAudience string
+	sentBy         string
 }
