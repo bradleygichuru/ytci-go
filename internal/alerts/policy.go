@@ -97,6 +97,30 @@ func ShouldPush(alert AlertPolicyInput, prefs DeliveryPolicy, now time.Time) (bo
 	return false, "quiet_hours", nextQuietEnd(local, start, end)
 }
 
+// quietHoursBlocked is the send-time guard. It is deliberately checked again
+// in the worker so a delivery queued just before quiet hours cannot leak out
+// if the worker is delayed.
+func quietHoursBlocked(severity string, enabled bool, start, end, timezone string, criticalOverride bool, now time.Time) bool {
+	if !enabled {
+		return false
+	}
+	startAt, endAt, ok := quietWindow(start, end)
+	if !ok || startAt == endAt {
+		return false
+	}
+	local := now.In(loadLocation(timezone))
+	if !isWithinQuiet(local, startAt, endAt) {
+		return false
+	}
+	switch SeverityRank(severity) {
+	case 4:
+		return false
+	case 3:
+		return !criticalOverride
+	}
+	return true
+}
+
 func containsString(list []string, value string) bool {
 	for _, v := range list {
 		if strings.EqualFold(v, value) {

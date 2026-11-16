@@ -354,10 +354,15 @@ func (w *Worker) loadAlert(ctx context.Context, id string) (alertRow, error) {
 func (w *Worker) sendDue(ctx context.Context) error {
 	rows, err := w.store.Pool().Query(ctx, `
 		SELECT d.id, d.alert_id, d.user_id, pt.token, a.source_id, a.severity, a.event, a.headline,
-		       COALESCE(a.instruction,a.description,''), a.expires_at, a.status, d.county_gid
+		       COALESCE(a.instruction,a.description,''), a.expires_at, a.status, d.county_gid,
+		       COALESCE(p.quiet_hours_enabled,false),
+		       COALESCE(to_char(p.quiet_hours_start,'HH24:MI'),'22:00'),
+		       COALESCE(to_char(p.quiet_hours_end,'HH24:MI'),'06:00'),
+		       COALESCE(p.timezone,'Africa/Nairobi'), COALESCE(p.critical_override,false)
 		FROM alert_deliveries d
 		JOIN alerts a ON a.id=d.alert_id
 		JOIN push_tokens pt ON pt.id=d.push_token_id AND pt.is_active = true
+		LEFT JOIN alert_preferences p ON p.user_id=d.user_id
 		WHERE d.status='queued' AND d.deliver_after <= now()
 		  AND a.status IN ('active','cancelled')
 		ORDER BY d.created_at LIMIT $1`, w.batch)
@@ -371,6 +376,9 @@ func (w *Worker) sendDue(ctx context.Context) error {
 		status                                                            string
 		expires                                                           *time.Time
 		countyGID                                                         *int32
+		quietEnabled                                                      bool
+		quietStart, quietEnd, timezone                                    string
+		criticalOverride                                                  bool
 	}
 	var items []due
 	now := time.Now()
@@ -378,7 +386,8 @@ func (w *Worker) sendDue(ctx context.Context) error {
 		var d due
 		var expires pgtype.Timestamptz
 		if err := rows.Scan(&d.id, &d.alertID, &d.userID, &d.token, &d.sourceID, &d.severity,
-			&d.event, &d.headline, &d.body, &expires, &d.status, &d.countyGID); err != nil {
+			&d.event, &d.headline, &d.body, &expires, &d.status, &d.countyGID,
+			&d.quietEnabled, &d.quietStart, &d.quietEnd, &d.timezone, &d.criticalOverride); err != nil {
 			return err
 		}
 		if expires.Valid {
@@ -387,6 +396,10 @@ func (w *Worker) sendDue(ctx context.Context) error {
 		}
 		if d.status != "cancelled" && d.expires != nil && !d.expires.After(now) {
 			_, _ = w.store.Pool().Exec(ctx, `UPDATE alert_deliveries SET status='skipped_expired' WHERE id=$1`, d.id)
+			continue
+		}
+		if quietHoursBlocked(d.severity, d.quietEnabled, d.quietStart, d.quietEnd, d.timezone, d.criticalOverride, now) {
+			_, _ = w.store.Pool().Exec(ctx, `UPDATE alert_deliveries SET status='skipped_quiet_hours' WHERE id=$1`, d.id)
 			continue
 		}
 		items = append(items, d)

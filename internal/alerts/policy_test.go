@@ -135,3 +135,13 @@ func TestShouldPushMatchesAnyCAPCategory(t *testing.T) {
 	assert.True(t, allowed)
 	assert.Equal(t, "ok", reason)
 }
+
+func TestQuietHoursBlockedAtSendTime(t *testing.T) {
+	now := time.Date(2026, 11, 15, 23, 0, 0, 0, eat())
+	prefs := defaultPolicy()
+	assert.True(t, quietHoursBlocked("Moderate", true, prefs.QuietStart, prefs.QuietEnd, prefs.Timezone, false, now))
+	assert.True(t, quietHoursBlocked("Severe", true, prefs.QuietStart, prefs.QuietEnd, prefs.Timezone, false, now))
+	assert.False(t, quietHoursBlocked("Severe", true, prefs.QuietStart, prefs.QuietEnd, prefs.Timezone, true, now))
+	assert.False(t, quietHoursBlocked("Extreme", true, prefs.QuietStart, prefs.QuietEnd, prefs.Timezone, false, now))
+	assert.False(t, quietHoursBlocked("Moderate", false, prefs.QuietStart, prefs.QuietEnd, prefs.Timezone, false, now))
+}
