@@ -98,6 +98,7 @@ type handlers struct {
 	places           *expo.PlacesHandler
 	marketplace      *expo.MarketplaceHandler
 	marketplaceAdmin *admin.MarketplaceAdminHandler
+	audioStories     *admin.AudioStoryHandler
 }
 
 func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Client, cfg *config.Config) *handlers {
@@ -130,6 +131,7 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 		places:           expo.NewPlacesHandler(pool, cfg.GooglePlacesAPIKey, placesCache),
 		marketplace:      expo.NewMarketplaceHandler(pool, r2client),
 		marketplaceAdmin: admin.NewMarketplaceAdminHandler(pool, r2client),
+		audioStories:     admin.NewAudioStoryHandler(pool),
 	}
 	if pushClient != nil {
 		h.pushAdmin = admin.NewPushHandler(pool, pushClient)
@@ -226,6 +228,26 @@ func mountAdminRoutes(sub chi.Router, h *handlers, r2client r2.Store, jwks *midd
 
 		aR.Get("/comments/moderation", h.adminComments.ModerationList)
 		aR.Post("/comments/moderation/{cid}", h.adminComments.Moderate)
+	})
+
+	sub.Group(func(aR chi.Router) {
+		aR.Use(middleware.JWTAuth(jwks, expectedIssuer, expectedAudience))
+		aR.Use(middleware.AudioAdminGate)
+		aR.Get("/audio-stories", h.audioStories.List)
+		aR.Post("/audio-stories", h.audioStories.Create)
+		aR.Get("/audio-stories/{id}", h.audioStories.Get)
+		aR.Patch("/audio-stories/{id}", h.audioStories.Update)
+		aR.Get("/audio-stories/{id}/audit", h.audioStories.Audit)
+		aR.Get("/audio-stories/{id}/revisions", h.audioStories.ListRevisions)
+		aR.Post("/audio-stories/{id}/revisions", h.audioStories.CreateRevision)
+		aR.Get("/audio-stories/{id}/revisions/{revisionId}", h.audioStories.GetRevision)
+		aR.Patch("/audio-stories/{id}/revisions/{revisionId}", h.audioStories.UpdateRevision)
+		aR.Get("/audio-stories/{id}/revisions/{revisionId}/readiness", h.audioStories.Readiness)
+		aR.Post("/audio-stories/{id}/revisions/{revisionId}/submit", h.audioStories.Submit)
+		aR.Post("/audio-stories/{id}/revisions/{revisionId}/tracks", h.audioStories.UpsertTrack)
+		aR.Patch("/audio-stories/{id}/revisions/{revisionId}/tracks/{trackId}", h.audioStories.UpdateTrack)
+		aR.Delete("/audio-stories/{id}/revisions/{revisionId}/tracks/{trackId}", h.audioStories.DeleteTrack)
+		aR.Put("/audio-stories/{id}/revisions/{revisionId}/transcripts/{language}", h.audioStories.PutTranscript)
 	})
 }
 
