@@ -76,17 +76,17 @@ func (h *AlertsHandler) List(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(ARRAY(SELECT ar.county_gid FROM alert_areas ar WHERE ar.alert_id=a.id), '{}'),
 		       rs.read_at,
 		       (SELECT d.reason FROM alert_deliveries d
-		        WHERE d.alert_id=a.id AND d.user_id=$1 AND d.status IN ('queued','sent')
+		        WHERE d.alert_id=a.id AND d.user_id=$1::text AND d.status IN ('queued','sent')
 		        ORDER BY d.created_at DESC LIMIT 1)
 		FROM alerts a
 		LEFT JOIN alert_sources s ON s.id=a.source_id
-		LEFT JOIN alert_read_state rs ON rs.alert_id=a.id AND rs.user_id=$1
+		LEFT JOIN alert_read_state rs ON rs.alert_id=a.id AND rs.user_id=$1::text
 		WHERE a.is_public=true AND a.is_test=false
 		  AND (a.status='active'
 		       OR (a.status IN ('expired','cancelled') AND a.sent_at > now() - interval '30 days'))
 		  AND NOT EXISTS (
 		    SELECT 1 FROM alert_read_state drs
-		    WHERE drs.alert_id=a.id AND drs.user_id=$1 AND drs.dismissed_at IS NOT NULL
+		    WHERE drs.alert_id=a.id AND drs.user_id=$1::text AND drs.dismissed_at IS NOT NULL
 		  )
 		  AND ($2::int IS NULL OR NOT EXISTS (SELECT 1 FROM alert_areas x WHERE x.alert_id=a.id)
 		       OR EXISTS (SELECT 1 FROM alert_areas x WHERE x.alert_id=a.id AND x.county_gid=$2))
@@ -197,12 +197,12 @@ func (h *AlertsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(ARRAY(SELECT ar.county_gid FROM alert_areas ar WHERE ar.alert_id=a.id), '{}'),
 		       rs.read_at,
 		       (SELECT d.reason FROM alert_deliveries d
-		        WHERE d.alert_id=a.id AND d.user_id=$1 AND d.status IN ('queued','sent')
+		        WHERE d.alert_id=a.id AND d.user_id=$1::text AND d.status IN ('queued','sent')
 		        ORDER BY d.created_at DESC LIMIT 1)
 		FROM alerts a
 		LEFT JOIN alert_sources s ON s.id=a.source_id
-		LEFT JOIN alert_read_state rs ON rs.alert_id=a.id AND rs.user_id=$2
-		WHERE a.id=$1 AND a.is_public=true AND a.is_test=false`, id, userID)
+		LEFT JOIN alert_read_state rs ON rs.alert_id=a.id AND rs.user_id=$2::text
+		WHERE a.id=$1::uuid AND a.is_public=true AND a.is_test=false`, id, userID)
 	item, err := scanAlert(row)
 	if err != nil {
 		if err == pgx.ErrNoRows {
