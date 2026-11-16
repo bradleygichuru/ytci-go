@@ -132,21 +132,26 @@ type audioReadiness struct {
 }
 
 type audioStorySummary struct {
-	ID               string     `json:"id"`
-	Slug             string     `json:"slug"`
-	Title            string     `json:"title"`
-	Summary          string     `json:"summary"`
-	Theme            string     `json:"theme"`
-	Status           string     `json:"status"`
-	CollectionID     string     `json:"collectionId,omitempty"`
-	CollectionOrder  int        `json:"collectionOrder"`
-	Featured         bool       `json:"featured"`
-	ContentVersion   int        `json:"contentVersion"`
-	LiveRevisionID   string     `json:"liveRevisionId,omitempty"`
-	LiveStatus       string     `json:"liveRevisionStatus,omitempty"`
-	OpenRevisionID   string     `json:"openRevisionId,omitempty"`
-	OpenRevisionStat string     `json:"openRevisionStatus,omitempty"`
-	UpdatedAt        *time.Time `json:"updatedAt"`
+	ID                 string     `json:"id"`
+	Slug               string     `json:"slug"`
+	Title              string     `json:"title"`
+	Summary            string     `json:"summary"`
+	Theme              string     `json:"theme"`
+	Status             string     `json:"status"`
+	CollectionID       string     `json:"collectionId,omitempty"`
+	CollectionTitle    string     `json:"collectionTitle,omitempty"`
+	CollectionOrder    int        `json:"collectionOrder"`
+	Featured           bool       `json:"featured"`
+	ContentVersion     int        `json:"contentVersion"`
+	LiveRevisionID     string     `json:"liveRevisionId,omitempty"`
+	LiveStatus         string     `json:"liveRevisionStatus,omitempty"`
+	OpenRevisionID     string     `json:"openRevisionId,omitempty"`
+	OpenRevisionStat   string     `json:"openRevisionStatus,omitempty"`
+	RiskTier           string     `json:"riskTier,omitempty"`
+	Languages          []string   `json:"languages"`
+	AssignedReviewerID string     `json:"assignedReviewerId,omitempty"`
+	RightsExpiresAt    *time.Time `json:"rightsExpiresAt,omitempty"`
+	UpdatedAt          *time.Time `json:"updatedAt"`
 }
 
 type audioStoryDetail struct {
@@ -338,11 +343,16 @@ func (h *AudioStoryHandler) List(w http.ResponseWriter, r *http.Request) {
 	search := r.URL.Query().Get("q")
 	rows, err := h.pool.Query(r.Context(),
 		`SELECT s.id,s.slug,s.title,s.summary,s.theme,s.status,COALESCE(s.collection_id::text,''),
-		 s.collection_order,s.featured,s.content_version,
+		 COALESCE(c.title,''),s.collection_order,s.featured,s.content_version,
 		 COALESCE(s.live_revision_id::text,''),COALESCE(lr.status,''),
 		 COALESCE(s.open_revision_id::text,''),COALESCE(orv.status,''),
+		 COALESCE(orv.risk_tier,lr.risk_tier,''),COALESCE(orv.assigned_reviewer_id::text,''),
+		 COALESCE(orv.rights_expires_at,lr.rights_expires_at),
+		 COALESCE((SELECT array_agg(t.language ORDER BY t.language) FROM audio_story_tracks t
+		           WHERE t.revision_id=COALESCE(s.open_revision_id,s.live_revision_id)),'{}'),
 		 s.updated_at
 		 FROM audio_stories s
+		 LEFT JOIN audio_story_collections c ON c.id=s.collection_id
 		 LEFT JOIN audio_story_revisions lr ON lr.id=s.live_revision_id
 		 LEFT JOIN audio_story_revisions orv ON orv.id=s.open_revision_id
 		 WHERE ($1='' OR s.status=$1)
@@ -359,13 +369,16 @@ func (h *AudioStoryHandler) List(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var item audioStorySummary
 		var updated pgtype.Timestamp
+		var expires pgtype.Timestamp
 		if err := rows.Scan(&item.ID, &item.Slug, &item.Title, &item.Summary, &item.Theme, &item.Status,
-			&item.CollectionID, &item.CollectionOrder, &item.Featured, &item.ContentVersion,
+			&item.CollectionID, &item.CollectionTitle, &item.CollectionOrder, &item.Featured, &item.ContentVersion,
 			&item.LiveRevisionID, &item.LiveStatus, &item.OpenRevisionID, &item.OpenRevisionStat,
-			&updated); err != nil {
+			&item.RiskTier, &item.AssignedReviewerID, &expires, &item.Languages, &updated); err != nil {
 			audioFail(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to read audio story")
 			return
 		}
+		item.RightsExpiresAt = tsPtr(expires)
+		item.Languages = nonNilStrings(item.Languages)
 		item.UpdatedAt = tsPtr(updated)
 		items = append(items, item)
 	}

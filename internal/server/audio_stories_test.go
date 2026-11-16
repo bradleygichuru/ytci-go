@@ -131,6 +131,9 @@ func TestAudioStoryDraftFlow(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	list := decodeBody(t, resp)
 	require.Len(t, list["items"].([]any), 1)
+	summary := list["items"].([]any)[0].(map[string]any)
+	assert.Equal(t, "Coastal Voices", summary["collectionTitle"])
+	assert.Equal(t, "standard", summary["riskTier"])
 
 	resp = doJSON(t, ts, "GET", "/v1/audio-stories/"+storyID, nil, moderatorAuth)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
