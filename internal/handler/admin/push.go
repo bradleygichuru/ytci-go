@@ -106,7 +106,7 @@ func (h *PushHandler) Send(w http.ResponseWriter, r *http.Request) {
 	var notificationID string
 	err := h.pool.QueryRow(r.Context(),
 		`INSERT INTO push_notifications (title, body, image_url, data, target_audience, campaign_id, status, sent_by)
-		 VALUES ($1, $2, $3, NULLIF($4,''), NULLIF($5,''), NULLIF($6,'')::uuid, 'sending', NULLIF($7,'')::uuid)
+		 VALUES ($1, $2, $3, NULLIF($4,''), NULLIF($5,''), NULLIF($6,'')::uuid, 'sending', NULLIF($7,''))
 		 RETURNING id`,
 		req.Title, req.Body, req.ImageURL, dataRaw, targetRaw, req.CampaignID, userID,
 	).Scan(&notificationID)
@@ -160,7 +160,7 @@ func (h *PushHandler) Schedule(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO push_notifications
 		   (title, body, image_url, data, target_audience, campaign_id, status, scheduled_at, sent_by)
 		 VALUES ($1,$2,$3,NULLIF($4,''),NULLIF($5,''),NULLIF($6,'')::uuid,'scheduled',
-		         NULLIF($7,'')::timestamp, NULLIF($8,'')::uuid)
+		         NULLIF($7,'')::timestamp, NULLIF($8,''))
 		 RETURNING id`,
 		req.Title, req.Body, req.ImageURL, dataRaw, targetRaw, req.CampaignID, req.ScheduledAt,
 		middleware.UserID(r.Context()),

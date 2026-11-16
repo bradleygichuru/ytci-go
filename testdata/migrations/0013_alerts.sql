@@ -271,6 +271,9 @@ CREATE TABLE IF NOT EXISTS program_update_read_state (
 );
 
 ALTER TABLE push_tokens ALTER COLUMN user_id DROP NOT NULL;
+ALTER TABLE push_tokens ALTER COLUMN user_id TYPE text USING user_id::text;
+ALTER TABLE push_notifications ALTER COLUMN sent_by TYPE text USING sent_by::text;
+ALTER TABLE campaigns ALTER COLUMN created_by TYPE text USING created_by::text;
 ALTER TABLE push_tokens ADD COLUMN IF NOT EXISTS installation_id text;
 ALTER TABLE push_tokens ADD COLUMN IF NOT EXISTS last_registered_at timestamptz;
 ALTER TABLE push_tokens ADD COLUMN IF NOT EXISTS deactivated_at timestamptz;
