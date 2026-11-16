@@ -373,11 +373,12 @@ func extractBearerToken(r *http.Request) string {
 type Role string
 
 const (
-	RoleSuperAdmin   Role = "super_admin"
-	RoleAdmin        Role = "administrator"
-	RoleModerator    Role = "moderator"
+	RoleSuperAdmin    Role = "super_admin"
+	RoleAdmin         Role = "administrator"
+	RoleModerator     Role = "moderator"
+	RoleContentEditor Role = "content_editor"
 	RoleCountyOfficer Role = "county_officer"
-	RoleUser         Role = "user"
+	RoleUser          Role = "user"
 )
 
 var adminRoles = map[Role]bool{
@@ -386,8 +387,19 @@ var adminRoles = map[Role]bool{
 	RoleModerator:  true,
 }
 
+var audioAdminRoles = map[Role]bool{
+	RoleSuperAdmin:    true,
+	RoleAdmin:         true,
+	RoleModerator:     true,
+	RoleContentEditor: true,
+}
+
 func IsAdmin(role Role) bool {
 	return adminRoles[role]
+}
+
+func IsAudioAdmin(role Role) bool {
+	return audioAdminRoles[role]
 }
 
 func AdminGate(next http.Handler) http.Handler {
@@ -397,6 +409,17 @@ func AdminGate(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		} else {
 			handler.WriteError(w, http.StatusForbidden, "FORBIDDEN", "admin access required")
+		}
+	})
+}
+
+func AudioAdminGate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		roleStr := RoleFromCtx(r.Context())
+		if IsAudioAdmin(roleStr) {
+			next.ServeHTTP(w, r)
+		} else {
+			handler.WriteError(w, http.StatusForbidden, "FORBIDDEN", "audio admin access required")
 		}
 	})
 }
