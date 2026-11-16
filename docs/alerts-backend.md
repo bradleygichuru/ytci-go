@@ -66,7 +66,7 @@ Admin:
 - Push eligibility requires a non-null `expires_at`; alerts without an expiry stay inbox-only. A cancellation is push-eligible even without an expiry because it targets readers who already received the original.
 - `alert_sources.push_enabled` gates KMD fan-out; FCDO remains in-app only.
 - Campaign sends now create a Program Update and use the Program audience. `push_notifications.target_audience` accepts JSON: `{"countyGids":[1,2],"interests":["wildlife"],"language":"en","guests":false,"important":false}`. Guests only receive global campaigns in v1.
-- Program Update publish sends immediately through the Program channel (`program_updates`) with quiet-hours and cap suppression; sent/skipped rows are recorded in `program_update_deliveries`. Program Expo receipts are not polled yet.
+- Program Update publish sends immediately through the Program channel (`program_updates`) with quiet-hours and cap suppression; sent/skipped rows are recorded in `program_update_deliveries`. The alerts worker polls Program Expo receipts after 15 minutes and deactivates `DeviceNotRegistered` tokens.
 - The ingester persists `ETag` and `Last-Modified` on `alert_sources` and sends conditional requests; KMD's RSS may ignore them, so dedupe also relies on the CAP identifier and content hash.
 - Failed polls back off exponentially from the source interval, capped at 30 minutes.
 - When every item in a full KMD feed is new after a prior success, the run is marked `partial` with `possible_gap` so the inbox can show the source as degraded rather than implying an all-clear.

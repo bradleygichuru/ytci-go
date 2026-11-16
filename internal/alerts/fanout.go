@@ -67,6 +67,9 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 	if err := w.checkReceipts(ctx); err != nil {
 		return err
 	}
+	if err := w.checkProgramReceipts(ctx); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -539,6 +542,60 @@ func (w *Worker) checkReceipts(ctx context.Context) error {
 			SET expo_receipt_status=$2, error_code=NULLIF($3,''), error_message=NULLIF($4,''),
 			    receipt_checked_at=now() WHERE id=$1`,
 			target.deliveryID, receipt.Status, receipt.Code, receipt.Message)
+		if receipt.Code == "DeviceNotRegistered" {
+			_, _ = w.store.Pool().Exec(ctx, `UPDATE push_tokens
+				SET is_active=false, deactivated_at=now(), deactivation_reason='DeviceNotRegistered'
+				WHERE id=$1`, target.tokenID)
+		}
+	}
+	return nil
+}
+
+func (w *Worker) checkProgramReceipts(ctx context.Context) error {
+	if w.push == nil {
+		return nil
+	}
+	rows, err := w.store.Pool().Query(ctx, `
+		SELECT id, expo_ticket_id, push_token_id FROM program_update_deliveries
+		WHERE expo_ticket_id IS NOT NULL AND receipt_checked_at IS NULL
+		  AND sent_at < now() - interval '15 minutes'
+		ORDER BY sent_at LIMIT 1000`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	type target struct {
+		deliveryID int64
+		tokenID    string
+	}
+	ids := make([]string, 0)
+	byTicket := make(map[string]target)
+	for rows.Next() {
+		var t target
+		var ticket string
+		if err := rows.Scan(&t.deliveryID, &ticket, &t.tokenID); err != nil {
+			return err
+		}
+		ids = append(ids, ticket)
+		byTicket[ticket] = t
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	receipts, err := w.push.GetReceiptMap(ctx, ids)
+	if err != nil {
+		return err
+	}
+	for ticket, target := range byTicket {
+		receipt, ok := receipts[ticket]
+		if !ok {
+			_, _ = w.store.Pool().Exec(ctx, `UPDATE program_update_deliveries
+				SET expo_receipt_status='unknown', receipt_checked_at=now() WHERE id=$1`, target.deliveryID)
+			continue
+		}
+		_, _ = w.store.Pool().Exec(ctx, `UPDATE program_update_deliveries
+			SET expo_receipt_status=$2, error_code=NULLIF($3,''), receipt_checked_at=now()
+			WHERE id=$1`, target.deliveryID, receipt.Status, receipt.Code)
 		if receipt.Code == "DeviceNotRegistered" {
 			_, _ = w.store.Pool().Exec(ctx, `UPDATE push_tokens
 				SET is_active=false, deactivated_at=now(), deactivation_reason='DeviceNotRegistered'

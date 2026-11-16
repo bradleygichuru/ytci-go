@@ -84,6 +84,7 @@ func TestCapExceededCountsAlertsNotTokens(t *testing.T) {
 
 type captureSender struct {
 	messages []push.ExpoPushMessage
+	receipts map[string]push.Receipt
 }
 
 func (c *captureSender) SendMessages(ctx context.Context, messages []push.ExpoPushMessage) (*push.SendResult, error) {
@@ -103,6 +104,9 @@ func (c *captureSender) SendMessages(ctx context.Context, messages []push.ExpoPu
 }
 
 func (c *captureSender) GetReceiptMap(ctx context.Context, ticketIDs []string) (map[string]push.Receipt, error) {
+	if c.receipts != nil {
+		return c.receipts, nil
+	}
 	return map[string]push.Receipt{}, nil
 }
 
@@ -169,4 +173,25 @@ func TestSendDueSkipsExpiredAlerts(t *testing.T) {
 	var status string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT status FROM alert_deliveries WHERE id=$1`, deliveryID).Scan(&status))
 	assert.Equal(t, "skipped_expired", status)
+}
+
+func TestCheckProgramReceipts(t *testing.T) {
+	pool := db.SetupTestDB(t)
+	ctx := context.Background()
+	var tokenID, updateID, deliveryID string
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO push_tokens (token, platform) VALUES ('ExponentPushToken[program-receipt]','android') RETURNING id`).Scan(&tokenID))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO program_updates (title, body, created_by, status) VALUES ('Update','Body','test','published') RETURNING id`).Scan(&updateID))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO program_update_deliveries
+		(program_update_id, push_token_id, status, expo_ticket_id, sent_at)
+		VALUES ($1,$2,'sent','ticket-program', now() - interval '20 minutes') RETURNING id`, updateID, tokenID).Scan(&deliveryID))
+
+	sender := &captureSender{receipts: map[string]push.Receipt{"ticket-program": {Status: "ok"}}}
+	worker := NewWorker(NewStore(pool), sender)
+	require.NoError(t, worker.checkProgramReceipts(ctx))
+
+	var status string
+	var checked *time.Time
+	require.NoError(t, pool.QueryRow(ctx, `SELECT expo_receipt_status, receipt_checked_at FROM program_update_deliveries WHERE id=$1`, deliveryID).Scan(&status, &checked))
+	assert.Equal(t, "ok", status)
+	assert.NotNil(t, checked)
 }
