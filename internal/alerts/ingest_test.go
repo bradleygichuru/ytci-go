@@ -109,3 +109,22 @@ func TestDueHonoursPollIntervalAndBackoff(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, ing.due(ctx, "kmd", 5*time.Minute), "failures back off beyond the base interval")
 }
+
+func TestDueHonoursSourceEnabledAndInterval(t *testing.T) {
+	pool := db.SetupTestDB(t)
+	ctx := context.Background()
+	_, err := pool.Exec(ctx, `UPDATE alert_sources
+		SET enabled=false, poll_interval_seconds=600, last_checked_at=now()
+		WHERE id='kmd'`)
+	require.NoError(t, err)
+	ing := &Ingester{store: NewStore(pool)}
+	assert.False(t, ing.due(ctx, "kmd", 5*time.Minute), "disabled sources are skipped")
+
+	_, err = pool.Exec(ctx, `UPDATE alert_sources SET enabled=true, last_checked_at=now() - interval '5 minutes' WHERE id='kmd'`)
+	require.NoError(t, err)
+	assert.False(t, ing.due(ctx, "kmd", 5*time.Minute), "the source interval wins over the fallback")
+
+	_, err = pool.Exec(ctx, `UPDATE alert_sources SET last_checked_at=now() - interval '11 minutes' WHERE id='kmd'`)
+	require.NoError(t, err)
+	assert.True(t, ing.due(ctx, "kmd", 5*time.Minute))
+}

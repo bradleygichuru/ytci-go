@@ -277,10 +277,17 @@ func (i *Ingester) IngestAll(ctx context.Context) ([]IngestResult, error) {
 	return results, nil
 }
 
-func (i *Ingester) due(ctx context.Context, sourceID string, interval time.Duration) bool {
+func (i *Ingester) due(ctx context.Context, sourceID string, fallback time.Duration) bool {
 	state, err := i.store.SourceState(ctx, sourceID)
 	if err != nil || !state.HasChecked {
 		return true
+	}
+	if !state.Enabled {
+		return false
+	}
+	interval := fallback
+	if state.PollIntervalSeconds > 0 {
+		interval = time.Duration(state.PollIntervalSeconds) * time.Second
 	}
 	wait := interval
 	if state.ConsecutiveFailures > 0 {

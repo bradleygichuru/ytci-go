@@ -163,6 +163,8 @@ type SourceState struct {
 	HasSucceeded        bool
 	ConsecutiveFailures int
 	PushEnabled         bool
+	Enabled             bool
+	PollIntervalSeconds int
 }
 
 func (s *Store) SourceState(ctx context.Context, sourceID string) (SourceState, error) {
@@ -171,10 +173,10 @@ func (s *Store) SourceState(ctx context.Context, sourceID string) (SourceState, 
 	var checked, success pgtype.Timestamptz
 	err := s.pool.QueryRow(ctx, `
 		SELECT last_etag, last_modified, last_build_date, last_checked_at, last_success_at,
-		       consecutive_failures, push_enabled
+		       consecutive_failures, push_enabled, enabled, poll_interval_seconds
 		FROM alert_sources WHERE id=$1`, sourceID).Scan(
 		&etag, &lastModified, &lastBuild, &checked, &success, &state.ConsecutiveFailures,
-		&state.PushEnabled)
+		&state.PushEnabled, &state.Enabled, &state.PollIntervalSeconds)
 	if err != nil {
 		return state, err
 	}
