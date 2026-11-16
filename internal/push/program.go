@@ -223,7 +223,8 @@ func programCapExceeded(ctx context.Context, pool *pgxpool.Pool, userID string) 
 		                AND pd.created_at > now() - interval '1 hour'), 0)`,
 		userID).Scan(&day, &hour)
 	if err != nil {
-		return false
+		// Fail closed: a database fault must never open the cap.
+		return true
 	}
 	return day >= 4 || hour >= 2
 }

@@ -45,13 +45,28 @@ func TestAlertsListAndPreferences(t *testing.T) {
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO user_profiles (user_id, created_by) VALUES ($1,$1)`, userID)
 	require.NoError(t, err)
+
+	h := NewAlertsHandler(pool)
+	locationReq := httptest.NewRequest(http.MethodPost, "/v1/mobile/alert-location", strings.NewReader(`{"countyGid":1}`))
+	locationReq = locationReq.WithContext(context.WithValue(locationReq.Context(), middleware.CtxUserID, userID))
+	locationRec := httptest.NewRecorder()
+	h.UpdateLocation(locationRec, locationReq)
+	require.Equal(t, http.StatusForbidden, locationRec.Code, "location must fail closed without consent")
+
+	_, err = pool.Exec(ctx, `UPDATE user_profiles SET consent_location=true WHERE user_id=$1`, userID)
+	require.NoError(t, err)
+	locationReq = httptest.NewRequest(http.MethodPost, "/v1/mobile/alert-location", strings.NewReader(`{"countyGid":1}`))
+	locationReq = locationReq.WithContext(context.WithValue(locationReq.Context(), middleware.CtxUserID, userID))
+	locationRec = httptest.NewRecorder()
+	h.UpdateLocation(locationRec, locationReq)
+	require.Equal(t, http.StatusNoContent, locationRec.Code)
+
 	var tokenID string
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO push_tokens (user_id, token, platform) VALUES ($1,'reason-token','android') RETURNING id`, userID).Scan(&tokenID))
 	_, err = pool.Exec(ctx, `INSERT INTO alert_deliveries (alert_id,user_id,push_token_id,reason,status)
 		VALUES ($1,$2,$3,'home','queued')`, alertID, userID, tokenID)
 	require.NoError(t, err)
 
-	h := NewAlertsHandler(pool)
 	req := httptest.NewRequest(http.MethodGet, "/v1/mobile/alerts", nil)
 	req = req.WithContext(context.WithValue(req.Context(), middleware.CtxUserID, userID))
 	rec := httptest.NewRecorder()

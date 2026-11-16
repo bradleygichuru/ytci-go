@@ -443,6 +443,13 @@ func (h *AlertsHandler) UpdateLocation(w http.ResponseWriter, r *http.Request) {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "countyGid is required")
 		return
 	}
+	var consent bool
+	if err := h.pool.QueryRow(r.Context(),
+		`SELECT COALESCE(consent_location,false) FROM user_profiles WHERE user_id=$1`, userID,
+	).Scan(&consent); err != nil || !consent {
+		handler.WriteError(w, http.StatusForbidden, "CONSENT_REQUIRED", "location consent is required")
+		return
+	}
 	_, err := h.pool.Exec(r.Context(), `
 		INSERT INTO user_alert_location (user_id, county_gid) VALUES ($1,$2)
 		ON CONFLICT (user_id) DO UPDATE SET county_gid=EXCLUDED.county_gid, updated_at=now()`, userID, req.CountyGid)

@@ -317,7 +317,8 @@ func (w *Worker) capExceeded(ctx context.Context, userID, severity string) bool 
 		WHERE d.user_id=$1 AND d.status IN ('queued','sent') AND a.severity <> 'Extreme'`,
 		userID).Scan(&day, &hour)
 	if err != nil {
-		return false
+		// Fail closed: a database fault must never open the cap.
+		return true
 	}
 	return day >= 4 || hour >= 2
 }

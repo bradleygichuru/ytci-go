@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"time"
@@ -116,9 +117,14 @@ func (h *ProgramUpdateHandler) List(w http.ResponseWriter, r *http.Request) {
 func (h *ProgramUpdateHandler) Publish(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var previous string
-	if err := h.pool.QueryRow(r.Context(),
-		`SELECT status FROM program_updates WHERE id=$1`, id).Scan(&previous); err != nil {
+	err := h.pool.QueryRow(r.Context(),
+		`SELECT status FROM program_updates WHERE id=$1`, id).Scan(&previous)
+	if errors.Is(err, pgx.ErrNoRows) {
 		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "program update not found")
+		return
+	}
+	if err != nil {
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to load program update", err)
 		return
 	}
 	if previous != "draft" && previous != "scheduled" {
@@ -131,7 +137,7 @@ func (h *ProgramUpdateHandler) Publish(w http.ResponseWriter, r *http.Request) {
 	var counties []int32
 	var linkURL string
 	var expires pgtype.Timestamptz
-	err := h.pool.QueryRow(r.Context(), `
+	err = h.pool.QueryRow(r.Context(), `
 		UPDATE program_updates
 		SET status='published', published_at=COALESCE(published_at, now()), updated_at=now()
 		WHERE id=$1 AND status IN ('draft','scheduled')
