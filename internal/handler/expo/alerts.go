@@ -197,7 +197,7 @@ func (h *AlertsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(ARRAY(SELECT ar.county_gid FROM alert_areas ar WHERE ar.alert_id=a.id), '{}'),
 		       rs.read_at,
 		       (SELECT d.reason FROM alert_deliveries d
-		        WHERE d.alert_id=a.id AND d.user_id=$1::text AND d.status IN ('queued','sent')
+		        WHERE d.alert_id=a.id AND d.user_id=$2::text AND d.status IN ('queued','sent')
 		        ORDER BY d.created_at DESC LIMIT 1)
 		FROM alerts a
 		LEFT JOIN alert_sources s ON s.id=a.source_id
