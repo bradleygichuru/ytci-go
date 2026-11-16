@@ -146,7 +146,7 @@ func TestSendDuePayloadContractAndTTL(t *testing.T) {
 	assert.Equal(t, int32(1), data["countyGid"])
 	assert.Equal(t, "safety_alerts", message.ChannelID)
 	assert.Equal(t, "high", message.Priority)
-	assert.Equal(t, "timeSensitive", message.InterruptionLevel)
+	assert.Equal(t, "time-sensitive", message.InterruptionLevel)
 	assert.Greater(t, message.TTL, 0)
 	assert.LessOrEqual(t, message.TTL, 90*60, "TTL must not outlive expires")
 

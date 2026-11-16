@@ -427,7 +427,8 @@ func (w *Worker) sendDue(ctx context.Context) error {
 		}
 		interruption := "active"
 		if SeverityRank(d.severity) >= 3 {
-			interruption = "timeSensitive"
+			// Expo's enum is hyphenated; CAP's "timeSensitive" is rejected.
+			interruption = "time-sensitive"
 		}
 		data := map[string]any{
 			"alertId": d.alertID, "severity": d.severity, "sourceId": d.sourceID,
