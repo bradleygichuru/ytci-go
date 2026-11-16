@@ -6,10 +6,11 @@ import (
 )
 
 type AlertPolicyInput struct {
-	Severity  string
-	Category  string
-	Status    string
-	ExpiresAt *time.Time
+	Severity   string
+	Category   string
+	Categories []string
+	Status     string
+	ExpiresAt  *time.Time
 }
 
 type DeliveryPolicy struct {
@@ -52,8 +53,19 @@ func ShouldPush(alert AlertPolicyInput, prefs DeliveryPolicy, now time.Time) (bo
 	if alert.ExpiresAt != nil && !alert.ExpiresAt.After(now) {
 		return false, "expired", time.Time{}
 	}
-	if len(prefs.Categories) > 0 && !containsString(prefs.Categories, alert.Category) {
-		return false, "category", time.Time{}
+	if len(prefs.Categories) > 0 {
+		matched := containsString(prefs.Categories, alert.Category)
+		if !matched {
+			for _, category := range alert.Categories {
+				if containsString(prefs.Categories, category) {
+					matched = true
+					break
+				}
+			}
+		}
+		if !matched {
+			return false, "category", time.Time{}
+		}
 	}
 	if SeverityRank(alert.Severity) < SeverityRank(prefs.MinSeverity) {
 		return false, "severity", time.Time{}

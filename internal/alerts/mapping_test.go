@@ -63,7 +63,7 @@ func TestMatchAreaDescUnmatchedToken(t *testing.T) {
 
 	assert.Equal(t, []int{1}, countyGIDs(got.Counties))
 	assert.Contains(t, got.Unmatched, "Atlantis")
-	assert.False(t, got.Review)
+	assert.True(t, got.Review, "an unrecognised area token must be reviewed, not silently dropped")
 }
 
 func TestCountyIndexRequiresCounties(t *testing.T) {

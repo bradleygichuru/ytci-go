@@ -123,3 +123,15 @@ func TestSeverityRank(t *testing.T) {
 	assert.Greater(t, SeverityRank("Severe"), SeverityRank("Moderate"))
 	assert.Equal(t, 0, SeverityRank("Unknown"))
 }
+
+func TestShouldPushMatchesAnyCAPCategory(t *testing.T) {
+	now := time.Date(2026, 11, 16, 7, 0, 0, 0, eat())
+	prefs := defaultPolicy()
+	prefs.Categories = []string{"Safety"}
+	alert := AlertPolicyInput{
+		Severity: "Severe", Category: "Met", Categories: []string{"Met", "Safety"}, Status: "active",
+	}
+	allowed, reason, _ := ShouldPush(alert, prefs, now)
+	assert.True(t, allowed)
+	assert.Equal(t, "ok", reason)
+}

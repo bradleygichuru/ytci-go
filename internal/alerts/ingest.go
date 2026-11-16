@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
@@ -94,6 +95,16 @@ func (i *Ingester) IngestKMD(ctx context.Context) IngestResult {
 	if limit > i.maxItems {
 		limit = i.maxItems
 	}
+	// The RSS index is newest-first. Process oldest-first so an update or
+	// cancel that references an earlier message sees that message first.
+	sort.SliceStable(feed.Items[:limit], func(a, b int) bool {
+		left, right := feed.Items[a].PubDate, feed.Items[b].PubDate
+		if left.IsZero() != right.IsZero() {
+			return !left.IsZero()
+		}
+		return left.Before(right)
+	})
+	capFailures := 0
 	seenIDs := make([]string, 0, limit)
 	for _, item := range feed.Items[:limit] {
 		if item.Link == "" {
@@ -101,11 +112,13 @@ func (i *Ingester) IngestKMD(ctx context.Context) IngestResult {
 		}
 		capBody, capStatus, _, _, err := i.fetch(ctx, item.Link, i.maxXML, "", "")
 		if err != nil {
+			capFailures++
 			slog.Warn("alerts: KMD CAP fetch failed", "link", item.Link, "status", capStatus, "error", err)
 			continue
 		}
 		capAlert, err := ParseCAP(strings.NewReader(string(capBody)))
 		if err != nil {
+			capFailures++
 			slog.Warn("alerts: KMD CAP parse failed", "link", item.Link, "error", err)
 			continue
 		}
@@ -116,6 +129,7 @@ func (i *Ingester) IngestKMD(ctx context.Context) IngestResult {
 		seenIDs = append(seenIDs, n.SourceIdentifier)
 		mapping, err := i.mapper.MapInfo(ctx, info)
 		if err != nil {
+			capFailures++
 			slog.Warn("alerts: KMD mapping failed", "identifier", n.SourceIdentifier, "error", err)
 			continue
 		}
@@ -126,6 +140,7 @@ func (i *Ingester) IngestKMD(ctx context.Context) IngestResult {
 				(mapping.Method != MethodUnmapped && !mapping.Review && n.ExpiresAt != nil))
 		upsert, err := i.store.UpsertAlert(ctx, n, mapping.Counties, pushEnabled)
 		if err != nil {
+			capFailures++
 			slog.Warn("alerts: KMD upsert failed", "identifier", n.SourceIdentifier, "error", err)
 			continue
 		}
@@ -149,8 +164,21 @@ func (i *Ingester) IngestKMD(ctx context.Context) IngestResult {
 		runStatus = "partial"
 		runError = fmt.Sprintf("possible_gap: all %d feed items were new", len(feed.Items))
 	}
+	if capFailures > 0 {
+		if result.Created+result.Updated == 0 {
+			runStatus = "parse_error"
+		} else {
+			runStatus = "partial"
+		}
+		detail := fmt.Sprintf("%d CAP items could not be processed", capFailures)
+		if runError == "" {
+			runError = detail
+		} else {
+			runError += "; " + detail
+		}
+	}
 	i.store.FinishRun(ctx, runID, runStatus, status, result.Seen, result.Created, result.Updated, int64(len(body)), time.Since(started), runError)
-	if possibleGap {
+	if capFailures > 0 || possibleGap {
 		i.store.UpdateSourceHealth(ctx, "kmd", false, status, runError)
 	} else {
 		i.store.UpdateSourceHealth(ctx, "kmd", true, status, "")

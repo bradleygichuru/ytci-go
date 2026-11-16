@@ -206,3 +206,52 @@ func TestOrphanCancelCreatesTombstoneNotActiveAlert(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM alert_fanout_jobs WHERE alert_id=$1`, result.ID).Scan(&jobs))
 	assert.Zero(t, jobs, "an orphan cancel has no recipients to notify")
 }
+
+func TestUpdateChainAndCancelViaLedger(t *testing.T) {
+	pool := db.SetupTestDB(t)
+	ctx := context.Background()
+	store := NewStore(pool)
+	expires := time.Now().Add(6 * time.Hour).UTC()
+	base := NormalizedAlert{
+		SourceID: "kmd", MsgType: "Alert", Category: "Met", Categories: []string{"Met"},
+		Event: "Heavy rainfall", Severity: "Severe", Urgency: "Expected", Certainty: "Likely",
+		Language: "en", Headline: "Heavy rainfall expected", SentAt: time.Now().UTC(),
+		ExpiresAt: &expires, MappingMethod: MethodAreaDesc,
+	}
+
+	first := base
+	first.SourceIdentifier = "chain-1"
+	first.ContentHash = "chain-hash-1"
+	created, err := store.UpsertAlert(ctx, first, nil, true)
+	require.NoError(t, err)
+
+	second := base
+	second.SourceIdentifier = "chain-2"
+	second.MsgType = "Update"
+	second.Instruction = "Move to higher ground."
+	second.ContentHash = "chain-hash-2"
+	second.ReferenceIdentifier = "chain-1"
+	updated, err := store.UpsertAlert(ctx, second, nil, true)
+	require.NoError(t, err)
+	assert.Equal(t, created.ID, updated.ID)
+
+	cancel := NormalizedAlert{
+		SourceID: "kmd", SourceIdentifier: "chain-3", MsgType: "Cancel",
+		SentAt: time.Now().UTC(), ContentHash: "chain-hash-3", ReferenceIdentifier: "chain-2",
+	}
+	cancelled, err := store.UpsertAlert(ctx, cancel, nil, true)
+	require.NoError(t, err)
+	assert.Equal(t, created.ID, cancelled.ID)
+	assert.Equal(t, "cancelled", cancelled.Status)
+
+	// A stale poll of the original message must not reactivate the record.
+	stale := first
+	stale.ContentHash = "chain-hash-4"
+	staleResult, err := store.UpsertAlert(ctx, stale, nil, true)
+	require.NoError(t, err)
+	assert.Equal(t, "cancelled", staleResult.Status)
+
+	var count int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM alerts`).Scan(&count))
+	assert.Equal(t, 1, count)
+}

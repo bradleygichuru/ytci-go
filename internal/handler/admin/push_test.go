@@ -83,3 +83,19 @@ func TestAdminCampaignSendRejectsUnknownCountyAsGlobal(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT COALESCE(target_audience,'') FROM push_notifications`).Scan(&target))
 	assert.JSONEq(t, `{"countyGids":[-1]}`, target)
 }
+
+func TestAdminCampaignSendRejectsRoleAudience(t *testing.T) {
+	pool := db.SetupTestDB(t)
+	ctx := context.Background()
+	userID := "admin-role-nanoid-000000000043"
+	_, err := pool.Exec(ctx, `INSERT INTO users (id, name, email) VALUES ($1,'Admin','push-role@example.com')`, userID)
+	require.NoError(t, err)
+
+	h := NewPushHandler(pool, nil)
+	body := `{"title":"Update","body":"Body","audience":{"type":"role","value":"administrator"}}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/admin/push/send", strings.NewReader(body))
+	req = req.WithContext(context.WithValue(req.Context(), middleware.CtxUserID, userID))
+	rec := httptest.NewRecorder()
+	h.Send(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}

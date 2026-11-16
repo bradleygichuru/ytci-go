@@ -115,6 +115,18 @@ func (h *ProgramUpdateHandler) List(w http.ResponseWriter, r *http.Request) {
 
 func (h *ProgramUpdateHandler) Publish(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	var previous string
+	if err := h.pool.QueryRow(r.Context(),
+		`SELECT status FROM program_updates WHERE id=$1`, id).Scan(&previous); err != nil {
+		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "program update not found")
+		return
+	}
+	if previous != "draft" && previous != "scheduled" {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "status": previous, "sent": 0})
+		return
+	}
+
 	var update push.ProgramPush
 	var counties []int32
 	var linkURL string
@@ -127,16 +139,6 @@ func (h *ProgramUpdateHandler) Publish(w http.ResponseWriter, r *http.Request) {
 		          COALESCE(image_url,''), COALESCE(link_url,''), expires_at`, id).Scan(
 		&update.Title, &update.Body, &update.Priority, &counties,
 		&update.ImageURL, &linkURL, &expires)
-	if err == pgx.ErrNoRows {
-		var status string
-		if err := h.pool.QueryRow(r.Context(), `SELECT status FROM program_updates WHERE id=$1`, id).Scan(&status); err != nil {
-			handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "program update not found")
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "status": status, "sent": 0})
-		return
-	}
 	if err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to publish program update", err)
 		return
@@ -148,9 +150,11 @@ func (h *ProgramUpdateHandler) Publish(w http.ResponseWriter, r *http.Request) {
 		update.ExpiresAt = &t
 	}
 	update.Route = "/alerts/program/" + id
-	sent, err := push.SendProgramUpdate(r.Context(), h.pool, h.client, update)
-	if err != nil {
-		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to send program update", err)
+	sent, sendErr := push.SendProgramUpdate(r.Context(), h.pool, h.client, update)
+	if sendErr != nil {
+		_, _ = h.pool.Exec(r.Context(),
+			`UPDATE program_updates SET status=$2, updated_at=now() WHERE id=$1`, id, previous)
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to send program update", sendErr)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

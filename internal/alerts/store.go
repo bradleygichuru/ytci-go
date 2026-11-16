@@ -249,6 +249,14 @@ func (s *Store) UpsertAlert(ctx context.Context, n NormalizedAlert, areas []Coun
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	if existing != nil {
+		if existing.Status == "cancelled" {
+			_, _ = tx.Exec(ctx, `INSERT INTO alert_source_messages (source_id, source_identifier, alert_id, content_hash)
+				VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`, n.SourceID, n.SourceIdentifier, existing.ID, n.ContentHash)
+			if err := tx.Commit(ctx); err != nil {
+				return UpsertResult{}, err
+			}
+			return UpsertResult{ID: existing.ID, Status: "cancelled"}, nil
+		}
 		sameHash := existing.ContentHash == n.ContentHash
 		if sameHash && n.MsgType != "Cancel" {
 			_, _ = tx.Exec(ctx, `INSERT INTO alert_source_messages (source_id, source_identifier, alert_id, content_hash)
@@ -393,11 +401,45 @@ func (s *Store) UpsertAlert(ctx context.Context, n NormalizedAlert, areas []Coun
 
 func (s *Store) findExisting(ctx context.Context, sourceID, sourceIdentifier, reference string) (*existingAlert, error) {
 	existing, err := s.findBySourceIdentifier(ctx, sourceID, sourceIdentifier)
-	if err == nil || !errors.Is(err, pgx.ErrNoRows) || reference == "" {
-		return existing, err
+	if err == nil {
+		return existing, nil
 	}
-	// CAP updates may carry a new identifier while referencing the original.
-	return s.findBySourceIdentifier(ctx, sourceID, reference)
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+	// A message may use a new identifier while already being in the ledger,
+	// or reference an earlier identifier in a chain of CAP updates.
+	if existing, err = s.findByLedger(ctx, sourceID, sourceIdentifier); err == nil {
+		return existing, nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+	if reference == "" {
+		return nil, pgx.ErrNoRows
+	}
+	if existing, err = s.findBySourceIdentifier(ctx, sourceID, reference); err == nil {
+		return existing, nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+	return s.findByLedger(ctx, sourceID, reference)
+}
+
+func (s *Store) findByLedger(ctx context.Context, sourceID, identifier string) (*existingAlert, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT a.id, a.severity, COALESCE(a.instruction,''), a.onset_at, a.expires_at,
+		       a.status, a.content_hash,
+		       COALESCE(array_agg(ar.county_gid) FILTER (WHERE ar.county_gid IS NOT NULL), '{}')
+		FROM alert_source_messages m
+		JOIN alerts a ON a.id = m.alert_id
+		LEFT JOIN alert_areas ar ON ar.alert_id = a.id
+		WHERE m.source_id=$1 AND m.source_identifier=$2
+		GROUP BY a.id
+		LIMIT 1`, sourceID, identifier)
+	if err != nil {
+		return nil, err
+	}
+	return scanExisting(rows)
 }
 
 func (s *Store) findBySourceIdentifier(ctx context.Context, sourceID, identifier string) (*existingAlert, error) {

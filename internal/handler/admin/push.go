@@ -49,9 +49,11 @@ func jsonFieldString(raw json.RawMessage) string {
 // audienceToTarget accepts the admin app's {type, value} shape and converts it
 // to the push targeting contract. Unsupported types (role) fall back to the
 // global Program audience.
-func (h *PushHandler) audienceToTarget(ctx context.Context, kind, value string) string {
+func (h *PushHandler) audienceToTarget(ctx context.Context, kind, value string) (string, error) {
 	target := map[string]any{}
 	switch kind {
+	case "role":
+		return "", fmt.Errorf("role targeting is not supported")
 	case "county":
 		if value != "" {
 			var gid int
@@ -69,13 +71,13 @@ func (h *PushHandler) audienceToTarget(ctx context.Context, kind, value string) 
 		}
 	}
 	if len(target) == 0 {
-		return ""
+		return "", nil
 	}
 	encoded, _ := json.Marshal(target)
-	return string(encoded)
+	return string(encoded), nil
 }
 
-func (h *PushHandler) normalizeRequest(ctx context.Context, req pushRequest) (dataRaw, targetRaw string) {
+func (h *PushHandler) normalizeRequest(ctx context.Context, req pushRequest) (dataRaw, targetRaw string, err error) {
 	dataRaw = jsonFieldString(req.Data)
 	targetRaw = jsonFieldString(req.TargetAudience)
 	if len(req.Audience) > 0 {
@@ -83,14 +85,18 @@ func (h *PushHandler) normalizeRequest(ctx context.Context, req pushRequest) (da
 			Type  string `json:"type"`
 			Value string `json:"value"`
 		}
-		if err := json.Unmarshal(req.Audience, &audience); err == nil {
-			targetRaw = h.audienceToTarget(ctx, audience.Type, audience.Value)
+		if err := json.Unmarshal(req.Audience, &audience); err != nil {
+			return "", "", fmt.Errorf("invalid audience")
+		}
+		targetRaw, err = h.audienceToTarget(ctx, audience.Type, audience.Value)
+		if err != nil {
+			return "", "", err
 		}
 	}
 	if dataRaw == "" && req.CampaignID != "" {
 		dataRaw = fmt.Sprintf(`{"route":"/campaigns/%s"}`, req.CampaignID)
 	}
-	return dataRaw, targetRaw
+	return dataRaw, targetRaw, nil
 }
 
 func (h *PushHandler) Send(w http.ResponseWriter, r *http.Request) {
@@ -101,10 +107,14 @@ func (h *PushHandler) Send(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userID := middleware.UserID(r.Context())
-	dataRaw, targetRaw := h.normalizeRequest(r.Context(), req)
+	dataRaw, targetRaw, err := h.normalizeRequest(r.Context(), req)
+	if err != nil {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_AUDIENCE", err.Error())
+		return
+	}
 
 	var notificationID string
-	err := h.pool.QueryRow(r.Context(),
+	err = h.pool.QueryRow(r.Context(),
 		`INSERT INTO push_notifications (title, body, image_url, data, target_audience, campaign_id, status, sent_by)
 		 VALUES ($1, $2, $3, NULLIF($4,''), NULLIF($5,''), NULLIF($6,'')::uuid, 'sending', NULLIF($7,''))
 		 RETURNING id`,
@@ -153,10 +163,14 @@ func (h *PushHandler) Schedule(w http.ResponseWriter, r *http.Request) {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
 		return
 	}
-	dataRaw, targetRaw := h.normalizeRequest(r.Context(), req)
+	dataRaw, targetRaw, err := h.normalizeRequest(r.Context(), req)
+	if err != nil {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_AUDIENCE", err.Error())
+		return
+	}
 
 	var notificationID string
-	err := h.pool.QueryRow(r.Context(),
+	err = h.pool.QueryRow(r.Context(),
 		`INSERT INTO push_notifications
 		   (title, body, image_url, data, target_audience, campaign_id, status, scheduled_at, sent_by)
 		 VALUES ($1,$2,$3,NULLIF($4,''),NULLIF($5,''),NULLIF($6,'')::uuid,'scheduled',

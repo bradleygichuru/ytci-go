@@ -156,7 +156,7 @@ func (i *CountyIndex) MatchAreaDesc(areaDesc string) AreaMapping {
 	if len(seen) == 0 {
 		method = MethodUnmapped
 	}
-	review := len(ambiguous) > 0 || len(seen) == 0
+	review := len(ambiguous) > 0 || len(seen) == 0 || len(unmatched) > 0
 
 	matches := make([]CountyMatch, 0, len(seen))
 	for _, county := range seen {

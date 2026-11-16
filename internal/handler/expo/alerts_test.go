@@ -116,6 +116,24 @@ func TestAlertReadState(t *testing.T) {
 	var readAt *time.Time
 	require.NoError(t, pool.QueryRow(ctx, `SELECT read_at FROM alert_read_state WHERE user_id=$1 AND alert_id=$2`, userID, alertID).Scan(&readAt))
 	require.NotNil(t, readAt)
+
+	req = httptest.NewRequest(http.MethodPost, "/v1/mobile/alerts/"+alertID+"/dismiss", nil)
+	req.SetPathValue("id", alertID)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.CtxUserID, userID))
+	rec = httptest.NewRecorder()
+	h.Dismiss(rec, req)
+	require.Equal(t, http.StatusNoContent, rec.Code)
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/mobile/alerts", nil)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.CtxUserID, userID))
+	rec = httptest.NewRecorder()
+	h.List(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var list struct {
+		Items []alertJSON `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &list))
+	assert.Empty(t, list.Items, "dismissed alerts leave the inbox")
 }
 
 func TestProgramUpdatesRespectCountyTargeting(t *testing.T) {

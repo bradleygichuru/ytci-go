@@ -137,6 +137,7 @@ type alertRow struct {
 	SourceID    string
 	Severity    string
 	Category    string
+	Categories  []string
 	Status      string
 	Event       string
 	Headline    string
@@ -242,7 +243,8 @@ func (w *Worker) fanout(ctx context.Context, alertID, reason string) (int, error
 			Timezone: timezone, CriticalOverride: criticalOverride,
 		}
 		allowed, why, after := ShouldPush(AlertPolicyInput{
-			Severity: alert.Severity, Category: alert.Category, Status: alert.Status, ExpiresAt: alert.ExpiresAt,
+			Severity: alert.Severity, Category: alert.Category, Categories: alert.Categories,
+			Status: alert.Status, ExpiresAt: alert.ExpiresAt,
 		}, prefs, now)
 		status := "queued"
 		deliverAfter := now
@@ -333,10 +335,10 @@ func (w *Worker) loadAlert(ctx context.Context, id string) (alertRow, error) {
 	var a alertRow
 	var expires pgtype.Timestamptz
 	err := w.store.Pool().QueryRow(ctx, `
-		SELECT id, source_id, severity, category, status, event, COALESCE(headline,''),
+		SELECT id, source_id, severity, category, categories, status, event, COALESCE(headline,''),
 		       COALESCE(description,''), COALESCE(instruction,''), COALESCE(sender_name,''),
 		       COALESCE(source_url,''), expires_at
-		FROM alerts WHERE id=$1`, id).Scan(&a.ID, &a.SourceID, &a.Severity, &a.Category, &a.Status, &a.Event,
+		FROM alerts WHERE id=$1`, id).Scan(&a.ID, &a.SourceID, &a.Severity, &a.Category, &a.Categories, &a.Status, &a.Event,
 		&a.Headline, &a.Description, &a.Instruction, &a.SenderName, &a.SourceURL, &expires)
 	if err != nil {
 		return a, err
@@ -445,8 +447,8 @@ func (w *Worker) sendDue(ctx context.Context) error {
 		return nil
 	}
 
-	ids := make([]int64, 0, len(items))
-	for _, d := range items {
+	ids := make([]int64, 0, len(messageDeliveries))
+	for _, d := range messageDeliveries {
 		ids = append(ids, d.id)
 	}
 	_, _ = w.store.Pool().Exec(ctx, `UPDATE alert_deliveries SET status='sending', attempts=attempts+1 WHERE id = ANY($1::bigint[])`, ids)

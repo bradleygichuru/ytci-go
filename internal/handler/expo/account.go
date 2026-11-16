@@ -34,6 +34,7 @@ type cleanupOp struct {
 }
 
 var deleteOps = []cleanupOp{
+	{`DELETE FROM program_update_deliveries WHERE user_id = $1`, "program update deliveries"},
 	{`DELETE FROM alert_deliveries WHERE user_id = $1`, "alert deliveries"},
 	{`DELETE FROM alert_read_state WHERE user_id = $1`, "alert read state"},
 	{`DELETE FROM program_update_read_state WHERE user_id = $1`, "program update read state"},

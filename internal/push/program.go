@@ -22,6 +22,7 @@ type ProgramPush struct {
 	ImageURL   string
 	Route      string
 	CountyGIDs []int
+	Audience   TargetAudience
 	ExpiresAt  *time.Time
 }
 
@@ -66,7 +67,7 @@ func UpsertCampaignProgramUpdate(
 
 	return ProgramPush{
 		ID: id, Title: title, Body: body, Priority: priority, ImageURL: imageURL,
-		Route: route, CountyGIDs: counties,
+		Route: route, CountyGIDs: counties, Audience: audience,
 	}, nil
 }
 
@@ -100,7 +101,11 @@ func SendProgramUpdate(ctx context.Context, pool *pgxpool.Pool, client *Client, 
 		return 0, nil
 	}
 
-	audience := TargetAudience{CountyGIDs: update.CountyGIDs, Important: update.Priority == "Important"}
+	audience := update.Audience
+	if len(update.CountyGIDs) > 0 {
+		audience.CountyGIDs = update.CountyGIDs
+	}
+	audience.Important = update.Priority == "Important" || audience.Important
 	targets, err := ResolveProgramTargets(ctx, pool, audience)
 	if err != nil {
 		return 0, err

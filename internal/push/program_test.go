@@ -119,6 +119,8 @@ func TestUpsertCampaignProgramUpdateIsIdempotent(t *testing.T) {
 	require.NotEmpty(t, first.ID)
 	assert.Equal(t, "Important", first.Priority)
 	assert.Equal(t, "/campaigns/abc", first.Route)
+	assert.Equal(t, []int{1}, first.Audience.CountyGIDs)
+	assert.True(t, first.Audience.Important)
 
 	second, err := UpsertCampaignProgramUpdate(
 		ctx, pool, "00000000-0000-0000-0000-0000000000aa",
