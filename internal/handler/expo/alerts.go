@@ -46,6 +46,7 @@ type alertJSON struct {
 	CountyGids    []int    `json:"countyGids"`
 	MappingReview bool     `json:"mappingReview"`
 	ReadAt        *string  `json:"readAt,omitempty"`
+	Reason        *string  `json:"reason,omitempty"`
 	IsTest        bool     `json:"isTest"`
 }
 
@@ -73,7 +74,10 @@ func (h *AlertsHandler) List(w http.ResponseWriter, r *http.Request) {
 		       a.sent_at, a.onset_at, a.expires_at, a.mapping_review, a.is_test,
 		       COALESCE(ARRAY(SELECT c.adm1_name FROM alert_areas ar JOIN kenya_counties c ON c.gid=ar.county_gid WHERE ar.alert_id=a.id), '{}'),
 		       COALESCE(ARRAY(SELECT ar.county_gid FROM alert_areas ar WHERE ar.alert_id=a.id), '{}'),
-		       rs.read_at
+		       rs.read_at,
+		       (SELECT d.reason FROM alert_deliveries d
+		        WHERE d.alert_id=a.id AND d.user_id=$1 AND d.status IN ('queued','sent')
+		        ORDER BY d.created_at DESC LIMIT 1)
 		FROM alerts a
 		LEFT JOIN alert_sources s ON s.id=a.source_id
 		LEFT JOIN alert_read_state rs ON rs.alert_id=a.id AND rs.user_id=$1
@@ -191,7 +195,10 @@ func (h *AlertsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		       a.sent_at, a.onset_at, a.expires_at, a.mapping_review, a.is_test,
 		       COALESCE(ARRAY(SELECT c.adm1_name FROM alert_areas ar JOIN kenya_counties c ON c.gid=ar.county_gid WHERE ar.alert_id=a.id), '{}'),
 		       COALESCE(ARRAY(SELECT ar.county_gid FROM alert_areas ar WHERE ar.alert_id=a.id), '{}'),
-		       rs.read_at
+		       rs.read_at,
+		       (SELECT d.reason FROM alert_deliveries d
+		        WHERE d.alert_id=a.id AND d.user_id=$1 AND d.status IN ('queued','sent')
+		        ORDER BY d.created_at DESC LIMIT 1)
 		FROM alerts a
 		LEFT JOIN alert_sources s ON s.id=a.source_id
 		LEFT JOIN alert_read_state rs ON rs.alert_id=a.id AND rs.user_id=$2
@@ -520,10 +527,11 @@ func scanAlert(row pgx.Row) (alertJSON, error) {
 	var a alertJSON
 	var countyGids []int32
 	var sent, onset, expires, read pgtype.Timestamptz
+	var reason pgtype.Text
 	err := row.Scan(&a.ID, &a.SourceID, &a.SourceName, &a.Event, &a.Category, &a.Severity,
 		&a.Urgency, &a.Certainty, &a.Status, &a.Headline, &a.Description, &a.Instruction,
 		&a.WebURL, &a.SenderName, &sent, &onset, &expires, &a.MappingReview, &a.IsTest,
-		&a.Counties, &countyGids, &read)
+		&a.Counties, &countyGids, &read, &reason)
 	a.SentAt = sent.Time.Format(time.RFC3339)
 	if onset.Valid {
 		formatted := onset.Time.Format(time.RFC3339)
@@ -536,6 +544,10 @@ func scanAlert(row pgx.Row) (alertJSON, error) {
 	if read.Valid {
 		formatted := read.Time.Format(time.RFC3339)
 		a.ReadAt = &formatted
+	}
+	if reason.Valid {
+		value := reason.String
+		a.Reason = &value
 	}
 	a.CountyGids = int32sToInts(countyGids)
 	if a.Counties == nil {
