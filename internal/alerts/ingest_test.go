@@ -118,7 +118,10 @@ func TestDueHonoursSourceEnabledAndInterval(t *testing.T) {
 		WHERE id='kmd'`)
 	require.NoError(t, err)
 	ing := &Ingester{store: NewStore(pool)}
-	assert.False(t, ing.due(ctx, "kmd", 5*time.Minute), "disabled sources are skipped")
+	assert.False(t, ing.due(ctx, "kmd", 5*time.Minute), "disabled sources are skipped even before the first poll")
+	_, err = pool.Exec(ctx, `UPDATE alert_sources SET last_checked_at=NULL WHERE id='kmd'`)
+	require.NoError(t, err)
+	assert.False(t, ing.due(ctx, "kmd", 5*time.Minute), "disabled never-polled sources are skipped")
 
 	_, err = pool.Exec(ctx, `UPDATE alert_sources SET enabled=true, last_checked_at=now() - interval '5 minutes' WHERE id='kmd'`)
 	require.NoError(t, err)

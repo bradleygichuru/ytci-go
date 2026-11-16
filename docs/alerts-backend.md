@@ -71,7 +71,7 @@ Admin:
 - Failed polls back off exponentially from the source interval, capped at 30 minutes.
 - When every item in a full KMD feed is new after a prior success, the run is marked `partial` with `possible_gap` so the inbox can show the source as degraded rather than implying an all-clear.
 - Guest push token registration is schema-ready (`push_tokens.user_id` nullable, `installation_id`) but the public registration/fan-out path is left for the mobile slice.
-- The production schema migrations live on the TanStack branch `feat/alerts-schema` (`0018_alerts.sql` through `0025_text_user_ids.sql`, renumbered after the marketplace `0017` migration from #29); the backend test schema is `testdata/migrations/0013_alerts.sql`.
+- The production schema migrations live on the TanStack branch `feat/alerts-schema` (`0018_alerts.sql` through `0026_program_delivery_receipts.sql`, renumbered after the marketplace `0017` migration from #29); the backend test schema is `testdata/migrations/0013_alerts.sql` plus `0014_program_receipts.sql`.
 - Better Auth user IDs are text (not UUIDs). `push_tokens.user_id`, `push_notifications.sent_by`, and `campaigns.created_by` are migrated to `text`; do not add UUID casts for them.
 - Guest installation registration/fan-out remains deferred; guest tokens are schema-ready and receive global campaigns only.
 
@@ -87,8 +87,8 @@ The integration tests use a PostGIS testcontainer and cover migration applicatio
 
 The alert code path is verified locally, but ingest and delivery do not run by themselves. Before enabling the feature:
 
-1. Apply migrations `0018`–`0025` from the TanStack schema branch, including `0021_alert_mapping_mixed` and `0025_text_user_ids`.
-2. Seed all 47 OCHA COD-AB ADM1 rows with `docs/seed/kenya_counties.sql` (or the equivalent OCHA extract). `NewIngester` fails closed when the table is empty.
+1. Apply migrations `0018`–`0026` from the TanStack schema branch, including `0021_alert_mapping_mixed`, `0025_text_user_ids`, and `0026_program_delivery_receipts`.
+2. Seed all 47 OCHA COD-AB ADM1 rows with `docs/seed/kenya_counties.sql` on a fresh/empty `kenya_counties` table. The seed refuses to run if rows already exist, so GIDs cannot silently repoint existing preferences. `NewIngester` fails closed when the table is empty.
 3. Schedule `./bin/alerts ingest` every 5 minutes for KMD and every 15 minutes for FCDO, or run a scheduler that honours the source intervals.
 4. Run `./bin/alerts worker` continuously for fan-out, send, and receipt polling. It needs `DATABASE_URL` and `EXPO_PUSH_TOKEN`.
 5. Configure the Expo project’s FCM V1 service account for Firebase project `ytci-f93bf`, and include `android/app/google-services.json` in the Android build.
