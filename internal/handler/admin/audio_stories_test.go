@@ -22,7 +22,7 @@ func readyTrack() trackSnapshot {
 func readyTranscript() transcriptSnapshot {
 	return transcriptSnapshot{Language: "en", Paragraphs: []transcriptParagraph{
 		{Text: "The mangrove keeps the coast.", StartSeconds: floatPtr(0)},
-		{Text: "The elders replant it.", StartSeconds: floatPtr(42)},
+		{Text: "The elders replant it.", StartSeconds: floatPtr(680)},
 	}}
 }
 
@@ -58,6 +58,15 @@ func TestUnpublishedCollectionIsWarningNotBlocking(t *testing.T) {
 	result := evaluateReadiness(story, readyRevision(), []trackSnapshot{readyTrack()}, []transcriptSnapshot{readyTranscript()})
 	assert.True(t, result.Ready)
 	assert.Contains(t, codes(result.Warnings), "collection_unpublished")
+}
+
+func TestUnverifiedRightsBlockReadiness(t *testing.T) {
+	rev := readyRevision()
+	rev.RightsBasis = "unverified"
+	rev.RightsHolder = ""
+	result := evaluateReadiness(readyStory(), rev, []trackSnapshot{readyTrack()}, []transcriptSnapshot{readyTranscript()})
+	assert.False(t, result.Ready)
+	assert.Contains(t, codes(result.Blocking), "missing_rights")
 }
 
 func TestRightsEvidenceRequiredForPartnerBasis(t *testing.T) {
@@ -119,6 +128,14 @@ func TestPlaceScopeRules(t *testing.T) {
 	assert.True(t, validPlace("multi_county", []string{"Kilifi", "Mombasa"}))
 	assert.True(t, validPlace("national", nil))
 	assert.False(t, validPlace("national", []string{"Kilifi"}))
+}
+
+func TestTranscriptCoverageWarning(t *testing.T) {
+	transcript := readyTranscript()
+	transcript.Paragraphs[1].StartSeconds = floatPtr(42)
+	result := evaluateReadiness(readyStory(), readyRevision(), []trackSnapshot{readyTrack()}, []transcriptSnapshot{transcript})
+	assert.True(t, result.Ready)
+	assert.Contains(t, codes(result.Warnings), "transcript_coverage_en")
 }
 
 func TestRightsExpiryWarning(t *testing.T) {

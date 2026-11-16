@@ -126,6 +126,12 @@ func TestAudioStoryDraftFlow(t *testing.T) {
 	require.NotEmpty(t, storyID)
 	require.NotEmpty(t, revisionID)
 
+	resp = doJSON(t, ts, "GET", "/v1/audio-story-collections", nil, editorAuth)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	collections := decodeBody(t, resp)
+	require.Len(t, collections["items"].([]any), 1)
+	assert.Equal(t, "Coastal Voices", collections["items"].([]any)[0].(map[string]any)["title"])
+
 	// Moderators can read the list and the story, but cannot mutate.
 	resp = doJSON(t, ts, "GET", "/v1/audio-stories", nil, moderatorAuth)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -233,6 +239,34 @@ func TestAudioStoryDraftFlow(t *testing.T) {
 	assert.Equal(t, "draft", detail["status"])
 	require.Len(t, detail["tracks"].([]any), 1)
 	require.Len(t, detail["transcripts"].([]any), 1)
+
+	// A draft can be created before rights and placement are known; readiness
+	// reports the missing rights instead of blocking the create.
+	resp = doJSON(t, ts, "POST", "/v1/audio-stories", map[string]any{
+		"slug":            "tidal-memories",
+		"title":           "Tidal Memories",
+		"summary":         "A fisherman remembers the old harbour tides.",
+		"theme":           "culture_heritage",
+		"producer":        "YTCI Coastal Unit",
+		"communitySource": "Kilifi fishing families",
+		"collectionId":    collectionID,
+	}, editorAuth)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	minimal := decodeBody(t, resp)
+	minimalID, _ := minimal["id"].(string)
+	minimalRevision, _ := minimal["revisionId"].(string)
+	require.NotEmpty(t, minimalID)
+	require.NotEmpty(t, minimalRevision)
+
+	resp = doJSON(t, ts, "GET", "/v1/audio-stories/"+minimalID+"/revisions/"+minimalRevision+"/readiness", nil, editorAuth)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	minimalReadiness := decodeBody(t, resp)
+	assert.Equal(t, false, minimalReadiness["ready"])
+	codes := make([]string, 0)
+	for _, raw := range minimalReadiness["blocking"].([]any) {
+		codes = append(codes, raw.(map[string]any)["code"].(string))
+	}
+	assert.Contains(t, codes, "missing_rights")
 
 	resp = doJSON(t, ts, "GET", "/v1/audio-stories/"+storyID, nil, editorAuth)
 	require.Equal(t, http.StatusOK, resp.StatusCode)

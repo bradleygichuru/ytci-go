@@ -233,6 +233,7 @@ func mountAdminRoutes(sub chi.Router, h *handlers, r2client r2.Store, jwks *midd
 	sub.Group(func(aR chi.Router) {
 		aR.Use(middleware.JWTAuth(jwks, expectedIssuer, expectedAudience))
 		aR.Use(middleware.AudioAdminGate)
+		aR.Get("/audio-story-collections", h.audioStories.ListCollections)
 		aR.Get("/audio-stories", h.audioStories.List)
 		aR.Post("/audio-stories", h.audioStories.Create)
 		aR.Get("/audio-stories/{id}", h.audioStories.Get)

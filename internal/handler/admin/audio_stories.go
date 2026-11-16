@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -132,26 +133,27 @@ type audioReadiness struct {
 }
 
 type audioStorySummary struct {
-	ID                 string     `json:"id"`
-	Slug               string     `json:"slug"`
-	Title              string     `json:"title"`
-	Summary            string     `json:"summary"`
-	Theme              string     `json:"theme"`
-	Status             string     `json:"status"`
-	CollectionID       string     `json:"collectionId,omitempty"`
-	CollectionTitle    string     `json:"collectionTitle,omitempty"`
-	CollectionOrder    int        `json:"collectionOrder"`
-	Featured           bool       `json:"featured"`
-	ContentVersion     int        `json:"contentVersion"`
-	LiveRevisionID     string     `json:"liveRevisionId,omitempty"`
-	LiveStatus         string     `json:"liveRevisionStatus,omitempty"`
-	OpenRevisionID     string     `json:"openRevisionId,omitempty"`
-	OpenRevisionStat   string     `json:"openRevisionStatus,omitempty"`
-	RiskTier           string     `json:"riskTier,omitempty"`
-	Languages          []string   `json:"languages"`
-	AssignedReviewerID string     `json:"assignedReviewerId,omitempty"`
-	RightsExpiresAt    *time.Time `json:"rightsExpiresAt,omitempty"`
-	UpdatedAt          *time.Time `json:"updatedAt"`
+	ID                   string     `json:"id"`
+	Slug                 string     `json:"slug"`
+	Title                string     `json:"title"`
+	Summary              string     `json:"summary"`
+	Theme                string     `json:"theme"`
+	Status               string     `json:"status"`
+	CollectionID         string     `json:"collectionId,omitempty"`
+	CollectionTitle      string     `json:"collectionTitle,omitempty"`
+	CollectionOrder      int        `json:"collectionOrder"`
+	Featured             bool       `json:"featured"`
+	ContentVersion       int        `json:"contentVersion"`
+	LiveRevisionID       string     `json:"liveRevisionId,omitempty"`
+	LiveStatus           string     `json:"liveRevisionStatus,omitempty"`
+	OpenRevisionID       string     `json:"openRevisionId,omitempty"`
+	OpenRevisionStat     string     `json:"openRevisionStatus,omitempty"`
+	RiskTier             string     `json:"riskTier,omitempty"`
+	Languages            []string   `json:"languages"`
+	AssignedReviewerID   string     `json:"assignedReviewerId,omitempty"`
+	AssignedReviewerName string     `json:"assignedReviewerName,omitempty"`
+	RightsExpiresAt      *time.Time `json:"rightsExpiresAt,omitempty"`
+	UpdatedAt            *time.Time `json:"updatedAt"`
 }
 
 type audioStoryDetail struct {
@@ -159,6 +161,7 @@ type audioStoryDetail struct {
 	Subtitle        string   `json:"subtitle,omitempty"`
 	Tags            []string `json:"tags"`
 	CoverMediaID    string   `json:"coverMediaId,omitempty"`
+	CoverObjectKey  string   `json:"coverObjectKey,omitempty"`
 	Producer        string   `json:"producer"`
 	CommunitySource string   `json:"communitySource"`
 	RecordedAt      string   `json:"recordedAt,omitempty"`
@@ -208,6 +211,7 @@ type audioRevisionDetail struct {
 	AttestedBy            string                  `json:"attestedBy,omitempty"`
 	AttestedAt            *time.Time              `json:"attestedAt,omitempty"`
 	AssignedReviewerID    string                  `json:"assignedReviewerId,omitempty"`
+	AssignedReviewerName  string                  `json:"assignedReviewerName,omitempty"`
 	SecondReviewerID      string                  `json:"secondReviewerId,omitempty"`
 	SubmittedAt           *time.Time              `json:"submittedAt,omitempty"`
 	ApprovedAt            *time.Time              `json:"approvedAt,omitempty"`
@@ -228,6 +232,7 @@ type audioEventDetail struct {
 	TrackID      string          `json:"trackId,omitempty"`
 	CollectionID string          `json:"collectionId,omitempty"`
 	ActorID      string          `json:"actorId,omitempty"`
+	ActorName    string          `json:"actorName,omitempty"`
 	Action       string          `json:"action"`
 	FromStatus   string          `json:"fromStatus,omitempty"`
 	ToStatus     string          `json:"toStatus,omitempty"`
@@ -347,7 +352,7 @@ func (h *AudioStoryHandler) List(w http.ResponseWriter, r *http.Request) {
 		 COALESCE(s.live_revision_id::text,''),COALESCE(lr.status,''),
 		 COALESCE(s.open_revision_id::text,''),COALESCE(orv.status,''),
 		 COALESCE(orv.risk_tier,lr.risk_tier,''),COALESCE(orv.assigned_reviewer_id::text,''),
-		 COALESCE(orv.rights_expires_at,lr.rights_expires_at),
+		 COALESCE(ru.name,''),COALESCE(orv.rights_expires_at,lr.rights_expires_at),
 		 COALESCE((SELECT array_agg(t.language ORDER BY t.language) FROM audio_story_tracks t
 		           WHERE t.revision_id=COALESCE(s.open_revision_id,s.live_revision_id)),'{}'),
 		 s.updated_at
@@ -355,6 +360,7 @@ func (h *AudioStoryHandler) List(w http.ResponseWriter, r *http.Request) {
 		 LEFT JOIN audio_story_collections c ON c.id=s.collection_id
 		 LEFT JOIN audio_story_revisions lr ON lr.id=s.live_revision_id
 		 LEFT JOIN audio_story_revisions orv ON orv.id=s.open_revision_id
+		 LEFT JOIN users ru ON ru.id=orv.assigned_reviewer_id
 		 WHERE ($1='' OR s.status=$1)
 		   AND ($2='' OR s.collection_id=NULLIF($2,'')::uuid)
 		   AND ($3='' OR s.title ILIKE '%'||$3||'%' OR s.slug ILIKE '%'||$3||'%')
@@ -373,7 +379,7 @@ func (h *AudioStoryHandler) List(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Scan(&item.ID, &item.Slug, &item.Title, &item.Summary, &item.Theme, &item.Status,
 			&item.CollectionID, &item.CollectionTitle, &item.CollectionOrder, &item.Featured, &item.ContentVersion,
 			&item.LiveRevisionID, &item.LiveStatus, &item.OpenRevisionID, &item.OpenRevisionStat,
-			&item.RiskTier, &item.AssignedReviewerID, &expires, &item.Languages, &updated); err != nil {
+			&item.RiskTier, &item.AssignedReviewerID, &item.AssignedReviewerName, &expires, &item.Languages, &updated); err != nil {
 			audioFail(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to read audio story")
 			return
 		}
@@ -381,6 +387,32 @@ func (h *AudioStoryHandler) List(w http.ResponseWriter, r *http.Request) {
 		item.Languages = nonNilStrings(item.Languages)
 		item.UpdatedAt = tsPtr(updated)
 		items = append(items, item)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (h *AudioStoryHandler) ListCollections(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.pool.Query(r.Context(),
+		`SELECT id,slug,title,description,status,display_order,featured
+		 FROM audio_story_collections ORDER BY display_order,title`)
+	if err != nil {
+		audioFail(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list audio story collections")
+		return
+	}
+	defer rows.Close()
+	items := make([]map[string]any, 0)
+	for rows.Next() {
+		var id, slug, title, description, status string
+		var order int
+		var featured bool
+		if err := rows.Scan(&id, &slug, &title, &description, &status, &order, &featured); err != nil {
+			audioFail(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to read audio story collection")
+			return
+		}
+		items = append(items, map[string]any{
+			"id": id, "slug": slug, "title": title, "description": description,
+			"status": status, "displayOrder": order, "featured": featured,
+		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
@@ -395,9 +427,15 @@ func (h *AudioStoryHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Slug == "" || req.Title == "" || req.Summary == "" || !audioThemes[req.Theme] ||
-		req.Producer == "" || req.CommunitySource == "" || !audioRights[req.RightsBasis] ||
-		req.RightsHolder == "" {
-		audioFail(w, http.StatusBadRequest, "VALIDATION_FAILED", "slug, title, summary, theme, producer, community source and rights fields are required")
+		req.Producer == "" || req.CommunitySource == "" {
+		audioFail(w, http.StatusBadRequest, "VALIDATION_FAILED", "slug, title, summary, theme, producer and community source are required")
+		return
+	}
+	if req.RightsBasis == "" {
+		req.RightsBasis = "unverified"
+	}
+	if req.RightsBasis != "unverified" && !audioRights[req.RightsBasis] {
+		audioFail(w, http.StatusBadRequest, "VALIDATION_FAILED", "invalid rights basis")
 		return
 	}
 	if req.PlaceScope == "" {
@@ -414,7 +452,7 @@ func (h *AudioStoryHandler) Create(w http.ResponseWriter, r *http.Request) {
 		audioFail(w, http.StatusBadRequest, "VALIDATION_FAILED", "invalid risk tier")
 		return
 	}
-	if !rightsEvidenceOK(req.RightsBasis, req.LicenceRef) {
+	if req.RightsBasis != "unverified" && !rightsEvidenceOK(req.RightsBasis, req.LicenceRef) {
 		audioFail(w, http.StatusBadRequest, "VALIDATION_FAILED", "a licence or permission reference is required for this rights basis")
 		return
 	}
@@ -518,7 +556,8 @@ func (h *AudioStoryHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tag, err := h.pool.Exec(r.Context(),
+	var updatedAt pgtype.Timestamp
+	err = h.pool.QueryRow(r.Context(),
 		`UPDATE audio_stories SET
 		 title=CASE WHEN $2 THEN $3 ELSE title END,
 		 subtitle=CASE WHEN $4 THEN NULLIF($5,'') ELSE subtitle END,
@@ -534,7 +573,8 @@ func (h *AudioStoryHandler) Update(w http.ResponseWriter, r *http.Request) {
 		 featured=CASE WHEN $24 THEN $25 ELSE featured END,
 		 updated_by=$26, updated_at=now()
 		 WHERE id=$1
-		   AND (NULLIF($27,'')::timestamptz IS NULL OR updated_at=(NULLIF($27,'')::timestamptz AT TIME ZONE 'UTC'))`,
+		   AND (NULLIF($27,'')::timestamptz IS NULL OR updated_at=(NULLIF($27,'')::timestamptz AT TIME ZONE 'UTC'))
+		 RETURNING updated_at`,
 		id,
 		req.Title != nil, valueOr(req.Title, ""),
 		req.Subtitle != nil, valueOr(req.Subtitle, ""),
@@ -548,25 +588,28 @@ func (h *AudioStoryHandler) Update(w http.ResponseWriter, r *http.Request) {
 		req.CollectionID != nil, valueOr(req.CollectionID, ""),
 		req.CollectionOrder != nil, valueOr(req.CollectionOrder, 0),
 		req.Featured != nil, valueOr(req.Featured, false),
-		middleware.UserID(r.Context()), req.ExpectedUpdated)
-	if err != nil {
+		middleware.UserID(r.Context()), req.ExpectedUpdated).Scan(&updatedAt)
+	if err != nil == false {
+		_ = writeAudioEvent(r.Context(), h.pool, id, "", "", middleware.UserID(r.Context()),
+			"audio_story.metadata_updated", "", "", "", nil)
+		writeJSON(w, http.StatusOK, map[string]any{"status": "saved", "updatedAt": tsPtr(updatedAt)})
+		return
+	}
+	if err != nil && err != pgx.ErrNoRows {
 		audioFail(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update audio story")
 		return
 	}
-	if tag.RowsAffected() == 0 {
-		audioFail(w, http.StatusConflict, "VERSION_CONFLICT", "the story changed since it was loaded")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
+	audioFail(w, http.StatusConflict, "VERSION_CONFLICT", "the story changed since it was loaded")
 }
 
 func (h *AudioStoryHandler) Audit(w http.ResponseWriter, r *http.Request) {
 	storyID := chi.URLParam(r, "id")
 	rows, err := h.pool.Query(r.Context(),
-		`SELECT id,COALESCE(revision_id::text,''),COALESCE(track_id::text,''),COALESCE(collection_id::text,''),
-		 COALESCE(actor_id,''),action,COALESCE(from_status,''),COALESCE(to_status,''),COALESCE(reason,''),
-		 metadata,created_at
-		 FROM audio_story_events WHERE story_id=$1 ORDER BY created_at DESC LIMIT 200`, storyID)
+		`SELECT e.id,COALESCE(e.revision_id::text,''),COALESCE(e.track_id::text,''),COALESCE(e.collection_id::text,''),
+		 COALESCE(e.actor_id,''),COALESCE(u.name,''),e.action,COALESCE(e.from_status,''),COALESCE(e.to_status,''),
+		 COALESCE(e.reason,''),e.metadata,e.created_at
+		 FROM audio_story_events e LEFT JOIN users u ON u.id=e.actor_id
+		 WHERE e.story_id=$1 ORDER BY e.created_at DESC LIMIT 200`, storyID)
 	if err != nil {
 		audioFail(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to load audit events")
 		return
@@ -578,8 +621,8 @@ func (h *AudioStoryHandler) Audit(w http.ResponseWriter, r *http.Request) {
 		var metadata []byte
 		var created pgtype.Timestamp
 		if err := rows.Scan(&item.ID, &item.RevisionID, &item.TrackID, &item.CollectionID,
-			&item.ActorID, &item.Action, &item.FromStatus, &item.ToStatus, &item.Reason,
-			&metadata, &created); err != nil {
+			&item.ActorID, &item.ActorName, &item.Action, &item.FromStatus, &item.ToStatus,
+			&item.Reason, &metadata, &created); err != nil {
 			audioFail(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to read audit event")
 			return
 		}
@@ -601,17 +644,18 @@ func (h *AudioStoryHandler) loadStory(ctx context.Context, id string) (*audioSto
 	var liveStatus, openStatus pgtype.Text
 	err := h.pool.QueryRow(ctx,
 		`SELECT s.id,s.slug,s.title,COALESCE(s.subtitle,''),s.summary,s.theme,s.tags,
-		 COALESCE(s.cover_media_id::text,''),s.producer,s.community_source,s.recorded_at,
+		 COALESCE(s.cover_media_id::text,''),COALESCE(m.object_key,''),s.producer,s.community_source,s.recorded_at,
 		 s.status,COALESCE(s.collection_id::text,''),s.collection_order,s.featured,s.content_version,
 		 COALESCE(s.live_revision_id::text,''),COALESCE(lr.status,''),
 		 COALESCE(s.open_revision_id::text,''),COALESCE(orv.status,''),
 		 s.created_at,s.updated_at
 		 FROM audio_stories s
+		 LEFT JOIN media_assets m ON m.id=s.cover_media_id
 		 LEFT JOIN audio_story_revisions lr ON lr.id=s.live_revision_id
 		 LEFT JOIN audio_story_revisions orv ON orv.id=s.open_revision_id
 		 WHERE s.id=$1`, id).Scan(
 		&s.ID, &s.Slug, &s.Title, &subtitle, &s.Summary, &s.Theme, &tags,
-		&cover, &s.Producer, &s.CommunitySource, &recordedDate,
+		&cover, &s.CoverObjectKey, &s.Producer, &s.CommunitySource, &recordedDate,
 		&s.Status, &s.CollectionID, &s.CollectionOrder, &s.Featured, &s.ContentVersion,
 		&s.LiveRevisionID, &liveStatus, &s.OpenRevisionID, &openStatus,
 		&created, &updated)
@@ -847,7 +891,8 @@ func (h *AudioStoryHandler) UpdateRevision(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	tag, err := h.pool.Exec(r.Context(),
+	var updatedAt pgtype.Timestamp
+	err = h.pool.QueryRow(r.Context(),
 		`UPDATE audio_story_revisions SET
 		 place_scope=$3,
 		 counties=$4::text[],
@@ -861,7 +906,8 @@ func (h *AudioStoryHandler) UpdateRevision(w http.ResponseWriter, r *http.Reques
 		 risk_tier=$17,
 		 updated_at=now()
 		 WHERE id=$1 AND story_id=$2 AND status='draft'
-		   AND (NULLIF($18,'')::timestamptz IS NULL OR updated_at=(NULLIF($18,'')::timestamptz AT TIME ZONE 'UTC'))`,
+		   AND (NULLIF($18,'')::timestamptz IS NULL OR updated_at=(NULLIF($18,'')::timestamptz AT TIME ZONE 'UTC'))
+		 RETURNING updated_at`,
 		revisionID, storyID,
 		effectiveScope, nonNilStrings(effectiveCounties),
 		req.DestinationIDs != nil, nonNilStrings(valueOr(req.DestinationIDs, nil)),
@@ -870,13 +916,13 @@ func (h *AudioStoryHandler) UpdateRevision(w http.ResponseWriter, r *http.Reques
 		effectiveRights, effectiveHolder,
 		req.LicenceReference != nil, valueOr(req.LicenceReference, ""),
 		req.RightsExpiresAt != nil, valueOr(req.RightsExpiresAt, ""),
-		effectiveRisk, req.ExpectedUpdated)
+		effectiveRisk, req.ExpectedUpdated).Scan(&updatedAt)
 	if err != nil {
+		if err == pgx.ErrNoRows {
+			audioFail(w, http.StatusConflict, "VERSION_CONFLICT", "the revision changed since it was loaded")
+			return
+		}
 		audioFail(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update revision")
-		return
-	}
-	if tag.RowsAffected() == 0 {
-		audioFail(w, http.StatusConflict, "VERSION_CONFLICT", "the revision changed since it was loaded")
 		return
 	}
 	if err := writeAudioEvent(r.Context(), h.pool, storyID, revisionID, "", middleware.UserID(r.Context()),
@@ -884,7 +930,7 @@ func (h *AudioStoryHandler) UpdateRevision(w http.ResponseWriter, r *http.Reques
 		audioFail(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to write audit event")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "saved", "updatedAt": tsPtr(updatedAt)})
 }
 
 func (h *AudioStoryHandler) loadRevision(ctx context.Context, storyID, revisionID string) (*audioRevisionDetail, error) {
@@ -893,18 +939,19 @@ func (h *AudioStoryHandler) loadRevision(ctx context.Context, storyID, revisionI
 	var note, licence, attestedBy, assigned, second, revocation string
 	var expires, attested, submitted, approved, publishAt, publishedAt, revoked, created, updated pgtype.Timestamp
 	err := h.pool.QueryRow(ctx,
-		`SELECT id,story_id,status,content_version,place_scope,counties,destination_ids,
-		 content_note_categories,COALESCE(content_note_text,''),rights_basis,rights_holder,
-		 COALESCE(licence_reference,''),rights_expires_at,risk_tier,COALESCE(attested_by::text,''),
-		 attested_at,COALESCE(assigned_reviewer_id::text,''),COALESCE(second_reviewer_id::text,''),
-		 submitted_at,approved_at,publish_at,published_at,revoked_at,COALESCE(revocation_reason,''),
-		 COALESCE(created_by::text,''),created_at,updated_at
-		 FROM audio_story_revisions WHERE id=$1 AND story_id=$2`, revisionID, storyID).Scan(
+		`SELECT r.id,r.story_id,r.status,r.content_version,r.place_scope,r.counties,r.destination_ids,
+		 r.content_note_categories,COALESCE(r.content_note_text,''),r.rights_basis,r.rights_holder,
+		 COALESCE(r.licence_reference,''),r.rights_expires_at,r.risk_tier,COALESCE(r.attested_by::text,''),
+		 r.attested_at,COALESCE(r.assigned_reviewer_id::text,''),COALESCE(u.name,''),
+		 COALESCE(r.second_reviewer_id::text,''),r.submitted_at,r.approved_at,r.publish_at,r.published_at,
+		 r.revoked_at,COALESCE(r.revocation_reason,''),COALESCE(r.created_by::text,''),r.created_at,r.updated_at
+		 FROM audio_story_revisions r LEFT JOIN users u ON u.id=r.assigned_reviewer_id
+		 WHERE r.id=$1 AND r.story_id=$2`, revisionID, storyID).Scan(
 		&rev.ID, &rev.StoryID, &rev.Status, &rev.ContentVersion, &rev.PlaceScope, &counties,
 		&destinations, &noteCategories, &note, &rev.RightsBasis, &rev.RightsHolder,
-		&licence, &expires, &rev.RiskTier, &attestedBy, &attested, &assigned, &second,
-		&submitted, &approved, &publishAt, &publishedAt, &revoked, &revocation, &rev.CreatedBy,
-		&created, &updated)
+		&licence, &expires, &rev.RiskTier, &attestedBy, &attested, &assigned, &rev.AssignedReviewerName,
+		&second, &submitted, &approved, &publishAt, &publishedAt, &revoked, &revocation,
+		&rev.CreatedBy, &created, &updated)
 	if err != nil {
 		return nil, err
 	}
@@ -1408,7 +1455,7 @@ func evaluateReadiness(story storySnapshot, rev revisionSnapshot, tracks []track
 	if !validPlace(rev.PlaceScope, rev.Counties) {
 		add("invalid_place", "Place scope and counties are inconsistent", "placement")
 	}
-	if rev.RightsBasis == "" || rev.RightsHolder == "" {
+	if rev.RightsBasis == "" || rev.RightsBasis == "unverified" || rev.RightsHolder == "" {
 		add("missing_rights", "Rights basis and holder are required", "rights")
 	} else if !rightsEvidenceOK(rev.RightsBasis, rev.LicenceReference) {
 		add("missing_rights_evidence", "A licence or permission reference is required for this rights basis", "rights")
@@ -1425,16 +1472,16 @@ func evaluateReadiness(story storySnapshot, rev revisionSnapshot, tracks []track
 	}
 	for _, track := range tracks {
 		if strings.TrimSpace(track.Narrator) == "" {
-			add("missing_narrator_"+track.Language, "Narrator is required for "+track.Language, "tracks")
+			add("missing_narrator_"+track.Language, "Narrator is required for "+languageLabel(track.Language), "tracks")
 		}
 		if track.Duration < 30 || track.Duration > 3600 {
 			add("invalid_duration_"+track.Language, "Track duration must be 30s–60min", "tracks")
 		}
 		if strings.TrimSpace(track.ObjectKey) == "" {
-			add("missing_audio_"+track.Language, "Audio is required for "+track.Language, "tracks")
+			add("missing_audio_"+track.Language, "Audio is required for "+languageLabel(track.Language), "tracks")
 		}
 		if track.ConsentDate == "" || strings.TrimSpace(track.ConsentRef) == "" {
-			add("missing_narrator_consent_"+track.Language, "Narrator consent date and release reference are required for "+track.Language, "rights")
+			add("missing_narrator_consent_"+track.Language, "Narrator consent date and release reference are required for "+languageLabel(track.Language), "rights")
 		}
 		found := false
 		for _, transcript := range transcripts {
@@ -1445,9 +1492,20 @@ func evaluateReadiness(story storySnapshot, rev revisionSnapshot, tracks []track
 			if err := validateParagraphs(transcript.Paragraphs, &track.Duration); err != nil {
 				add("invalid_transcript_"+track.Language, "Transcript: "+err.Error(), "tracks")
 			}
+			lastCue := -1.0
+			for _, paragraph := range transcript.Paragraphs {
+				if paragraph.StartSeconds != nil && *paragraph.StartSeconds > lastCue {
+					lastCue = *paragraph.StartSeconds
+				}
+			}
+			if lastCue < 0 {
+				warn("transcript_uncued_"+track.Language, "Transcript has no cue points for "+languageLabel(track.Language), "tracks")
+			} else if lastCue < float64(track.Duration)*0.8 {
+				warn("transcript_coverage_"+track.Language, "Transcript cues end before 80% of the "+languageLabel(track.Language)+" track; confirm it is complete", "tracks")
+			}
 		}
 		if !found {
-			add("missing_transcript_"+track.Language, "Transcript is required for "+track.Language, "tracks")
+			add("missing_transcript_"+track.Language, "Transcript is required for "+languageLabel(track.Language), "tracks")
 		}
 	}
 	for _, transcript := range transcripts {
@@ -1514,6 +1572,13 @@ func validPlace(scope string, counties []string) bool {
 
 func validRisk(risk string) bool {
 	return risk == "standard" || risk == "sensitive" || risk == "restricted"
+}
+
+func languageLabel(code string) string {
+	if code == "sw" {
+		return "Kiswahili"
+	}
+	return "English"
 }
 
 func rightsEvidenceOK(basis, licenceRef string) bool {

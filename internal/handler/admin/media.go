@@ -87,6 +87,11 @@ func (h *MediaHandler) Presign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.r2 == nil {
+		handler.WriteError(w, http.StatusServiceUnavailable, "STORAGE_UNAVAILABLE", "media storage is not configured")
+		return
+	}
+
 	objectKey := fmt.Sprintf("media/%d/%s", time.Now().Unix(), req.FileName)
 
 	userID := middleware.UserID(r.Context())
@@ -342,6 +347,11 @@ func (h *MediaHandler) GetURL(w http.ResponseWriter, r *http.Request) {
 	}
 	if objectKey == "" {
 		handler.WriteError(w, http.StatusBadRequest, "MISSING_KEY", "object key is required")
+		return
+	}
+
+	if h.r2 == nil {
+		handler.WriteError(w, http.StatusServiceUnavailable, "STORAGE_UNAVAILABLE", "media storage is not configured")
 		return
 	}
 
