@@ -27,7 +27,7 @@ DATABASE_URL=... EXPO_PUSH_TOKEN=... ./bin/alerts worker
 
 ## Data prerequisites
 
-`kenya_counties` must contain the 47 OCHA COD-AB ADM1 rows before ingest. If it is empty, `NewIngester` fails closed with `ErrCountiesEmpty`; it never pushes to nobody.
+`kenya_counties` must contain the 47 OCHA COD-AB ADM1 rows before ingest. Seed it with `docs/seed/kenya_counties.sql` (OCHA COD-AB, 47 rows, WGS84 polygons). If it is empty, `NewIngester` fails closed with `ErrCountiesEmpty`; it never pushes to nobody.
 
 ## Endpoints
 
@@ -88,7 +88,7 @@ The integration tests use a PostGIS testcontainer and cover migration applicatio
 The alert code path is verified locally, but ingest and delivery do not run by themselves. Before enabling the feature:
 
 1. Apply migrations `0018`–`0025` from the TanStack schema branch, including `0021_alert_mapping_mixed` and `0025_text_user_ids`.
-2. Seed all 47 OCHA COD-AB ADM1 rows into `kenya_counties`, including polygons. `NewIngester` fails closed when the table is empty.
+2. Seed all 47 OCHA COD-AB ADM1 rows with `docs/seed/kenya_counties.sql` (or the equivalent OCHA extract). `NewIngester` fails closed when the table is empty.
 3. Schedule `./bin/alerts ingest` every 5 minutes for KMD and every 15 minutes for FCDO, or run a scheduler that honours the source intervals.
 4. Run `./bin/alerts worker` continuously for fan-out, send, and receipt polling. It needs `DATABASE_URL` and `EXPO_PUSH_TOKEN`.
 5. Configure the Expo project’s FCM V1 service account for Firebase project `ytci-f93bf`, and include `android/app/google-services.json` in the Android build.
