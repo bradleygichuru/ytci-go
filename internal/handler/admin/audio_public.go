@@ -29,6 +29,9 @@ type publicAudioStorySummary struct {
 	CommunitySource string     `json:"communitySource"`
 	Counties        []string   `json:"counties"`
 	Languages       []string   `json:"languages"`
+	Narrator        string     `json:"narrator"`
+	DurationSeconds int        `json:"durationSeconds"`
+	HasContentNote  bool       `json:"hasContentNote"`
 	PublishedAt     *time.Time `json:"publishedAt"`
 
 	id       string
@@ -162,6 +165,11 @@ func (h *AudioStoryHandler) listPublicStories(ctx context.Context, q publicStory
 		 COALESCE(m.object_key,''),s.producer,s.community_source,lr.counties,
 		 COALESCE((SELECT array_agg(t.language ORDER BY t.language) FROM audio_story_tracks t
 		           WHERE t.revision_id=lr.id),'{}'),
+		 COALESCE((SELECT t.narrator FROM audio_story_tracks t
+		           WHERE t.revision_id=lr.id ORDER BY t.language LIMIT 1),''),
+		 COALESCE((SELECT t.duration_seconds FROM audio_story_tracks t
+		           WHERE t.revision_id=lr.id ORDER BY t.language LIMIT 1),0),
+		 COALESCE(array_length(lr.content_note_categories,1),0) > 0,
 		 COALESCE(s.first_published_at,lr.published_at,s.created_at)
 		 FROM audio_stories s
 		 JOIN audio_story_revisions lr ON lr.id=s.live_revision_id
@@ -197,7 +205,8 @@ func (h *AudioStoryHandler) listPublicStories(ctx context.Context, q publicStory
 		var published pgtype.Timestamp
 		if err := rows.Scan(&item.id, &item.Slug, &item.Title, &item.Subtitle, &item.Summary,
 			&item.Theme, &item.Tags, &item.coverKey, &item.Producer, &item.CommunitySource,
-			&item.Counties, &item.Languages, &published); err != nil {
+			&item.Counties, &item.Languages, &item.Narrator, &item.DurationSeconds,
+			&item.HasContentNote, &published); err != nil {
 			return nil, err
 		}
 		item.Tags = nonNilStrings(item.Tags)
