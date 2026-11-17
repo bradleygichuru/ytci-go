@@ -101,8 +101,12 @@ type handlers struct {
 	audioStories     *admin.AudioStoryHandler
 }
 
-func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Client, cfg *config.Config) *handlers {
+func mountHandlers(pool *pgxpool.Pool, r2client *r2.Client, pushClient *push.Client, cfg *config.Config) *handlers {
 	placesCache := places.NewCache(pool)
+	var audioStore r2.Store
+	if r2client != nil {
+		audioStore = r2client
+	}
 	h := &handlers{
 		dest:             admin.NewDestinationsHandler(pool, r2client, placesCache),
 		events:           admin.NewEventsHandler(pool, r2client),
@@ -131,7 +135,7 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 		places:           expo.NewPlacesHandler(pool, cfg.GooglePlacesAPIKey, placesCache),
 		marketplace:      expo.NewMarketplaceHandler(pool, r2client),
 		marketplaceAdmin: admin.NewMarketplaceAdminHandler(pool, r2client),
-		audioStories:     admin.NewAudioStoryHandler(pool),
+		audioStories:     admin.NewAudioStoryHandler(pool, audioStore),
 	}
 	if pushClient != nil {
 		h.pushAdmin = admin.NewPushHandler(pool, pushClient)
@@ -234,17 +238,40 @@ func mountAdminRoutes(sub chi.Router, h *handlers, r2client r2.Store, jwks *midd
 		aR.Use(middleware.JWTAuth(jwks, expectedIssuer, expectedAudience))
 		aR.Use(middleware.AudioAdminGate)
 		aR.Get("/audio-story-collections", h.audioStories.ListCollections)
+		aR.Post("/audio-story-collections", h.audioStories.CreateCollection)
+		aR.Get("/audio-story-collections/{id}", h.audioStories.GetCollection)
+		aR.Patch("/audio-story-collections/{id}", h.audioStories.UpdateCollection)
+		aR.Delete("/audio-story-collections/{id}", h.audioStories.DeleteCollection)
+		aR.Post("/audio-story-collections/{id}/stories", h.audioStories.SetCollectionStories)
+		aR.Post("/audio-story-collections/{id}/publish", h.audioStories.PublishCollection)
+		aR.Post("/audio-story-collections/{id}/schedule", h.audioStories.ScheduleCollection)
+		aR.Post("/audio-story-collections/{id}/unpublish", h.audioStories.UnpublishCollection)
+		aR.Post("/audio-story-collections/{id}/archive", h.audioStories.ArchiveCollection)
+		aR.Get("/audio-stories/review-queue", h.audioStories.ReviewQueue)
 		aR.Get("/audio-stories", h.audioStories.List)
 		aR.Post("/audio-stories", h.audioStories.Create)
 		aR.Get("/audio-stories/{id}", h.audioStories.Get)
 		aR.Patch("/audio-stories/{id}", h.audioStories.Update)
 		aR.Get("/audio-stories/{id}/audit", h.audioStories.Audit)
+		aR.Post("/audio-stories/{id}/unpublish", h.audioStories.UnpublishStory)
+		aR.Post("/audio-stories/{id}/republish", h.audioStories.RepublishStory)
+		aR.Post("/audio-stories/{id}/archive", h.audioStories.ArchiveStory)
+		aR.Post("/audio-stories/{id}/revoke", h.audioStories.RevokeStory)
+		aR.Post("/audio-stories/{id}/restore", h.audioStories.RestoreStory)
 		aR.Get("/audio-stories/{id}/revisions", h.audioStories.ListRevisions)
 		aR.Post("/audio-stories/{id}/revisions", h.audioStories.CreateRevision)
 		aR.Get("/audio-stories/{id}/revisions/{revisionId}", h.audioStories.GetRevision)
 		aR.Patch("/audio-stories/{id}/revisions/{revisionId}", h.audioStories.UpdateRevision)
 		aR.Get("/audio-stories/{id}/revisions/{revisionId}/readiness", h.audioStories.Readiness)
 		aR.Post("/audio-stories/{id}/revisions/{revisionId}/submit", h.audioStories.Submit)
+		aR.Get("/audio-stories/{id}/revisions/{revisionId}/reviews", h.audioStories.ListReviews)
+		aR.Post("/audio-stories/{id}/revisions/{revisionId}/assign", h.audioStories.AssignReviewer)
+		aR.Post("/audio-stories/{id}/revisions/{revisionId}/recuse", h.audioStories.RecuseReviewer)
+		aR.Post("/audio-stories/{id}/revisions/{revisionId}/review", h.audioStories.ReviewDecision)
+		aR.Post("/audio-stories/{id}/revisions/{revisionId}/withdraw", h.audioStories.WithdrawRevision)
+		aR.Post("/audio-stories/{id}/revisions/{revisionId}/publish", h.audioStories.PublishRevision)
+		aR.Post("/audio-stories/{id}/revisions/{revisionId}/schedule", h.audioStories.ScheduleRevision)
+		aR.Post("/audio-stories/{id}/revisions/{revisionId}/cancel-schedule", h.audioStories.CancelSchedule)
 		aR.Post("/audio-stories/{id}/revisions/{revisionId}/tracks", h.audioStories.UpsertTrack)
 		aR.Patch("/audio-stories/{id}/revisions/{revisionId}/tracks/{trackId}", h.audioStories.UpdateTrack)
 		aR.Delete("/audio-stories/{id}/revisions/{revisionId}/tracks/{trackId}", h.audioStories.DeleteTrack)
@@ -371,6 +398,11 @@ func mountPublicRoutes(pub chi.Router, h *handlers, r2client r2.Store) {
 	pub.Get("/stays/{slug}", h.marketplace.GetStay)
 
 	pub.Get("/stories/{id}/comments", h.comments.ListComments)
+
+	pub.Get("/audio-stories", h.audioStories.PublicListStories)
+	pub.Get("/audio-stories/{slug}", h.audioStories.PublicGetStory)
+	pub.Get("/audio-story-collections", h.audioStories.PublicListCollections)
+	pub.Get("/audio-story-collections/{slug}", h.audioStories.PublicGetCollection)
 
 	if r2client != nil {
 		pub.Get("/media/url", h.media.GetURL)

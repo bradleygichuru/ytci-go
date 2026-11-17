@@ -73,6 +73,10 @@ func main() {
 	reportWorker.Start(ctx)
 	defer reportWorker.Stop()
 
+	audioPublisherCtx, audioPublisherCancel := context.WithCancel(context.Background())
+	defer audioPublisherCancel()
+	admin.NewAudioStoryHandler(dbpool).StartPublishScheduler(audioPublisherCtx, time.Minute)
+
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
 		Handler: router,

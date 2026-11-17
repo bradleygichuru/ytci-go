@@ -15,14 +15,24 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bradleygichuru/ytci-go/internal/middleware"
+	"github.com/bradleygichuru/ytci-go/internal/r2"
 )
 
-// AudioStoryHandler serves the admin draft workflow for Audio Stories.
-// Review, publish, scheduling and public reads live in #266.
-type AudioStoryHandler struct{ pool *pgxpool.Pool }
+// AudioStoryHandler serves the admin Audio Stories workflow: draft authoring,
+// review, publication, collection lifecycle and the public read surfaces.
+type AudioStoryHandler struct {
+	pool  *pgxpool.Pool
+	store r2.Store
+}
 
-func NewAudioStoryHandler(pool *pgxpool.Pool) *AudioStoryHandler {
-	return &AudioStoryHandler{pool: pool}
+// NewAudioStoryHandler accepts an optional object store for presigned public
+// playback URLs. Existing callers that only need authoring can omit it.
+func NewAudioStoryHandler(pool *pgxpool.Pool, stores ...r2.Store) *AudioStoryHandler {
+	h := &AudioStoryHandler{pool: pool}
+	if len(stores) > 0 {
+		h.store = stores[0]
+	}
+	return h
 }
 
 // ---------------------------------------------------------------------------
@@ -334,8 +344,21 @@ func writeAudioEvent(ctx context.Context, execer audioExecer, storyID, revisionI
 	}
 	_, err := execer.Exec(ctx,
 		`INSERT INTO audio_story_events (story_id, revision_id, track_id, actor_id, action, from_status, to_status, reason, metadata)
-		 VALUES ($1,NULLIF($2,'')::uuid,NULLIF($3,'')::uuid,NULLIF($4,'')::text,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),NULLIF($9,'')::jsonb)`,
+		 VALUES (NULLIF($1,'')::uuid,NULLIF($2,'')::uuid,NULLIF($3,'')::uuid,NULLIF($4,'')::text,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),NULLIF($9,'')::jsonb)`,
 		storyID, revisionID, trackID, actor, action, from, to, reason, raw)
+	return err
+}
+
+func writeAudioCollectionEvent(ctx context.Context, execer audioExecer, collectionID, actor, action, from, to, reason string, metadata any) error {
+	raw := ""
+	if metadata != nil {
+		encoded, _ := json.Marshal(metadata)
+		raw = string(encoded)
+	}
+	_, err := execer.Exec(ctx,
+		`INSERT INTO audio_story_events (story_id, collection_id, actor_id, action, from_status, to_status, reason, metadata)
+		 VALUES (NULL,NULLIF($1,'')::uuid,NULLIF($2,'')::text,$3,NULLIF($4,''),NULLIF($5,''),NULLIF($6,''),NULLIF($7,'')::jsonb)`,
+		collectionID, actor, action, from, to, reason, raw)
 	return err
 }
 
