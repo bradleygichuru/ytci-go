@@ -871,22 +871,26 @@ func (h *AudioStoryHandler) UpdateRevision(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	effectiveRights := valueOr(req.RightsBasis, rightsBasis)
-	if !audioRights[effectiveRights] {
-		audioFail(w, http.StatusBadRequest, "VALIDATION_FAILED", "invalid rights basis")
-		return
-	}
 	effectiveLicence := valueOr(req.LicenceReference, licenceRef)
-	if !rightsEvidenceOK(effectiveRights, effectiveLicence) {
-		audioFail(w, http.StatusBadRequest, "VALIDATION_FAILED", "a licence or permission reference is required for this rights basis")
-		return
-	}
 	effectiveHolder := valueOr(req.RightsHolder, rightsHolder)
-	if strings.TrimSpace(effectiveHolder) == "" {
-		audioFail(w, http.StatusBadRequest, "VALIDATION_FAILED", "rights holder is required")
-		return
-	}
 	effectiveRisk := valueOr(req.RiskTier, riskTier)
-	if !validRisk(effectiveRisk) {
+	// A PATCH is partial. Validate the rights block only when the caller is
+	// changing it, so a draft with unverified rights can still save placement.
+	if req.RightsBasis != nil || req.RightsHolder != nil || req.LicenceReference != nil {
+		if !audioRights[effectiveRights] {
+			audioFail(w, http.StatusBadRequest, "VALIDATION_FAILED", "invalid rights basis")
+			return
+		}
+		if !rightsEvidenceOK(effectiveRights, effectiveLicence) {
+			audioFail(w, http.StatusBadRequest, "VALIDATION_FAILED", "a licence or permission reference is required for this rights basis")
+			return
+		}
+		if strings.TrimSpace(effectiveHolder) == "" {
+			audioFail(w, http.StatusBadRequest, "VALIDATION_FAILED", "rights holder is required")
+			return
+		}
+	}
+	if req.RiskTier != nil && !validRisk(effectiveRisk) {
 		audioFail(w, http.StatusBadRequest, "VALIDATION_FAILED", "invalid risk tier")
 		return
 	}

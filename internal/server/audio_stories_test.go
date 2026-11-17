@@ -99,6 +99,16 @@ func TestAudioStoryDraftFlow(t *testing.T) {
 		`INSERT INTO media_assets (entity_type,entity_id,object_key,type,status)
 		 VALUES ('audio_story',NULL,'audio-stories/mangrove-en.m4a','audio','ready') RETURNING id`).Scan(&audioAssetID))
 
+	preflight, err := http.NewRequest(http.MethodOptions,
+		ts.URL+"/v1/audio-stories/x/revisions/y/transcripts/en", nil)
+	require.NoError(t, err)
+	preflight.Header.Set("Origin", "http://localhost:3000")
+	preflight.Header.Set("Access-Control-Request-Method", "PUT")
+	preflightResp, err := ts.Client().Do(preflight)
+	require.NoError(t, err)
+	assert.Contains(t, preflightResp.Header.Get("Access-Control-Allow-Methods"), "PUT")
+	preflightResp.Body.Close()
+
 	createPayload := map[string]any{
 		"slug":            "the-last-mangrove",
 		"title":           "The Last Mangrove",
@@ -219,7 +229,7 @@ func TestAudioStoryDraftFlow(t *testing.T) {
 
 	// Simulate the live state #266 will produce, then confirm a material change
 	// clones the published revision and its tracks/transcripts into a new draft.
-	_, err := pool.Exec(ctx, `UPDATE audio_story_revisions SET status='published' WHERE id=$1`, revisionID)
+	_, err = pool.Exec(ctx, `UPDATE audio_story_revisions SET status='published' WHERE id=$1`, revisionID)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx,
 		`UPDATE audio_stories SET status='published',live_revision_id=$1,open_revision_id=NULL WHERE id=$2`,
@@ -257,6 +267,11 @@ func TestAudioStoryDraftFlow(t *testing.T) {
 	minimalRevision, _ := minimal["revisionId"].(string)
 	require.NotEmpty(t, minimalID)
 	require.NotEmpty(t, minimalRevision)
+
+	resp = doJSON(t, ts, "PATCH", "/v1/audio-stories/"+minimalID+"/revisions/"+minimalRevision,
+		map[string]any{"placeScope": "county", "counties": []string{"Kilifi"}}, editorAuth)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
 
 	resp = doJSON(t, ts, "GET", "/v1/audio-stories/"+minimalID+"/revisions/"+minimalRevision+"/readiness", nil, editorAuth)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
