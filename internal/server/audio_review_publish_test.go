@@ -775,3 +775,49 @@ func TestAudioPublishDueAndStoryLifecycle(t *testing.T) {
 	assert.Equal(t, "archived", detail["story"].(map[string]any)["status"])
 	assert.Nil(t, detail["openRevision"])
 }
+
+func TestExpiredRightsUnpublishStory(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	env := setupAudioPublishTest(t)
+	ctx := context.Background()
+
+	var collectionID, storyID, revisionID string
+	require.NoError(t, env.pool.QueryRow(ctx,
+		`INSERT INTO audio_story_collections (slug,title,description,status)
+		 VALUES ('expiry-collection','Expiry Collection','Test','published') RETURNING id`).Scan(&collectionID))
+	require.NoError(t, env.pool.QueryRow(ctx,
+		`INSERT INTO audio_stories (slug,title,summary,theme,producer,community_source,collection_id,status,content_version)
+		 VALUES ('expiring-story','Expiring Story','Rights lapse test','culture_heritage','YTCI','Test community',$1,'published',1)
+		 RETURNING id`, collectionID).Scan(&storyID))
+	require.NoError(t, env.pool.QueryRow(ctx,
+		`INSERT INTO audio_story_revisions (story_id,status,place_scope,counties,content_note_categories,
+		 rights_basis,rights_holder,rights_expires_at,risk_tier,published_at)
+		 VALUES ($1,'published','county','{Kilifi}','{}','ytci_owned','YTCI',now() - interval '1 day','standard',now())
+		 RETURNING id`, storyID).Scan(&revisionID))
+	_, err := env.pool.Exec(ctx,
+		`UPDATE audio_stories SET live_revision_id=$1 WHERE id=$2`, revisionID, storyID)
+	require.NoError(t, err)
+
+	handler := admin.NewAudioStoryHandler(env.pool)
+	expired, err := handler.ExpireRightsDue(ctx)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, expired, 1)
+
+	var status string
+	require.NoError(t, env.pool.QueryRow(ctx,
+		`SELECT status FROM audio_stories WHERE id=$1`, storyID).Scan(&status))
+	assert.Equal(t, "unpublished", status)
+
+	var action string
+	require.NoError(t, env.pool.QueryRow(ctx,
+		`SELECT action FROM audio_story_events WHERE story_id=$1 ORDER BY created_at DESC LIMIT 1`,
+		storyID).Scan(&action))
+	assert.Equal(t, "audio_story.rights_expired", action)
+
+	resp, err := http.Get(env.ts.URL + "/v1/public/audio-stories/expiring-story")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}

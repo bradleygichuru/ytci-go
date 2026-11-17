@@ -891,7 +891,71 @@ func (h *AudioStoryHandler) StartPublishScheduler(ctx context.Context, interval 
 				if _, err := h.PublishDue(ctx); err != nil {
 					slog.Error("audio publish scheduler failed", "error", err)
 				}
+				if _, err := h.ExpireRightsDue(ctx); err != nil {
+					slog.Error("audio rights expiry scheduler failed", "error", err)
+				}
 			}
 		}
 	}()
+}
+
+// ExpireRightsDue unpublishes stories whose live rights have lapsed. It is safe
+// to run repeatedly: only currently published stories are selected. Scheduled
+// and open revisions are cancelled, and the live revision is retained for audit.
+func (h *AudioStoryHandler) ExpireRightsDue(ctx context.Context) (int, error) {
+	rows, err := h.pool.Query(ctx,
+		`SELECT s.id, COALESCE(s.open_revision_id::text,'')
+		 FROM audio_stories s
+		 JOIN audio_story_revisions lr ON lr.id=s.live_revision_id
+		 WHERE s.status='published'
+		   AND lr.rights_expires_at IS NOT NULL
+		   AND lr.rights_expires_at <= now()
+		 ORDER BY lr.rights_expires_at
+		 LIMIT 100`)
+	if err != nil {
+		return 0, err
+	}
+	type due struct{ storyID, openID string }
+	items := make([]due, 0)
+	for rows.Next() {
+		var item due
+		if err := rows.Scan(&item.storyID, &item.openID); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		items = append(items, item)
+	}
+	rows.Close()
+
+	expired := 0
+	for _, item := range items {
+		tx, err := h.pool.Begin(ctx)
+		if err != nil {
+			return expired, err
+		}
+		tag, err := tx.Exec(ctx,
+			`UPDATE audio_stories SET status='unpublished', open_revision_id=NULL, updated_at=now()
+			 WHERE id=$1 AND status='published'`, item.storyID)
+		if err != nil || tag.RowsAffected() == 0 {
+			tx.Rollback(ctx)
+			continue
+		}
+		if _, err := tx.Exec(ctx,
+			`UPDATE audio_story_revisions SET status='cancelled', updated_at=now()
+			 WHERE story_id=$1 AND status IN ('draft','in_review','approved','scheduled')`,
+			item.storyID); err != nil {
+			tx.Rollback(ctx)
+			return expired, err
+		}
+		if err := writeAudioEvent(ctx, tx, item.storyID, item.openID, "", "",
+			"audio_story.rights_expired", "published", "unpublished", "Rights expired", nil); err != nil {
+			tx.Rollback(ctx)
+			return expired, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return expired, err
+		}
+		expired++
+	}
+	return expired, nil
 }
