@@ -364,6 +364,11 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 			aR.Patch("/profile/consent", h.profile.ConsentUpdate)
 			aR.Get("/stories/mine", h.mStories.MyStories)
 			aR.Get("/stories/saved", h.mStories.SavedStories)
+			aR.Get("/audio-stories/saved", h.audioStories.ListSavedStories)
+			aR.Put("/audio-stories/saved/{slug}", h.audioStories.SaveStory)
+			aR.Delete("/audio-stories/saved/{slug}", h.audioStories.UnsaveStory)
+			aR.Get("/audio-stories/progress", h.audioStories.ListProgress)
+			aR.Put("/audio-stories/progress/{slug}", h.audioStories.UpsertProgress)
 			aR.Get("/events/saved", h.actions.ListSavedEvents)
 
 			aR.Post("/stories/{id}/comments", h.comments.CreateComment)
