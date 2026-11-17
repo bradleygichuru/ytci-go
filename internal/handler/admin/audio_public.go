@@ -71,6 +71,7 @@ type publicAudioStoryDetail struct {
 	CoverURL        string                    `json:"coverUrl"`
 	Producer        string                    `json:"producer"`
 	CommunitySource string                    `json:"communitySource"`
+	Counties        []string                  `json:"counties"`
 	RecordedAt      string                    `json:"recordedAt"`
 	RightsLine      string                    `json:"rightsLine"`
 	ReviewedAt      *time.Time                `json:"reviewedAt"`
@@ -248,6 +249,7 @@ func (h *AudioStoryHandler) PublicGetStory(w http.ResponseWriter, r *http.Reques
 
 	detail.ID = storyID
 	detail.Tags = nonNilStrings(tags)
+	detail.Counties = nonNilStrings(counties)
 	detail.RecordedAt = dateString(recorded)
 	detail.RightsLine = audioRightsLine(rightsBasis, rightsHolder, licence)
 	detail.ReviewedAt = tsPtr(approved)

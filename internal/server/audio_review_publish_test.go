@@ -578,6 +578,7 @@ func TestAudioPublicReadAndCollectionLifecycle(t *testing.T) {
 	story := publicDetail["story"].(map[string]any)
 	assert.Equal(t, "public-story", story["slug"])
 	assert.Equal(t, "Public Collection", story["collection"].(map[string]any)["title"])
+	assert.Equal(t, []any{"Kilifi"}, story["counties"])
 	assert.NotEmpty(t, story["rightsLine"])
 	require.Len(t, story["tracks"].([]any), 1)
 	track := story["tracks"].([]any)[0].(map[string]any)
