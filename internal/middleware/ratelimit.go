@@ -104,6 +104,13 @@ func PublicRateLimiter() *RateLimiter {
 	return NewRateLimiter(1, 60)
 }
 
+// PublicEventRateLimiter is deliberately stricter than the general public
+// read budget because the heritage event endpoint writes a row. It allows a
+// short burst per IP, then refills at one event per second.
+func PublicEventRateLimiter() *RateLimiter {
+	return NewRateLimiter(1, 20)
+}
+
 func AuthenticatedRateLimiter() *RateLimiter {
 	return NewRateLimiter(2, 120)
 }

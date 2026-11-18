@@ -219,6 +219,8 @@ Migration `0014_then_now_privacy.sql` adds consent versioning, pseudonymous anal
 - With `THEN_NOW_ANALYTICS_V2_ENABLED=true`, app opens and events require analytics consent and are written with a random `analytics_id` from `analytics_id_map`, not the account `user_id`. With consent off, the endpoints return `{"status":"ignored"}` and write nothing.
 - The account deletion removes the analytics mapping, clears old `user_id` rows, anonymises consent history, and leaves pseudonymous analytics rows. Export/retention follow the privacy spec.
 - Admin DAU/WAU/MAU counts distinct `COALESCE(analytics_id::text, user_id::text)` so old and new rows can coexist during rollout.
+- Before switching `THEN_NOW_ANALYTICS_V2_ENABLED` on, run the one-time backfill once:
+  `go run ./cmd/backfill-analytics --apply`. It is a dry run by default, is idempotent, creates a persistent `analytics_id_map` entry for each existing user with historical rows, moves those rows to the random analytics ID, and clears `user_id`. Rows whose `user_id` no longer exists are reported and left for the separate data-cleanup decision.
 - The retention worker runs daily in `cmd/server`: app opens and analytics events 14 months, audit logs 12 months, anonymous heritage counts 24 months.
 
 ### Anonymous heritage counts
@@ -230,6 +232,8 @@ Migration `0014_then_now_privacy.sql` adds consent versioning, pseudonymous anal
 ```
 
 Allowed events: `portal_opened`, `video_played`, `visit_marked`, `verified_visit`. The endpoint resolves a published site, stores a daily count, and stores sensitive/restricted sites only as a combined `scope='sensitive'` bucket with no site ID. It never accepts or stores a reader, device, or location.
+
+The public write is rate-limited per client IP with a 20-event burst and a one-event-per-second refill, on top of the general public limit. A rejected request returns `429` with `Retry-After: 60` and code `RATE_LIMITED`; the client may retry later, but no count is written on rejection.
 
 `GET /v1/analytics/heritage` (admin) returns the last 30 days of counts, suppressing any cell below 5. Sensitive rows show `Sensitive sites (combined)` and no site identity.
 

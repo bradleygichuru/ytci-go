@@ -289,6 +289,37 @@ func TestAnonymousHeritageCounts(t *testing.T) {
 
 }
 
+func TestPublicHeritageEventRateLimited(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	ts, pool, _ := setupPrivacyServer(t, false)
+	ctx := context.Background()
+
+	_, err := pool.Exec(ctx, `
+		INSERT INTO heritage_sites (name, slug, county, site_type, access_mode, sensitivity, status)
+		VALUES ('Rate Limit Site', 'rate-limit-site', 'Nairobi', 'historical', 'video_only', 'standard', 'published')`)
+	require.NoError(t, err)
+
+	fromIP := func(req *http.Request) {
+		req.Header.Set("X-Forwarded-For", "203.0.113.10")
+	}
+	payload := map[string]any{"event": "portal_opened", "siteSlug": "rate-limit-site"}
+
+	for i := 0; i < 20; i++ {
+		resp := doJSON(t, ts, "POST", "/v1/public/then-now/events", payload, fromIP)
+		require.Equal(t, http.StatusNoContent, resp.StatusCode, "request %d should be allowed", i+1)
+		resp.Body.Close()
+	}
+
+	resp := doJSON(t, ts, "POST", "/v1/public/then-now/events", payload, fromIP)
+	require.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
+	assert.Equal(t, "60", resp.Header.Get("Retry-After"))
+	body := decodeBody(t, resp)
+	errBody := body["error"].(map[string]any)
+	assert.Equal(t, "RATE_LIMITED", errBody["code"])
+}
+
 func TestPrivacyExport(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
