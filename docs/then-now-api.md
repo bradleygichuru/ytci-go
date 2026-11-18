@@ -1,6 +1,6 @@
 # Then & Now content and authoring API
 
-Status: v1 content/authoring slice. Visited records, location verification, XP, badges, passports, leaderboards, trails, recognition, 360°, and anchors are out of scope and wait on the privacy/consent/retention grill (#290 in `ytci-mobile`).
+Status: v1 content/authoring slice plus dark-launched privacy controls. V1 visits stay local-only; server-side recognition, location verification, XP, badges, passports, and leaderboards remain gated by the privacy enablement decision (#290 in `ytci-mobile`) and are off by default.
 
 ## Auth
 
@@ -176,9 +176,70 @@ go test ./...                 # integration tests, testcontainers/PostGIS
 
 The integration tests cover authoring → submit → assign → approve → publish, sensitive second-reviewer gating, reviewer ≠ uploader, content-editor/moderator RBAC, published-only mobile/public reads, audit, and the idempotent seed.
 
+## Privacy controls
+
+Migration `0014_then_now_privacy.sql` adds consent versioning, pseudonymous analytics, and anonymous heritage counts. The recognition feature remains dark; v1 visits stay local to the device. See the mobile repo's [recognition privacy requirements](https://github.com/bradleygichuru/ytci-mobile/blob/docs/then-now-privacy/docs/privacy/then-now-recognition.md).
+
+### Feature flags
+
+| Env | Default | Purpose |
+| --- | --- | --- |
+| `THEN_NOW_RECOGNITION_ENABLED` | `false` | Server-side recognition; not enabled until the privacy gate is signed |
+| `THEN_NOW_PUBLIC_RECOGNITION_ENABLED` | `false` | Public passport/leaderboard |
+| `THEN_NOW_ANALYTICS_V2_ENABLED` | `false` | Pseudonymous analytics and analytics consent enforcement |
+
+`GET /v1/public/then-now/config` and `GET /v1/mobile/then-now/config` return these flags for the mobile UI. The server still enforces them; hiding the UI is not a control.
+
+### Consent
+
+`GET /v1/mobile/profile/consent` now returns:
+
+```json
+{
+  "location": false,
+  "camera": false,
+  "notifications": false,
+  "ugc": false,
+  "recognition": false,
+  "locationVerification": false,
+  "publicProfile": false,
+  "leaderboard": false,
+  "analytics": false,
+  "version": "2026-11-18",
+  "updatedAt": "...",
+  "consentGrantedAt": "...",
+  "consentWithdrawnAt": "..."
+}
+```
+
+`PATCH /v1/mobile/profile/consent` accepts any of the boolean fields plus an optional `version`. The server records every change in `consent_records`, sets `consent_granted_at` on the first grant, and sets `consent_withdrawn_at` when recognition is turned off. Recognition requires an age range; `Under 18` is rejected with `AGE_RESTRICTED`. Public profile, leaderboard, and location verification require recognition consent.
+
+### Analytics
+
+- With `THEN_NOW_ANALYTICS_V2_ENABLED=true`, app opens and events require analytics consent and are written with a random `analytics_id` from `analytics_id_map`, not the account `user_id`. With consent off, the endpoints return `{"status":"ignored"}` and write nothing.
+- The account deletion removes the analytics mapping, clears old `user_id` rows, anonymises consent history, and leaves pseudonymous analytics rows. Export/retention follow the privacy spec.
+- Admin DAU/WAU/MAU counts distinct `COALESCE(analytics_id::text, user_id::text)` so old and new rows can coexist during rollout.
+- The retention worker runs daily in `cmd/server`: app opens and analytics events 14 months, audit logs 12 months, anonymous heritage counts 24 months.
+
+### Anonymous heritage counts
+
+`POST /v1/public/then-now/events` (and the mobile equivalent) accepts:
+
+```json
+{ "event": "portal_opened", "siteSlug": "nairobi-railway-museum" }
+```
+
+Allowed events: `portal_opened`, `video_played`, `visit_marked`, `verified_visit`. The endpoint resolves a published site, stores a daily count, and stores sensitive/restricted sites only as a combined `scope='sensitive'` bucket with no site ID. It never accepts or stores a reader, device, or location.
+
+`GET /v1/analytics/heritage` (admin) returns the last 30 days of counts, suppressing any cell below 5. Sensitive rows show `Sensitive sites (combined)` and no site identity.
+
+### Privacy export
+
+`GET /v1/mobile/privacy/export` returns the reader's consent state and history, existing destination visits, badges, the recognition status (`local_only` in v1), and the analytics model. It never includes passwords, tokens, analytics event streams, or other readers' data. The mobile client merges the device-local heritage visited list into the same JSON before sharing it.
+
 ## Known follow-ups
 
 - Real R2 uploads remain on the existing media presign/complete pipeline; this API stores object keys.
-- `testdata/migrations/0013_then_now.sql` mirrors the schema for Go integration tests only. Mirror the same DDL into a TanStack admin Drizzle migration before wiring the admin.
+- `testdata/migrations/0013_then_now.sql` and `0014_then_now_privacy.sql` mirror the schema for Go integration tests only. Mirror the same DDL into TanStack admin Drizzle migrations before wiring the admin.
 - The admin UI fixture store still needs wiring to these endpoints.
-- Visited-record and location-verification endpoints wait on the privacy/consent/retention decisions.
+- The recognition privacy decision is resolved; server-side visits, verification, XP, badges, passports, and leaderboards remain gated and are not part of v1. V1 visits stay local-only.

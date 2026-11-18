@@ -39,6 +39,8 @@ var deleteOps = []cleanupOp{
 	{`DELETE FROM bucket_list_items WHERE user_id = $1`, "bucket list"},
 	{`DELETE FROM push_tokens WHERE user_id = $1`, "push tokens"},
 	{`DELETE FROM app_opens WHERE user_id = $1`, "app opens"},
+	{`DELETE FROM analytics_events WHERE user_id = $1`, "analytics events"},
+	{`DELETE FROM analytics_id_map WHERE user_id = $1`, "analytics mapping"},
 	{`DELETE FROM user_profiles WHERE user_id = $1`, "user profile"},
 	{`DELETE FROM story_interactions WHERE user_id = $1`, "interactions"},
 	{`DELETE FROM comment_interactions WHERE user_id = $1`, "comment interactions"},
@@ -56,6 +58,7 @@ var anonymizeOps = []cleanupOp{
 	{`UPDATE challenge_progress SET user_id = NULL WHERE user_id = $1`, "challenge progress"},
 	{`UPDATE course_enrollments SET user_id = NULL WHERE user_id = $1`, "enrollments"},
 	{`UPDATE conservation_evidence SET user_id = NULL WHERE user_id = $1`, "conservation evidence"},
+	{`UPDATE consent_records SET user_id = 'deleted-' || gen_random_uuid()::text WHERE user_id = $1`, "consent records"},
 }
 
 func (h *AccountHandler) Delete(w http.ResponseWriter, r *http.Request) {

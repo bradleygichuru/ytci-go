@@ -12,6 +12,7 @@ import (
 	"github.com/bradleygichuru/ytci-go/internal/config"
 	"github.com/bradleygichuru/ytci-go/internal/db"
 	"github.com/bradleygichuru/ytci-go/internal/handler/admin"
+	"github.com/bradleygichuru/ytci-go/internal/privacy"
 	"github.com/bradleygichuru/ytci-go/internal/push"
 	"github.com/bradleygichuru/ytci-go/internal/r2"
 	"github.com/bradleygichuru/ytci-go/internal/server"
@@ -77,6 +78,10 @@ func main() {
 	schedulerCtx, schedulerCancel := context.WithCancel(context.Background())
 	defer schedulerCancel()
 	go thennow.StartScheduler(schedulerCtx, dbpool, time.Minute)
+
+	retentionCtx, retentionCancel := context.WithCancel(context.Background())
+	defer retentionCancel()
+	go privacy.StartRetention(retentionCtx, dbpool, 24*time.Hour)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
