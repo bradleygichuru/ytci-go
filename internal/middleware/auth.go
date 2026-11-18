@@ -373,11 +373,12 @@ func extractBearerToken(r *http.Request) string {
 type Role string
 
 const (
-	RoleSuperAdmin   Role = "super_admin"
-	RoleAdmin        Role = "administrator"
-	RoleModerator    Role = "moderator"
+	RoleSuperAdmin    Role = "super_admin"
+	RoleAdmin         Role = "administrator"
+	RoleContentEditor Role = "content_editor"
+	RoleModerator     Role = "moderator"
 	RoleCountyOfficer Role = "county_officer"
-	RoleUser         Role = "user"
+	RoleUser          Role = "user"
 )
 
 var adminRoles = map[Role]bool{
@@ -398,6 +399,41 @@ func AdminGate(next http.Handler) http.Handler {
 		} else {
 			handler.WriteError(w, http.StatusForbidden, "FORBIDDEN", "admin access required")
 		}
+	})
+}
+
+// Then & Now has its own role set: content editors can author and submit, but
+// never reach the rest of the admin surface. Moderators are read-only.
+var thenNowRoles = map[Role]bool{
+	RoleSuperAdmin:    true,
+	RoleAdmin:         true,
+	RoleContentEditor: true,
+	RoleModerator:     true,
+}
+
+func CanThenNowRead(role Role) bool { return thenNowRoles[role] }
+
+func CanThenNowAuthor(role Role) bool {
+	return role == RoleSuperAdmin || role == RoleAdmin || role == RoleContentEditor
+}
+
+func CanThenNowReview(role Role) bool {
+	return role == RoleSuperAdmin || role == RoleAdmin
+}
+
+func CanThenNowPublish(role Role) bool {
+	return role == RoleSuperAdmin || role == RoleAdmin
+}
+
+func CanThenNowTakedown(role Role) bool { return role == RoleSuperAdmin }
+
+func ThenNowGate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if CanThenNowRead(RoleFromCtx(r.Context())) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		handler.WriteError(w, http.StatusForbidden, "FORBIDDEN", "Then & Now access required")
 	})
 }
 

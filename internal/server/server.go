@@ -62,6 +62,7 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 
 	r.Route("/v1", func(sub chi.Router) {
 		sub.Use(middleware.OptionalAuth(jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud))
+		mountThenNowRoutes(sub, h, jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud)
 		mountAdminRoutes(sub, h, r2client, jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud)
 		mountMobileRoutes(sub, h, r2client, authLimiter)
 	})
@@ -98,6 +99,7 @@ type handlers struct {
 	places           *expo.PlacesHandler
 	marketplace      *expo.MarketplaceHandler
 	marketplaceAdmin *admin.MarketplaceAdminHandler
+	thenNow          *admin.ThenNowHandler
 }
 
 func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Client, cfg *config.Config) *handlers {
@@ -130,11 +132,45 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 		places:           expo.NewPlacesHandler(pool, cfg.GooglePlacesAPIKey, placesCache),
 		marketplace:      expo.NewMarketplaceHandler(pool, r2client),
 		marketplaceAdmin: admin.NewMarketplaceAdminHandler(pool, r2client),
+		thenNow:          admin.NewThenNowHandler(pool),
 	}
 	if pushClient != nil {
 		h.pushAdmin = admin.NewPushHandler(pool, pushClient)
 	}
 	return h
+}
+
+func mountThenNowRoutes(sub chi.Router, h *handlers, jwks *middleware.JWKSCache, expectedIssuer, expectedAudience string) {
+	sub.Group(func(tn chi.Router) {
+		tn.Use(middleware.JWTAuth(jwks, expectedIssuer, expectedAudience))
+		tn.Use(middleware.ThenNowGate)
+
+		tn.Get("/then-now/sites", h.thenNow.ListSites)
+		tn.Post("/then-now/sites", h.thenNow.CreateSite)
+		tn.Get("/then-now/sites/{id}", h.thenNow.GetSite)
+		tn.Patch("/then-now/sites/{id}", h.thenNow.UpdateSite)
+		tn.Post("/then-now/sites/{id}/publish", h.thenNow.PublishSite)
+		tn.Post("/then-now/sites/{id}/unpublish", h.thenNow.UnpublishSite)
+		tn.Post("/then-now/sites/{id}/archive", h.thenNow.ArchiveSite)
+
+		tn.Get("/then-now/experiences", h.thenNow.ListExperiences)
+		tn.Post("/then-now/experiences", h.thenNow.CreateExperience)
+		tn.Get("/then-now/experiences/{id}", h.thenNow.GetExperience)
+		tn.Patch("/then-now/experiences/{id}", h.thenNow.UpdateExperience)
+		tn.Post("/then-now/experiences/{id}/submit", h.thenNow.SubmitExperience)
+		tn.Post("/then-now/experiences/{id}/assign", h.thenNow.AssignReviewer)
+		tn.Post("/then-now/experiences/{id}/decisions", h.thenNow.DecideExperience)
+		tn.Post("/then-now/experiences/{id}/client-approval", h.thenNow.RecordClientApproval)
+		tn.Post("/then-now/experiences/{id}/external-reviewer", h.thenNow.RecordExternalReviewer)
+		tn.Post("/then-now/experiences/{id}/schedule", h.thenNow.ScheduleExperience)
+		tn.Post("/then-now/experiences/{id}/publish", h.thenNow.PublishExperience)
+		tn.Post("/then-now/experiences/{id}/new-revision", h.thenNow.NewRevision)
+		tn.Post("/then-now/experiences/{id}/status", h.thenNow.ChangeExperienceStatus)
+
+		tn.Get("/then-now/review", h.thenNow.ReviewQueue)
+		tn.Get("/then-now/review/{revisionId}", h.thenNow.GetReview)
+		tn.Get("/then-now/audit", h.thenNow.Audit)
+	})
 }
 
 func mountAdminRoutes(sub chi.Router, h *handlers, r2client r2.Store, jwks *middleware.JWKSCache, expectedIssuer, expectedAudience string) {
@@ -240,6 +276,8 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 		m.Get("/destinations/nearby", h.dest.NearbyMobile)
 		m.Get("/events", h.events.ListMobile)
 		m.Get("/events/{id}", h.events.GetMobile)
+		m.Get("/then-now/sites", h.thenNow.ListPublishedSites)
+		m.Get("/then-now/sites/{slug}", h.thenNow.GetPublishedSite)
 		m.Get("/stories", h.mStories.ListEnriched)
 		m.Get("/courses", h.course.ListMobile)
 		m.Get("/challenges", h.challenge.ListMobile)
@@ -335,6 +373,8 @@ func mountPublicRoutes(pub chi.Router, h *handlers, r2client r2.Store) {
 	pub.Get("/destinations/nearby", h.dest.NearbyMobile)
 	pub.Get("/events", h.events.ListMobile)
 	pub.Get("/events/{id}", h.events.GetPublic)
+	pub.Get("/then-now/sites", h.thenNow.ListPublishedSites)
+	pub.Get("/then-now/sites/{slug}", h.thenNow.GetPublishedSite)
 	pub.Get("/stories", h.mStories.ListEnriched)
 	pub.Get("/courses", h.course.ListMobile)
 	pub.Get("/challenges", h.challenge.ListMobile)
