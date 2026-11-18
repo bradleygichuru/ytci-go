@@ -52,10 +52,11 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 	h := mountHandlers(pool, r2client, pushClient, cfg)
 
 	publicLimiter := middleware.PublicRateLimiter()
+	publicEventLimiter := middleware.PublicEventRateLimiter()
 
 	r.Route("/v1/public", func(pub chi.Router) {
 		pub.Use(publicLimiter.Middleware)
-		mountPublicRoutes(pub, h, r2client)
+		mountPublicRoutes(pub, h, r2client, publicEventLimiter)
 	})
 
 	authLimiter := middleware.AuthenticatedRateLimiter()
@@ -394,7 +395,7 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 	})
 }
 
-func mountPublicRoutes(pub chi.Router, h *handlers, r2client r2.Store) {
+func mountPublicRoutes(pub chi.Router, h *handlers, r2client r2.Store, eventLimiter *middleware.RateLimiter) {
 	pub.Get("/feed", h.feed.GetFeed)
 	pub.Get("/destinations", h.dest.ListMobile)
 	pub.Get("/destinations/{slug}", h.dest.GetMobile)
@@ -402,7 +403,7 @@ func mountPublicRoutes(pub chi.Router, h *handlers, r2client r2.Store) {
 	pub.Get("/events", h.events.ListMobile)
 	pub.Get("/events/{id}", h.events.GetPublic)
 	pub.Get("/then-now/config", h.features.ThenNowConfig)
-	pub.Post("/then-now/events", h.thenNow.RecordAnonymousEvent)
+	pub.With(eventLimiter.Middleware).Post("/then-now/events", h.thenNow.RecordAnonymousEvent)
 	pub.Get("/then-now/sites", h.thenNow.ListPublishedSites)
 	pub.Get("/then-now/sites/{slug}", h.thenNow.GetPublishedSite)
 	pub.Get("/stories", h.mStories.ListEnriched)
