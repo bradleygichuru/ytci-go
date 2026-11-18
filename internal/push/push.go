@@ -12,14 +12,18 @@ import (
 )
 
 type ExpoPushMessage struct {
-	To       string `json:"to"`
-	Title    string `json:"title"`
-	Body     string `json:"body"`
-	Data     any    `json:"data,omitempty"`
-	Sound    string `json:"sound,omitempty"`
-	Badge    int    `json:"badge,omitempty"`
-	Priority string `json:"priority,omitempty"`
-	TTL      int    `json:"ttl,omitempty"`
+	To                string `json:"to"`
+	Title             string `json:"title"`
+	Body              string `json:"body"`
+	Data              any    `json:"data,omitempty"`
+	Sound             string `json:"sound,omitempty"`
+	Badge             int    `json:"badge,omitempty"`
+	Priority          string `json:"priority,omitempty"`
+	TTL               int    `json:"ttl,omitempty"`
+	ChannelID         string `json:"channelId,omitempty"`
+	InterruptionLevel string `json:"interruptionLevel,omitempty"`
+	CollapseID        string `json:"collapseId,omitempty"`
+	ThreadID          string `json:"threadId,omitempty"`
 }
 
 type expoPushResponse struct {
@@ -46,10 +50,10 @@ type expoReceipt struct {
 }
 
 type Client struct {
-	httpClient  *http.Client
-	pushToken   string
-	pushAPIURL  string
-	receiptURL  string
+	httpClient *http.Client
+	pushToken  string
+	pushAPIURL string
+	receiptURL string
 }
 
 func New(expoPushToken string) *Client {
@@ -61,16 +65,92 @@ func New(expoPushToken string) *Client {
 	}
 }
 
+// MessageSpec is the one place campaign and alert pushes assemble an Expo
+// message, so data and image handling cannot drift between synchronous and
+// scheduled sends.
+type MessageSpec struct {
+	To                string
+	Title             string
+	Body              string
+	Data              map[string]any
+	ImageURL          string
+	Sound             string
+	Badge             int
+	Priority          string
+	TTL               int
+	ChannelID         string
+	InterruptionLevel string
+	CollapseID        string
+	ThreadID          string
+}
+
+func BuildMessage(spec MessageSpec) ExpoPushMessage {
+	data := spec.Data
+	if spec.ImageURL != "" {
+		copied := make(map[string]any, len(data)+1)
+		for k, v := range data {
+			copied[k] = v
+		}
+		copied["imageUrl"] = spec.ImageURL
+		data = copied
+	}
+	sound := spec.Sound
+	if sound == "" {
+		sound = "default"
+	}
+	return ExpoPushMessage{
+		To: spec.To, Title: spec.Title, Body: spec.Body, Data: data, Sound: sound,
+		Badge: spec.Badge, Priority: spec.Priority, TTL: spec.TTL,
+		ChannelID: spec.ChannelID, InterruptionLevel: spec.InterruptionLevel,
+		CollapseID: spec.CollapseID, ThreadID: spec.ThreadID,
+	}
+}
+
 type SendResult struct {
-	Sent        int
-	Failed      int
-	Errors      []string
-	TokenErrors map[string]string
+	Sent           int
+	Failed         int
+	Errors         []string
+	TokenErrors    map[string]string
+	TicketForToken map[string]string
+	// TicketForIndex is keyed by the position in the SendMessages input, so
+	// multiple messages to the same device keep distinct tickets.
+	TicketForIndex map[int]string
+}
+
+// Receipt is the exported receipt shape used by the alerts worker.
+type Receipt struct {
+	Status  string
+	Message string
+	Code    string
+}
+
+// GetReceiptMap returns receipts keyed by Expo ticket ID.
+func (c *Client) GetReceiptMap(ctx context.Context, ticketIDs []string) (map[string]Receipt, error) {
+	resp, err := c.GetReceipts(ctx, ticketIDs)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]Receipt, len(resp.Data))
+	for id, receipt := range resp.Data {
+		code := ""
+		if details, ok := receipt.Details.(map[string]any); ok {
+			if v, ok := details["error"].(string); ok {
+				code = v
+			}
+		}
+		out[id] = Receipt{Status: receipt.Status, Message: receipt.Message, Code: code}
+	}
+	return out, nil
 }
 
 func (c *Client) SendMessages(ctx context.Context, messages []ExpoPushMessage) (*SendResult, error) {
-	result := &SendResult{TokenErrors: make(map[string]string)}
+	result := &SendResult{
+		TokenErrors:    make(map[string]string),
+		TicketForToken: make(map[string]string),
+		TicketForIndex: make(map[int]string),
+	}
 
+	offset := 0
 	chunks := chunkMessages(messages, 100)
 	for _, chunk := range chunks {
 		body, _ := json.Marshal(chunk)
@@ -98,6 +178,10 @@ func (c *Client) SendMessages(ctx context.Context, messages []ExpoPushMessage) (
 		for i, r := range pushResp.Data {
 			if r.Status == "ok" {
 				result.Sent++
+				if i < len(chunk) && r.ID != "" {
+					result.TicketForToken[chunk[i].To] = r.ID
+					result.TicketForIndex[offset+i] = r.ID
+				}
 			} else {
 				result.Failed++
 				result.Errors = append(result.Errors, r.Message)
@@ -106,6 +190,7 @@ func (c *Client) SendMessages(ctx context.Context, messages []ExpoPushMessage) (
 				}
 			}
 		}
+		offset += len(chunk)
 	}
 
 	return result, nil

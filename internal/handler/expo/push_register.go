@@ -36,13 +36,29 @@ func (h *PushRegisterHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	userID := middleware.UserID(r.Context())
 	_, err := h.pool.Exec(r.Context(),
-		`INSERT INTO push_tokens (user_id, token, platform, is_active)
-		 VALUES ($1, $2, $3, true)
-		 ON CONFLICT (token) DO UPDATE SET is_active = true, platform = EXCLUDED.platform`,
+		`INSERT INTO push_tokens (user_id, token, platform, is_active, last_registered_at)
+		 VALUES ($1, $2, $3, true, now())
+		 ON CONFLICT (token) DO UPDATE SET is_active = true, platform = EXCLUDED.platform,
+		   user_id = EXCLUDED.user_id, last_registered_at = now(), deactivated_at = NULL,
+		   deactivation_reason = NULL`,
 		userID, req.Token, req.Platform)
 	if err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to register push token", err)
 		return
+	}
+
+	if userID != "" {
+		if _, err := h.pool.Exec(r.Context(),
+			`INSERT INTO alert_preferences (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`,
+			userID); err != nil {
+			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create alert preferences", err)
+			return
+		}
+		_, _ = h.pool.Exec(r.Context(), `
+			UPDATE alert_preferences p SET home_county_gid = kc.gid, updated_at = now()
+			FROM user_profiles up
+			JOIN kenya_counties kc ON lower(kc.adm1_name) = lower(trim(up.county))
+			WHERE p.user_id=$1 AND up.user_id=$1 AND p.home_county_gid IS NULL`, userID)
 	}
 
 	w.WriteHeader(http.StatusCreated)

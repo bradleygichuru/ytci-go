@@ -271,31 +271,49 @@ func (h *ChallengeAdminHandler) Update(w http.ResponseWriter, r *http.Request) {
 	n := 2
 
 	if req.Title != nil {
-		query += fmt.Sprintf(` title = $%d,`, n); args = append(args, *req.Title); n++
+		query += fmt.Sprintf(` title = $%d,`, n)
+		args = append(args, *req.Title)
+		n++
 	}
 	if req.Description != nil {
-		query += fmt.Sprintf(` description = $%d,`, n); args = append(args, *req.Description); n++
+		query += fmt.Sprintf(` description = $%d,`, n)
+		args = append(args, *req.Description)
+		n++
 	}
 	if req.BadgeName != nil {
-		query += fmt.Sprintf(` badge_name = $%d,`, n); args = append(args, *req.BadgeName); n++
+		query += fmt.Sprintf(` badge_name = $%d,`, n)
+		args = append(args, *req.BadgeName)
+		n++
 	}
 	if req.Rules != nil {
-		query += fmt.Sprintf(` rules = $%d,`, n); args = append(args, *req.Rules); n++
+		query += fmt.Sprintf(` rules = $%d,`, n)
+		args = append(args, *req.Rules)
+		n++
 	}
 	if req.BadgeIconURL != nil {
-		query += fmt.Sprintf(` badge_icon_url = $%d,`, n); args = append(args, *req.BadgeIconURL); n++
+		query += fmt.Sprintf(` badge_icon_url = $%d,`, n)
+		args = append(args, *req.BadgeIconURL)
+		n++
 	}
 	if req.Eligibility != nil {
-		query += fmt.Sprintf(` eligibility = $%d::jsonb,`, n); args = append(args, *req.Eligibility); n++
+		query += fmt.Sprintf(` eligibility = $%d::jsonb,`, n)
+		args = append(args, *req.Eligibility)
+		n++
 	}
 	if req.StartDate != nil {
-		query += fmt.Sprintf(` start_date = $%d::date,`, n); args = append(args, handler.NullDate(*req.StartDate)); n++
+		query += fmt.Sprintf(` start_date = $%d::date,`, n)
+		args = append(args, handler.NullDate(*req.StartDate))
+		n++
 	}
 	if req.EndDate != nil {
-		query += fmt.Sprintf(` end_date = $%d::date,`, n); args = append(args, handler.NullDate(*req.EndDate)); n++
+		query += fmt.Sprintf(` end_date = $%d::date,`, n)
+		args = append(args, handler.NullDate(*req.EndDate))
+		n++
 	}
 	if req.Status != nil {
-		query += fmt.Sprintf(` status = $%d,`, n); args = append(args, *req.Status); n++
+		query += fmt.Sprintf(` status = $%d,`, n)
+		args = append(args, *req.Status)
+		n++
 	}
 	query += ` updated_at = now() WHERE id = $1`
 
@@ -419,10 +437,10 @@ func (h *ChallengeAdminHandler) ChallengeDetail(w http.ResponseWriter, r *http.R
 }
 
 type leaderboardEntry struct {
-	UserID   string  `json:"userId"`
-	UserName string  `json:"userName"`
-	Rank     int     `json:"rank"`
-	Status   string  `json:"status"`
+	UserID         string  `json:"userId"`
+	UserName       string  `json:"userName"`
+	Rank           int     `json:"rank"`
+	Status         string  `json:"status"`
 	BadgeAwardedAt *string `json:"badgeAwardedAt,omitempty"`
 }
 

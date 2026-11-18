@@ -193,16 +193,16 @@ func (h *MediaHandler) List(w http.ResponseWriter, r *http.Request) {
 	var items []item
 	for rows.Next() {
 		var i struct {
-			ID            string
-			ObjectKey     string
-			Type          string
-			Status        string
-			Caption       *string
-			AltText       *string
-			Credit        *string
-			FileSize      *int
-			ThumbnailKey  *string
-			CreatedAt     time.Time
+			ID           string
+			ObjectKey    string
+			Type         string
+			Status       string
+			Caption      *string
+			AltText      *string
+			Credit       *string
+			FileSize     *int
+			ThumbnailKey *string
+			CreatedAt    time.Time
 		}
 		err := rows.Scan(&i.ID, &i.ObjectKey, &i.Type, &i.Status, &i.Caption, &i.AltText, &i.Credit, &i.FileSize, &i.ThumbnailKey, &i.CreatedAt)
 		if err != nil {

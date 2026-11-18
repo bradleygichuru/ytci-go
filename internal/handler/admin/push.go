@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -23,103 +24,160 @@ func NewPushHandler(pool *pgxpool.Pool, client *push.Client) *PushHandler {
 	return &PushHandler{pool: pool, client: client}
 }
 
-type pushSendRequest struct {
-	Title          string `json:"title"`
-	Body           string `json:"body"`
-	ImageURL       string `json:"imageUrl,omitempty"`
-	Data           string `json:"data,omitempty"`
-	TargetAudience string `json:"targetAudience,omitempty"`
+type pushRequest struct {
+	Title          string          `json:"title"`
+	Body           string          `json:"body"`
+	ImageURL       string          `json:"imageUrl,omitempty"`
+	Data           json.RawMessage `json:"data,omitempty"`
+	TargetAudience json.RawMessage `json:"targetAudience,omitempty"`
+	Audience       json.RawMessage `json:"audience,omitempty"`
+	CampaignID     string          `json:"campaignId,omitempty"`
+	ScheduledAt    string          `json:"scheduledAt,omitempty"`
+}
+
+func jsonFieldString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return text
+	}
+	return string(raw)
+}
+
+// audienceToTarget accepts the admin app's {type, value} shape and converts it
+// to the push targeting contract. Unsupported types (role) fall back to the
+// global Program audience.
+func (h *PushHandler) audienceToTarget(ctx context.Context, kind, value string) (string, error) {
+	target := map[string]any{}
+	switch kind {
+	case "role":
+		return "", fmt.Errorf("role targeting is not supported")
+	case "county":
+		if value != "" {
+			var gid int
+			if err := h.pool.QueryRow(ctx,
+				`SELECT gid FROM kenya_counties WHERE lower(adm1_name)=lower($1) LIMIT 1`, value).Scan(&gid); err == nil {
+				target["countyGids"] = []int{gid}
+			} else {
+				// A county that does not exist must not silently become a global send.
+				target["countyGids"] = []int{-1}
+			}
+		}
+	case "interest":
+		if value != "" {
+			target["interests"] = []string{value}
+		}
+	}
+	if len(target) == 0 {
+		return "", nil
+	}
+	encoded, _ := json.Marshal(target)
+	return string(encoded), nil
+}
+
+func (h *PushHandler) normalizeRequest(ctx context.Context, req pushRequest) (dataRaw, targetRaw string, err error) {
+	dataRaw = jsonFieldString(req.Data)
+	targetRaw = jsonFieldString(req.TargetAudience)
+	if len(req.Audience) > 0 {
+		var audience struct {
+			Type  string `json:"type"`
+			Value string `json:"value"`
+		}
+		if err := json.Unmarshal(req.Audience, &audience); err != nil {
+			return "", "", fmt.Errorf("invalid audience")
+		}
+		targetRaw, err = h.audienceToTarget(ctx, audience.Type, audience.Value)
+		if err != nil {
+			return "", "", err
+		}
+	}
+	if dataRaw == "" && req.CampaignID != "" {
+		dataRaw = fmt.Sprintf(`{"route":"/campaigns/%s"}`, req.CampaignID)
+	}
+	return dataRaw, targetRaw, nil
 }
 
 func (h *PushHandler) Send(w http.ResponseWriter, r *http.Request) {
-	var req pushSendRequest
+	var req pushRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
 		return
 	}
 
 	userID := middleware.UserID(r.Context())
+	dataRaw, targetRaw, err := h.normalizeRequest(r.Context(), req)
+	if err != nil {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_AUDIENCE", err.Error())
+		return
+	}
 
 	var notificationID string
-	err := h.pool.QueryRow(r.Context(),
-		`INSERT INTO push_notifications (title, body, image_url, data, target_audience, status, sent_by)
-		 VALUES ($1, $2, $3, $4, $5, 'sending', $6) RETURNING id`,
-		req.Title, req.Body, req.ImageURL, req.Data, req.TargetAudience, userID,
+	err = h.pool.QueryRow(r.Context(),
+		`INSERT INTO push_notifications (title, body, image_url, data, target_audience, campaign_id, status, sent_by)
+		 VALUES ($1, $2, $3, NULLIF($4,''), NULLIF($5,''), NULLIF($6,'')::uuid, 'sending', NULLIF($7,''))
+		 RETURNING id`,
+		req.Title, req.Body, req.ImageURL, dataRaw, targetRaw, req.CampaignID, userID,
 	).Scan(&notificationID)
 	if err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create notification", err)
 		return
 	}
 
-	tokens, err := h.resolveTokens(r.Context())
+	programUpdate, err := push.UpsertCampaignProgramUpdate(
+		r.Context(), h.pool, notificationID, req.Title, req.Body, req.ImageURL,
+		dataRaw, targetRaw, userID,
+	)
 	if err != nil {
-		h.pool.Exec(r.Context(),
+		_, _ = h.pool.Exec(r.Context(),
 			`UPDATE push_notifications SET status = 'failed' WHERE id = $1`, notificationID)
-		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to resolve tokens", err)
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create program update", err)
 		return
 	}
 
-	if len(tokens) == 0 {
-		h.pool.Exec(r.Context(),
-			`UPDATE push_notifications SET status = 'sent', sent_at = now(), recipient_count = 0 WHERE id = $1`,
-			notificationID)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]string{
-			"notificationId": notificationID,
-			"recipientCount": "0",
-		})
-		return
-	}
-
-	messages := make([]push.ExpoPushMessage, len(tokens))
-	for i, tok := range tokens {
-		messages[i] = push.ExpoPushMessage{To: tok, Title: req.Title, Body: req.Body, Sound: "default"}
-	}
-
-	result, err := h.client.SendMessages(r.Context(), messages)
+	sent, err := push.SendProgramUpdate(r.Context(), h.pool, h.client, programUpdate)
 	if err != nil {
-		h.pool.Exec(r.Context(),
+		_, _ = h.pool.Exec(r.Context(),
 			`UPDATE push_notifications SET status = 'failed' WHERE id = $1`, notificationID)
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "push delivery failed", err)
 		return
 	}
 
-	h.pool.Exec(r.Context(),
+	_, _ = h.pool.Exec(r.Context(),
 		`UPDATE push_notifications SET status = 'sent', sent_at = now(), recipient_count = $2 WHERE id = $1`,
-		notificationID, result.Sent)
+		notificationID, sent)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]any{
-		"notificationId": notificationID,
-		"recipientCount": result.Sent,
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"notificationId":  notificationID,
+		"programUpdateId": programUpdate.ID,
+		"recipientCount":  sent,
 	})
 }
 
-func (h *PushHandler) resolveTokens(ctx context.Context) ([]string, error) {
-	return push.ResolveActiveTokens(ctx, h.pool)
-}
-
 func (h *PushHandler) Schedule(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Title          string `json:"title"`
-		Body           string `json:"body"`
-		ImageURL       string `json:"imageUrl,omitempty"`
-		Data           string `json:"data,omitempty"`
-		TargetAudience string `json:"targetAudience,omitempty"`
-		ScheduledAt    string `json:"scheduledAt"`
-	}
+	var req pushRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
 		return
 	}
+	dataRaw, targetRaw, err := h.normalizeRequest(r.Context(), req)
+	if err != nil {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_AUDIENCE", err.Error())
+		return
+	}
 
 	var notificationID string
-	err := h.pool.QueryRow(r.Context(),
-		`INSERT INTO push_notifications (title, body, image_url, data, target_audience, status, scheduled_at, sent_by)
-		 VALUES ($1, $2, $3, $4, $5, 'scheduled', $6, $7) RETURNING id`,
-		req.Title, req.Body, req.ImageURL, req.Data, req.TargetAudience, req.ScheduledAt, middleware.UserID(r.Context()),
+	err = h.pool.QueryRow(r.Context(),
+		`INSERT INTO push_notifications
+		   (title, body, image_url, data, target_audience, campaign_id, status, scheduled_at, sent_by)
+		 VALUES ($1,$2,$3,NULLIF($4,''),NULLIF($5,''),NULLIF($6,'')::uuid,'scheduled',
+		         NULLIF($7,'')::timestamp, NULLIF($8,''))
+		 RETURNING id`,
+		req.Title, req.Body, req.ImageURL, dataRaw, targetRaw, req.CampaignID, req.ScheduledAt,
+		middleware.UserID(r.Context()),
 	).Scan(&notificationID)
 	if err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to schedule notification", err)
@@ -128,7 +186,10 @@ func (h *PushHandler) Schedule(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"notificationId": notificationID})
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"notificationId": notificationID,
+		"scheduledAt":    req.ScheduledAt,
+	})
 }
 
 func (h *PushHandler) History(w http.ResponseWriter, r *http.Request) {
