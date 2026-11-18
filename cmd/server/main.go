@@ -15,6 +15,7 @@ import (
 	"github.com/bradleygichuru/ytci-go/internal/push"
 	"github.com/bradleygichuru/ytci-go/internal/r2"
 	"github.com/bradleygichuru/ytci-go/internal/server"
+	"github.com/bradleygichuru/ytci-go/internal/thennow"
 )
 
 func main() {
@@ -72,6 +73,10 @@ func main() {
 	reportWorker := admin.NewReportWorker(dbpool)
 	reportWorker.Start(ctx)
 	defer reportWorker.Stop()
+
+	schedulerCtx, schedulerCancel := context.WithCancel(context.Background())
+	defer schedulerCancel()
+	go thennow.StartScheduler(schedulerCtx, dbpool, time.Minute)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,

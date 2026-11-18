@@ -20,3 +20,6 @@ lint:
 
 sqlc-generate:
 	sqlc generate
+
+seed-then-now:
+	go run ./cmd/seed-then-now
