@@ -26,6 +26,28 @@ _Avoid_: Semi-public route, soft-auth route
 An endpoint under `/v1/mobile/*` that requires a valid JWT or session token via the JWTAuth or AuthGate middleware. Used for user-specific actions (bucket list, itinerary management, story creation, challenge participation).
 _Avoid_: Logged-in route, user route
 
+### Then & Now
+
+**Heritage Site**:
+A mapped cultural or historical place with an access policy, sensitivity tier, cultural authority, consent record, location/geofence, and one or more Then & Now experiences. Distinct from a Destination (the catalog entry); a site may optionally link to one.
+_Avoid_: AR site, POI, marker
+
+**Then & Now Experience**:
+The current-scene site video and optional text cards for one heritage site, with accessibility, rights, review, and publishing state. One primary experience per site in v1.
+_Avoid_: AR experience, film, Story cut
+
+**Experience Revision**:
+An immutable snapshot of an experience's story, media keys, text cards, accessibility, rights, and consent. A published experience has a live revision and at most one open revision; the live revision stays public while the open revision is reviewed.
+_Avoid_: Version, draft record
+
+**Readiness**:
+The server-computed set of blocking and warning items that decide whether a revision may be submitted or published. The UI renders it and never guesses publishability.
+_Avoid_: Publish check, completeness score
+
+**Review Decision**:
+Approve, request changes, reject, or return to draft. Approval marks a revision publishable; publishing is a separate action. Reviewer ≠ uploader.
+_Avoid_: Moderation, approval badge
+
 ### User Engagement
 
 **Bucket List**:
