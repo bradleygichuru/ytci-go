@@ -70,6 +70,15 @@ func formatTS(value pgtype.Timestamp) string {
 	return value.Time.UTC().Format(time.RFC3339)
 }
 
+// formatTSNano keeps sub-second precision so updated_at can be echoed back as
+// an exact compare-and-swap precondition on site PATCH.
+func formatTSNano(value pgtype.Timestamp) string {
+	if !value.Valid {
+		return ""
+	}
+	return value.Time.UTC().Format(time.RFC3339Nano)
+}
+
 func (h *ThenNowHandler) loadExperience(ctx context.Context, id string) (experienceRecord, error) {
 	var exp experienceRecord
 	err := h.pool.QueryRow(ctx, `
@@ -506,6 +515,43 @@ func (h *ThenNowHandler) AssignReviewer(w http.ResponseWriter, r *http.Request) 
 	writeThenNowJSON(w, http.StatusOK, updated)
 }
 
+// UnassignReviewer clears the reviewer on a frozen revision and returns it to
+// the unassigned queue. Clearing is always safe: a decision still requires a
+// reviewer, and the reviewer ≠ uploader check still runs on the next assign
+// and on every decision, so unassign cannot be used to bypass separation.
+func (h *ThenNowHandler) UnassignReviewer(w http.ResponseWriter, r *http.Request) {
+	if !middleware.CanThenNowReview(middleware.RoleFromCtx(r.Context())) {
+		handler.WriteError(w, http.StatusForbidden, "FORBIDDEN", "review access required")
+		return
+	}
+	detail, err := h.buildExperienceDetail(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "experience not found")
+		return
+	}
+	if detail.OpenRevision == nil || detail.OpenRevision.Status != "in_review" {
+		handler.WriteError(w, http.StatusConflict, "INVALID_STATE", "assignment is only available in review")
+		return
+	}
+	previous := detail.OpenRevision.ReviewerID
+	if previous == "" {
+		// Already unassigned: idempotent success with no duplicate audit event.
+		writeThenNowJSON(w, http.StatusOK, detail)
+		return
+	}
+	if _, err := h.pool.Exec(r.Context(), `
+		UPDATE then_now_revisions SET reviewer_id = NULL, updated_at = now(), updated_by = $3
+		WHERE experience_id = $1 AND revision_number = $2`,
+		detail.ID, detail.OpenRevisionNumber, middleware.UserID(r.Context())); err != nil {
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to unassign reviewer", err)
+		return
+	}
+	h.audit(r.Context(), "experience", detail.ID, "unassign", middleware.UserID(r.Context()),
+		"Reviewer unassigned", map[string]string{"previousReviewerId": previous})
+	updated, _ := h.buildExperienceDetail(r.Context(), detail.ID)
+	writeThenNowJSON(w, http.StatusOK, updated)
+}
+
 func (h *ThenNowHandler) DecideExperience(w http.ResponseWriter, r *http.Request) {
 	if !middleware.CanThenNowReview(middleware.RoleFromCtx(r.Context())) {
 		handler.WriteError(w, http.StatusForbidden, "FORBIDDEN", "review access required")
@@ -517,17 +563,8 @@ func (h *ThenNowHandler) DecideExperience(w http.ResponseWriter, r *http.Request
 		return
 	}
 	open := detail.OpenRevision
-	if open == nil || open.Status != "in_review" {
-		handler.WriteError(w, http.StatusConflict, "INVALID_STATE", "only a frozen revision can be decided")
-		return
-	}
-	actor := middleware.UserID(r.Context())
-	if open.ReviewerID == "" {
-		handler.WriteError(w, http.StatusConflict, "UNASSIGNED", "assign a reviewer before deciding")
-		return
-	}
-	if actor == open.UploadedByID || actor == open.SubmittedByID {
-		handler.WriteError(w, http.StatusConflict, "SEPARATION", "the uploader cannot review their own revision")
+	if open == nil {
+		handler.WriteError(w, http.StatusConflict, "INVALID_STATE", "there is no open revision to decide")
 		return
 	}
 	var body struct {
@@ -546,6 +583,25 @@ func (h *ThenNowHandler) DecideExperience(w http.ResponseWriter, r *http.Request
 	if body.Decision != "approve" && notes == "" {
 		handler.WriteError(w, http.StatusBadRequest, "NOTES_REQUIRED", "a note is required for this decision")
 		return
+	}
+	// An approved revision can be reopened to draft with a reason. This is not
+	// an approval decision: it withdraws the approval while preserving the
+	// separation rule for every in-review decision below.
+	approvedReopen := open.Status == "approved" && body.Decision == "return"
+	if open.Status != "in_review" && !approvedReopen {
+		handler.WriteError(w, http.StatusConflict, "INVALID_STATE", "only a frozen revision can be decided")
+		return
+	}
+	actor := middleware.UserID(r.Context())
+	if !approvedReopen {
+		if open.ReviewerID == "" {
+			handler.WriteError(w, http.StatusConflict, "UNASSIGNED", "assign a reviewer before deciding")
+			return
+		}
+		if actor == open.UploadedByID || actor == open.SubmittedByID {
+			handler.WriteError(w, http.StatusConflict, "SEPARATION", "the uploader cannot review their own revision")
+			return
+		}
 	}
 	snapshot := snapshotOf(open)
 	if body.Decision == "approve" {
@@ -597,7 +653,8 @@ func (h *ThenNowHandler) DecideExperience(w http.ResponseWriter, r *http.Request
 		}
 		if _, err := tx.Exec(r.Context(), `
 			UPDATE then_now_revisions SET status = 'draft', last_decision = $3,
-			       reviewer_id = NULL, review_notes = review_notes || $4::jsonb,
+			       reviewer_id = NULL, scheduled_at = NULL, schedule_note = NULL,
+			       review_notes = review_notes || $4::jsonb,
 			       updated_at = now(), updated_by = $5
 			WHERE experience_id = $1 AND revision_number = $2`,
 			detail.ID, detail.OpenRevisionNumber, decision, noteJSON, actor); err != nil {
@@ -617,7 +674,7 @@ func (h *ThenNowHandler) DecideExperience(w http.ResponseWriter, r *http.Request
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to commit decision", err)
 		return
 	}
-	h.audit(r.Context(), "experience", detail.ID, body.Decision, actor, fmt.Sprintf("Revision v%d %s", detail.OpenRevisionNumber, body.Decision), map[string]string{"notes": notes})
+	h.audit(r.Context(), "experience", detail.ID, body.Decision, actor, fmt.Sprintf("Revision v%d %s", detail.OpenRevisionNumber, body.Decision), map[string]string{"notes": notes, "from": open.Status})
 	updated, _ := h.buildExperienceDetail(r.Context(), detail.ID)
 	writeThenNowJSON(w, http.StatusOK, updated)
 }
@@ -730,6 +787,54 @@ func (h *ThenNowHandler) ScheduleExperience(w http.ResponseWriter, r *http.Reque
 	writeThenNowJSON(w, http.StatusOK, updated)
 }
 
+// CancelSchedule clears a pending scheduled publish and returns the approved
+// revision to the ready-to-publish state. The revision status stays approved.
+func (h *ThenNowHandler) CancelSchedule(w http.ResponseWriter, r *http.Request) {
+	if !middleware.CanThenNowPublish(middleware.RoleFromCtx(r.Context())) {
+		handler.WriteError(w, http.StatusForbidden, "FORBIDDEN", "publishing access required")
+		return
+	}
+	detail, err := h.buildExperienceDetail(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "experience not found")
+		return
+	}
+	if detail.OpenRevision == nil || detail.OpenRevision.Status != "approved" || detail.OpenRevision.ScheduledAt == "" {
+		handler.WriteError(w, http.StatusConflict, "INVALID_STATE", "there is no pending scheduled publish to cancel")
+		return
+	}
+	actor := middleware.UserID(r.Context())
+	scheduledAt := detail.OpenRevision.ScheduledAt
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to start transaction", err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	if _, err := tx.Exec(r.Context(), `
+		UPDATE then_now_revisions SET scheduled_at = NULL, schedule_note = NULL,
+		       updated_at = now(), updated_by = $3
+		WHERE experience_id = $1 AND revision_number = $2`,
+		detail.ID, detail.OpenRevisionNumber, actor); err != nil {
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to cancel schedule", err)
+		return
+	}
+	if detail.LiveRevisionNumber == 0 {
+		if _, err := tx.Exec(r.Context(), `UPDATE then_now_experiences SET status = 'approved', updated_at = now(), updated_by = $2 WHERE id = $1`, detail.ID, actor); err != nil {
+			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to reset experience status", err)
+			return
+		}
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to commit schedule cancellation", err)
+		return
+	}
+	h.audit(r.Context(), "experience", detail.ID, "schedule_cancel", actor, "Publish schedule cancelled",
+		map[string]string{"scheduledAt": scheduledAt})
+	updated, _ := h.buildExperienceDetail(r.Context(), detail.ID)
+	writeThenNowJSON(w, http.StatusOK, updated)
+}
+
 func (h *ThenNowHandler) PublishExperience(w http.ResponseWriter, r *http.Request) {
 	if !middleware.CanThenNowPublish(middleware.RoleFromCtx(r.Context())) {
 		handler.WriteError(w, http.StatusForbidden, "FORBIDDEN", "publishing access required")
@@ -825,8 +930,10 @@ func (h *ThenNowHandler) ChangeExperienceStatus(w http.ResponseWriter, r *http.R
 	}
 	var body struct {
 		Action string `json:"action"`
+		Reason string `json:"reason"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
+	reason := strings.TrimSpace(body.Reason)
 	status := ""
 	switch body.Action {
 	case "unpublish":
@@ -859,7 +966,7 @@ func (h *ThenNowHandler) ChangeExperienceStatus(w http.ResponseWriter, r *http.R
 			  AND revision_number = (SELECT open_revision_number FROM then_now_experiences WHERE id = $1)`,
 			id, middleware.UserID(r.Context()))
 	}
-	h.audit(r.Context(), "experience", id, status, middleware.UserID(r.Context()), "Experience "+status, nil)
+	h.audit(r.Context(), "experience", id, status, middleware.UserID(r.Context()), "Experience "+status, statusMetadata(reason))
 	detail, err := h.buildExperienceDetail(r.Context(), id)
 	if err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to load experience", err)

@@ -71,24 +71,26 @@ All paths are under `/v1/then-now`.
 |---|---|---|
 | GET | `/sites` | List sites. Filters: `county`, `accessMode`, `sensitivity`, `status`, `q`. |
 | POST | `/sites` | Create a site draft. |
-| GET | `/sites/{id}` | Site detail, experiences, and site readiness. |
-| PATCH | `/sites/{id}` | Partial site update. |
+| GET | `/sites/{id}` | Site detail, experiences, and site readiness. Includes `updatedAt`. |
+| PATCH | `/sites/{id}` | Partial site update. Optional `If-Match: <updatedAt>` (or `expectedUpdatedAt`) precondition returns 409 `STALE_SITE`. |
 | POST | `/sites/{id}/publish` | Publish after site readiness clears. |
-| POST | `/sites/{id}/unpublish` | Hide the public site. |
-| POST | `/sites/{id}/archive` | Super-admin archive. |
+| POST | `/sites/{id}/unpublish` | Hide the public site. Optional `{reason}` is stored in the audit. |
+| POST | `/sites/{id}/archive` | Super-admin archive. Optional `{reason}` is stored in the audit. |
 | GET | `/experiences` | List experiences. Filters: `siteId`, `status`, `mode`, `review`, `language`, `q`. |
 | POST | `/experiences` | Create a draft experience and revision 1. |
 | GET | `/experiences/{id}` | Experience, open/live revisions, site, readiness. |
 | PATCH | `/experiences/{id}` | Update the open draft revision snapshot/title. |
 | POST | `/experiences/{id}/submit` | Freeze the open revision for review. |
 | POST | `/experiences/{id}/assign` | Assign an administrator reviewer; defaults to the caller. |
-| POST | `/experiences/{id}/decisions` | `approve`, `request_changes`, `reject`, `return`. Notes required for all but approve. |
+| POST | `/experiences/{id}/unassign` | Clear the reviewer and return the revision to the unassigned queue. |
+| POST | `/experiences/{id}/decisions` | `approve`, `request_changes`, `reject`, `return`. Notes required for all but approve. `return` also reopens an approved revision. |
 | POST | `/experiences/{id}/client-approval` | Record a client approver without an account. |
 | POST | `/experiences/{id}/external-reviewer` | Record an external reviewer decision. |
 | POST | `/experiences/{id}/schedule` | Schedule an approved revision. Body `{scheduledAt: RFC3339, note}`. |
+| POST | `/experiences/{id}/schedule/cancel` | Clear the schedule; the approved revision stays ready to publish. |
 | POST | `/experiences/{id}/publish` | Promote an approved revision to live. |
 | POST | `/experiences/{id}/new-revision` | Clone the live revision into a new draft. |
-| POST | `/experiences/{id}/status` | `{action: "unpublish" \| "archive" \| "revoke"}`. |
+| POST | `/experiences/{id}/status` | `{action: "unpublish" \| "archive" \| "revoke", reason?}`. The reason is stored in the audit. |
 | GET | `/review?filter=all\|unassigned\|mine` | Review queue. |
 | GET | `/review/{revisionId}` | Frozen review detail. |
 | GET | `/audit?entityType=&entityId=` | Recent audit events. |
@@ -124,6 +126,16 @@ All paths are under `/v1/then-now`.
 }
 ```
 
+### Site version precondition
+
+`GET /sites/{id}` and the site write responses include `updatedAt` as an RFC3339 timestamp with sub-second precision. Send it back on `PATCH /sites/{id}` as `If-Match: <updatedAt>` or as `{"expectedUpdatedAt": "<updatedAt>"}` to make the save compare-and-swap:
+
+- A match updates the site and returns a newer `updatedAt`.
+- A mismatch returns `409` with code `STALE_SITE` and the current `site`, so the admin can reload instead of overwriting another administrator's save.
+- Omitting the precondition keeps last-write-wins for scripts and the fixture fallback.
+
+When a site PATCH bumps `updated_at`, the returned `updatedAt` is the value the next save must use.
+
 ### Create experience
 
 ```json
@@ -144,6 +156,26 @@ All paths are under `/v1/then-now`.
 
 Sensitive revisions require `secondReviewerApproved` before approve. Restricted revisions cannot be approved. A reviewer cannot be the revision creator or submitter.
 
+`return` with a reason also reopens an `approved` open revision: the revision returns to `draft`, the reviewer is cleared, any pending schedule is dropped, and the reason is stored in the audit. Reopening an approval is a review action, so it requires review permission; the uploader ≠ reviewer rule still applies to every decision made while in review.
+
+### Reviewer assignment
+
+`POST /assign` sets the reviewer. `POST /unassign` clears it and returns the revision to the unassigned queue while the revision stays `in_review`.
+
+Unassigning does not weaken separation of duties: a decision still requires an assigned reviewer (`UNASSIGNED`), and the reviewer cannot be the uploader or submitter (`SEPARATION`) on the next assignment or decision.
+
+### Cancelling a scheduled publish
+
+`POST /schedule/cancel` clears `scheduledAt` and the schedule note. The revision stays `approved` and becomes ready to publish immediately; if the experience has no live revision, its status returns from `scheduled` to `approved`. Cancelling when nothing is scheduled returns `409 INVALID_STATE`.
+
+### Status reasons
+
+The site `unpublish`/`archive` endpoints and the experience `/status` endpoint accept an optional `reason` in the body. When present, it is written to the audit event's `metadata.reason`. The admin dialogs require a reason; the API keeps it optional so older clients keep working.
+
+### Audit events
+
+Reviewer assignment changes (`assign`, `unassign`), schedules (`schedule`, `schedule_cancel`), decisions (`approve`, `request_changes`, `reject`, `return`), and status changes (`unpublished`, `archived`, `revoked`) all write an audit event. Decision metadata includes the note and the revision status the decision came from; unassign metadata includes the previous reviewer; schedule cancellation includes the time that was cancelled.
+
 ## Mobile and public reads
 
 | Method | Path | Purpose |
@@ -157,7 +189,7 @@ The public payload returns the site's public identity, access mode, county/local
 
 ## Scheduled publishing
 
-`cmd/server` starts `thennow.StartScheduler` every minute. It promotes approved revisions whose `scheduledAt` has passed, sets the live revision atomically, and writes an audit event. If the revision's rights expiry has passed, the scheduler clears the schedule and unpublishes the live experience instead of promoting it.
+`cmd/server` starts `thennow.StartScheduler` every minute. It promotes approved revisions whose `scheduledAt` has passed, sets the live revision atomically, and writes an audit event. If the revision's rights expiry has passed, the scheduler clears the schedule and unpublishes the live experience instead of promoting it. An operator can cancel a pending schedule with `POST /experiences/{id}/schedule/cancel`.
 
 ## Seed
 
@@ -175,7 +207,7 @@ go test ./... -short          # unit tests, no Docker
 go test ./...                 # integration tests, testcontainers/PostGIS
 ```
 
-The integration tests cover authoring → submit → assign → approve → publish, sensitive second-reviewer gating, reviewer ≠ uploader, content-editor/moderator RBAC, published-only mobile/public reads, audit, and the idempotent seed.
+The integration tests cover authoring → submit → assign → approve → publish, sensitive second-reviewer gating, reviewer ≠ uploader, unassign, schedule cancellation, approved → draft reopening, site `updatedAt`/409 `STALE_SITE`, status reasons in the audit, content-editor/moderator RBAC, published-only mobile/public reads, audit, and the idempotent seed.
 
 ## Privacy controls
 
@@ -246,5 +278,4 @@ The public write is rate-limited per client IP with a 20-event burst and a one-e
 
 - Real R2 uploads remain on the existing media presign/complete pipeline; this API stores object keys.
 - `testdata/migrations/0013_then_now.sql` and `0014_then_now_privacy.sql` mirror the schema for Go integration tests only. Mirror the same DDL into TanStack admin Drizzle migrations before wiring the admin.
-- The admin UI fixture store still needs wiring to these endpoints.
 - The recognition privacy decision is resolved; server-side visits, verification, XP, badges, passports, and leaderboards remain gated and are not part of v1. V1 visits stay local-only.

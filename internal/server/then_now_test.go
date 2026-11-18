@@ -1,7 +1,9 @@
 package server_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -338,4 +340,281 @@ func TestThenNowReviewerCannotReviewOwnRevision(t *testing.T) {
 	assignResp := doJSON(t, ts, "POST", "/v1/then-now/experiences/"+experienceID+"/assign", nil, admin)
 	assert.Equal(t, http.StatusConflict, assignResp.StatusCode)
 	assignResp.Body.Close()
+}
+
+func thenNowDoJSONWithHeaders(t *testing.T, ts *httptest.Server, method, path string, body any, headers map[string]string, auth func(*http.Request)) *http.Response {
+	t.Helper()
+	var b []byte
+	if body != nil {
+		b, _ = json.Marshal(body)
+	}
+	req, err := http.NewRequest(method, ts.URL+path, bytes.NewReader(b))
+	require.NoError(t, err)
+	if auth != nil {
+		auth(req)
+	}
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+	if b != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := ts.Client().Do(req)
+	require.NoError(t, err)
+	return resp
+}
+
+func thenNowAuditItems(t *testing.T, ts *httptest.Server, auth func(*http.Request), entityType, entityID string) []map[string]any {
+	t.Helper()
+	resp := doJSON(t, ts, "GET", "/v1/then-now/audit?entityType="+entityType+"&entityId="+entityID, nil, auth)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	body := decodeBody(t, resp)
+	raw := body["items"].([]any)
+	items := make([]map[string]any, 0, len(raw))
+	for _, item := range raw {
+		items = append(items, item.(map[string]any))
+	}
+	return items
+}
+
+func thenNowCreateReadyReview(t *testing.T, ts *httptest.Server, tokens map[string]string, slug string) (string, string) {
+	t.Helper()
+	editor := thenNowAuth(tokens["content_editor"])
+	admin := thenNowAuth(tokens["administrator"])
+	siteResp := doJSON(t, ts, "POST", "/v1/then-now/sites", thenNowSiteBody("Contract Site "+slug, slug), editor)
+	require.Equal(t, http.StatusCreated, siteResp.StatusCode)
+	siteID := decodeBody(t, siteResp)["id"].(string)
+
+	createResp := doJSON(t, ts, "POST", "/v1/then-now/experiences", map[string]any{
+		"siteId": siteID, "title": "The railway that built Nairobi", "snapshot": thenNowSnapshot(),
+	}, editor)
+	require.Equal(t, http.StatusCreated, createResp.StatusCode)
+	experienceID := decodeBody(t, createResp)["id"].(string)
+
+	submitResp := doJSON(t, ts, "POST", "/v1/then-now/experiences/"+experienceID+"/submit", nil, editor)
+	require.Equal(t, http.StatusOK, submitResp.StatusCode)
+	submitResp.Body.Close()
+	assignResp := doJSON(t, ts, "POST", "/v1/then-now/experiences/"+experienceID+"/assign", nil, admin)
+	require.Equal(t, http.StatusOK, assignResp.StatusCode)
+	assignResp.Body.Close()
+	return siteID, experienceID
+}
+
+func TestThenNowUnassignAndCancelSchedule(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	ts, _, tokens := setupThenNowTest(t)
+	admin := thenNowAuth(tokens["administrator"])
+	_, experienceID := thenNowCreateReadyReview(t, ts, tokens, "unassign-schedule")
+
+	unassignResp := doJSON(t, ts, "POST", "/v1/then-now/experiences/"+experienceID+"/unassign", nil, admin)
+	require.Equal(t, http.StatusOK, unassignResp.StatusCode)
+	unassigned := decodeBody(t, unassignResp)
+	open := unassigned["openRevision"].(map[string]any)
+	assert.Equal(t, "", open["reviewerId"])
+	assert.Equal(t, "", open["reviewer"])
+	assert.Equal(t, "in_review", open["status"])
+
+	events := thenNowAuditItems(t, ts, admin, "experience", experienceID)
+	require.NotEmpty(t, events)
+	assert.Equal(t, "unassign", events[0]["eventType"])
+	assert.Equal(t, "tn-admin", events[0]["metadata"].(map[string]any)["previousReviewerId"])
+
+	// A decision is blocked until someone is assigned again.
+	blocked := doJSON(t, ts, "POST", "/v1/then-now/experiences/"+experienceID+"/decisions", map[string]string{"decision": "approve"}, admin)
+	assert.Equal(t, http.StatusConflict, blocked.StatusCode)
+	blocked.Body.Close()
+
+	// Unassign is idempotent and does not write a second audit event.
+	again := doJSON(t, ts, "POST", "/v1/then-now/experiences/"+experienceID+"/unassign", nil, admin)
+	require.Equal(t, http.StatusOK, again.StatusCode)
+	again.Body.Close()
+	events = thenNowAuditItems(t, ts, admin, "experience", experienceID)
+	assert.Equal(t, "unassign", events[0]["eventType"])
+	assert.Equal(t, 1, countAuditEvents(events, "unassign"))
+
+	reassign := doJSON(t, ts, "POST", "/v1/then-now/experiences/"+experienceID+"/assign", map[string]string{"reviewerId": "tn-super"}, admin)
+	require.Equal(t, http.StatusOK, reassign.StatusCode)
+	reassign.Body.Close()
+	approve := doJSON(t, ts, "POST", "/v1/then-now/experiences/"+experienceID+"/decisions", map[string]string{"decision": "approve", "notes": "Ready."}, thenNowAuth(tokens["super_admin"]))
+	require.Equal(t, http.StatusOK, approve.StatusCode)
+	approve.Body.Close()
+
+	scheduleResp := doJSON(t, ts, "POST", "/v1/then-now/experiences/"+experienceID+"/schedule", map[string]any{
+		"scheduledAt": time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339),
+		"note":        "Morning release",
+	}, admin)
+	require.Equal(t, http.StatusOK, scheduleResp.StatusCode)
+	scheduled := decodeBody(t, scheduleResp)
+	assert.Equal(t, "scheduled", scheduled["status"])
+	assert.NotEmpty(t, scheduled["openRevision"].(map[string]any)["scheduledAt"])
+
+	cancelResp := doJSON(t, ts, "POST", "/v1/then-now/experiences/"+experienceID+"/schedule/cancel", nil, admin)
+	require.Equal(t, http.StatusOK, cancelResp.StatusCode)
+	cancelled := decodeBody(t, cancelResp)
+	assert.Equal(t, "approved", cancelled["status"])
+	assert.Equal(t, "approved", cancelled["openRevision"].(map[string]any)["status"])
+	assert.Equal(t, "", cancelled["openRevision"].(map[string]any)["scheduledAt"])
+
+	events = thenNowAuditItems(t, ts, admin, "experience", experienceID)
+	require.NotEmpty(t, events)
+	assert.Equal(t, "schedule_cancel", events[0]["eventType"])
+	assert.NotEmpty(t, events[0]["metadata"].(map[string]any)["scheduledAt"])
+
+	cancelAgain := doJSON(t, ts, "POST", "/v1/then-now/experiences/"+experienceID+"/schedule/cancel", nil, admin)
+	assert.Equal(t, http.StatusConflict, cancelAgain.StatusCode)
+	cancelAgain.Body.Close()
+}
+
+func countAuditEvents(items []map[string]any, eventType string) int {
+	count := 0
+	for _, item := range items {
+		if item["eventType"] == eventType {
+			count++
+		}
+	}
+	return count
+}
+
+func TestThenNowApprovedReturnToDraft(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	ts, _, tokens := setupThenNowTest(t)
+	admin := thenNowAuth(tokens["administrator"])
+	editor := thenNowAuth(tokens["content_editor"])
+	_, experienceID := thenNowCreateReadyReview(t, ts, tokens, "approved-return")
+
+	approve := doJSON(t, ts, "POST", "/v1/then-now/experiences/"+experienceID+"/decisions", map[string]string{"decision": "approve", "notes": "Ready."}, admin)
+	require.Equal(t, http.StatusOK, approve.StatusCode)
+	approved := decodeBody(t, approve)
+	assert.Equal(t, "approved", approved["openRevision"].(map[string]any)["status"])
+
+	noReason := doJSON(t, ts, "POST", "/v1/then-now/experiences/"+experienceID+"/decisions", map[string]string{"decision": "return"}, admin)
+	assert.Equal(t, http.StatusBadRequest, noReason.StatusCode)
+	noReason.Body.Close()
+
+	// A content editor cannot withdraw an approval.
+	editorReturn := doJSON(t, ts, "POST", "/v1/then-now/experiences/"+experienceID+"/decisions", map[string]string{"decision": "return", "notes": "Needs another look."}, editor)
+	assert.Equal(t, http.StatusForbidden, editorReturn.StatusCode)
+	editorReturn.Body.Close()
+
+	returnResp := doJSON(t, ts, "POST", "/v1/then-now/experiences/"+experienceID+"/decisions", map[string]string{"decision": "return", "notes": "Rights line needs a rewrite."}, admin)
+	require.Equal(t, http.StatusOK, returnResp.StatusCode)
+	returned := decodeBody(t, returnResp)
+	assert.Equal(t, "draft", returned["status"])
+	open := returned["openRevision"].(map[string]any)
+	assert.Equal(t, "draft", open["status"])
+	assert.Equal(t, "returned", open["lastDecision"])
+	assert.Equal(t, "", open["reviewerId"])
+
+	events := thenNowAuditItems(t, ts, admin, "experience", experienceID)
+	require.NotEmpty(t, events)
+	assert.Equal(t, "return", events[0]["eventType"])
+	metadata := events[0]["metadata"].(map[string]any)
+	assert.Equal(t, "Rights line needs a rewrite.", metadata["notes"])
+	assert.Equal(t, "approved", metadata["from"])
+}
+
+func TestThenNowSiteUpdatedAtAndStalePatch(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	ts, _, tokens := setupThenNowTest(t)
+	editor := thenNowAuth(tokens["content_editor"])
+
+	createResp := doJSON(t, ts, "POST", "/v1/then-now/sites", thenNowSiteBody("Stale Guard Site", "stale-guard-site"), editor)
+	require.Equal(t, http.StatusCreated, createResp.StatusCode)
+	created := decodeBody(t, createResp)
+	siteID := created["id"].(string)
+	firstUpdated := created["updatedAt"]
+	require.NotEmpty(t, firstUpdated)
+
+	// A matching If-Match updates the site and returns a newer version.
+	okResp := thenNowDoJSONWithHeaders(t, ts, "PATCH", "/v1/then-now/sites/"+siteID, map[string]string{
+		"shortDescription": "First write",
+	}, map[string]string{"If-Match": firstUpdated.(string)}, editor)
+	require.Equal(t, http.StatusOK, okResp.StatusCode)
+	updated := decodeBody(t, okResp)
+	secondUpdated := updated["updatedAt"]
+	require.NotEmpty(t, secondUpdated)
+	assert.NotEqual(t, firstUpdated, secondUpdated)
+
+	// Replaying the old version is rejected with the current server copy.
+	staleResp := thenNowDoJSONWithHeaders(t, ts, "PATCH", "/v1/then-now/sites/"+siteID, map[string]string{
+		"shortDescription": "Stale overwrite",
+	}, map[string]string{"If-Match": firstUpdated.(string)}, editor)
+	require.Equal(t, http.StatusConflict, staleResp.StatusCode)
+	stale := decodeBody(t, staleResp)
+	assert.Equal(t, "STALE_SITE", stale["error"].(map[string]any)["code"])
+	assert.Equal(t, secondUpdated, stale["site"].(map[string]any)["updatedAt"])
+
+	// The body field is accepted as the same precondition.
+	bodyResp := doJSON(t, ts, "PATCH", "/v1/then-now/sites/"+siteID, map[string]any{
+		"shortDescription":  "Body precondition",
+		"expectedUpdatedAt": secondUpdated,
+	}, editor)
+	require.Equal(t, http.StatusOK, bodyResp.StatusCode)
+	bodyResp.Body.Close()
+
+	// Omitting the precondition keeps the original last-write-wins behaviour.
+	noPrecondition := doJSON(t, ts, "PATCH", "/v1/then-now/sites/"+siteID, map[string]string{"siteRules": "No guard."}, editor)
+	require.Equal(t, http.StatusOK, noPrecondition.StatusCode)
+	noPrecondition.Body.Close()
+}
+
+func TestThenNowStatusReasonsAreAudited(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	ts, _, tokens := setupThenNowTest(t)
+	admin := thenNowAuth(tokens["administrator"])
+	superAdmin := thenNowAuth(tokens["super_admin"])
+	siteID, experienceID := thenNowCreateReadyReview(t, ts, tokens, "status-reasons")
+
+	approve := doJSON(t, ts, "POST", "/v1/then-now/experiences/"+experienceID+"/decisions", map[string]string{"decision": "approve", "notes": "Ready."}, admin)
+	require.Equal(t, http.StatusOK, approve.StatusCode)
+	approve.Body.Close()
+	publish := doJSON(t, ts, "POST", "/v1/then-now/experiences/"+experienceID+"/publish", nil, admin)
+	require.Equal(t, http.StatusOK, publish.StatusCode)
+	publish.Body.Close()
+
+	unpublish := doJSON(t, ts, "POST", "/v1/then-now/experiences/"+experienceID+"/status", map[string]string{
+		"action": "unpublish", "reason": "Rights line under review",
+	}, admin)
+	require.Equal(t, http.StatusOK, unpublish.StatusCode)
+	unpublish.Body.Close()
+	events := thenNowAuditItems(t, ts, admin, "experience", experienceID)
+	require.NotEmpty(t, events)
+	assert.Equal(t, "unpublished", events[0]["eventType"])
+	assert.Equal(t, "Rights line under review", events[0]["metadata"].(map[string]any)["reason"])
+
+	revoke := doJSON(t, ts, "POST", "/v1/then-now/experiences/"+experienceID+"/status", map[string]string{
+		"action": "revoke", "reason": "Consent withdrawn",
+	}, superAdmin)
+	require.Equal(t, http.StatusOK, revoke.StatusCode)
+	revoke.Body.Close()
+	events = thenNowAuditItems(t, ts, superAdmin, "experience", experienceID)
+	assert.Equal(t, "revoked", events[0]["eventType"])
+	assert.Equal(t, "Consent withdrawn", events[0]["metadata"].(map[string]any)["reason"])
+
+	siteUnpublish := doJSON(t, ts, "POST", "/v1/then-now/sites/"+siteID+"/unpublish", map[string]string{
+		"reason": "Seasonal closure",
+	}, admin)
+	require.Equal(t, http.StatusOK, siteUnpublish.StatusCode)
+	siteUnpublish.Body.Close()
+	siteEvents := thenNowAuditItems(t, ts, admin, "site", siteID)
+	require.NotEmpty(t, siteEvents)
+	assert.Equal(t, "unpublished", siteEvents[0]["eventType"])
+	assert.Equal(t, "Seasonal closure", siteEvents[0]["metadata"].(map[string]any)["reason"])
+
+	siteArchive := doJSON(t, ts, "POST", "/v1/then-now/sites/"+siteID+"/archive", map[string]string{
+		"reason": "Record retired",
+	}, superAdmin)
+	require.Equal(t, http.StatusOK, siteArchive.StatusCode)
+	siteArchive.Body.Close()
+	siteEvents = thenNowAuditItems(t, ts, superAdmin, "site", siteID)
+	assert.Equal(t, "archived", siteEvents[0]["eventType"])
+	assert.Equal(t, "Record retired", siteEvents[0]["metadata"].(map[string]any)["reason"])
 }
