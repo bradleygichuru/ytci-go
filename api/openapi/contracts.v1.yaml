@@ -154,7 +154,7 @@ paths:
     post:
       tags: [mice]
       operationId: createEventRegistration
-      summary: Register (rsvp) or record a ticket handoff interest
+      summary: Register for a free or registered event (RSVP)
       parameters:
         - $ref: '#/components/parameters/EventId'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -173,6 +173,38 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409':
           description: Capacity, duplicate registration, or registration closed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /v1/mobile/events/{id}/ticket-handoffs:
+    post:
+      tags: [mice]
+      operationId: recordEventTicketHandoff
+      summary: Record interest in a paid event and open the organizer's ticket URL
+      description: |
+        Records handoff interest only. It does not create a confirmed
+        registration, issue a ticket, or count toward capacity (ADR 0011 §2).
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                priceAcknowledged: { type: boolean, default: true }
+      responses:
+        '201':
+          description: Handoff recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TicketHandoff' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: Event is not a ticket-handoff event
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -2500,9 +2532,7 @@ components:
         required: { type: boolean }
     RegistrationRequest:
       type: object
-      required: [mode]
       properties:
-        mode: { type: string, enum: [rsvp, ticket_handoff] }
         answers:
           type: object
           additionalProperties: { type: string }
@@ -2510,12 +2540,11 @@ components:
         acceptWaitlist: { type: boolean, default: true }
     Registration:
       type: object
-      required: [id, eventId, status, mode, createdAt]
+      required: [id, eventId, status, createdAt]
       properties:
         id: { type: string, format: uuid }
         eventId: { type: string, format: uuid }
         status: { type: string, enum: [confirmed, waitlisted, cancelled, checked_in] }
-        mode: { type: string, enum: [rsvp, ticket_handoff] }
         answers: { type: object, additionalProperties: { type: string } }
         reminderOffsetMinutes: { type: integer, nullable: true }
         waitlistPosition: { type: integer, nullable: true }
@@ -2542,6 +2571,17 @@ components:
                 displayName: { type: string }
                 email: { type: string }
             answersSummary: { type: string, nullable: true }
+    TicketHandoff:
+      type: object
+      required: [id, eventId, createdAt, ticketUrl, soldBy]
+      properties:
+        id: { type: string, format: uuid }
+        eventId: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+        price: { $ref: '#/components/schemas/Price' }
+        ticketUrl: { type: string, format: uri }
+        soldBy: { type: string, example: Swahili Coast Trust }
+        disclosure: { type: string, example: YTCI does not process payment. }
     Ticket:
       type: object
       required: [id, registrationId, qrPayload, issuedAt, expiresAt]

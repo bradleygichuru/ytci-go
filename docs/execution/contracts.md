@@ -23,7 +23,7 @@ streams to finish their handlers.
 | Mock fixtures | `fixtures/` | 1.0.0 |
 | Contract version registry | `platform_contract_versions` (migration 0069) | 1.0.0 |
 
-The OpenAPI document has **95 operations**. The change-control test
+The OpenAPI document has **96 operations**. The change-control test
 `TestOpenAPIValid` pins every path and method; adding or removing one fails CI
 until the freeze list is updated deliberately.
 
@@ -81,7 +81,7 @@ Rules:
 
 | Stream | Tables |
 |---|---|
-| MICE | `venues`, `venue_accessibility`, `organizer_profiles`, `organizer_verification_events`, `organizer_verification_evidence`, `organizer_staff`, `event_sessions`, `event_people`, `session_speakers`, `event_registrations`, `event_registration_questions`, `event_tickets`, `event_checkins`, `event_checkin_scans`, `event_reports`, `event_notifications`, `event_change_notices`, `event_accessibility` |
+| MICE | `venues`, `venue_accessibility`, `organizer_profiles`, `organizer_verification_events`, `organizer_verification_evidence`, `organizer_staff`, `event_sessions`, `event_people`, `session_speakers`, `event_registrations`, `event_registration_questions`, `event_ticket_handoffs`, `event_tickets`, `event_checkins`, `event_checkin_scans`, `event_reports`, `event_notifications`, `event_change_notices`, `event_accessibility` |
 | Recognition | schema `recognition.*`, plus `recognition.event_types`, `rules`, `badge_definitions`, `badge_awards`, `xp_entries`, `xp_totals`, `levels`, `progress_tracks`, `progress_snapshots`, `seasons`, `leaderboard_entries`, `leaderboard_snapshots`, `display_names`, `moderation_cases`, `leaderboard_reports`, `disqualifications`, `retractions`, `consents`, `kill_switches`, `outbox`, `backfill_batches`, `audit` |
 | Species | `content_languages`, `species`, `species_names`, `species_content`, `species_media`, `species_media_alt`, `species_audio`, `species_sources`, `species_rights`, `species_where_to_see`, `species_links`, `species_reviews` |
 | Analytics | `analytics_installs`, `analytics_id_map` (extended), `analytics_identity_access_log`, `analytics_sessions`, `analytics_events` (extended), `analytics_event_schemas`, `analytics_ingest_batches`, `analytics_consents`, `analytics_daily`, `analytics_journey_daily`, `analytics_retention_cohorts`, `analytics_rollup_runs`, `analytics_erasure_requests`, `analytics_erasure_events`, `analytics_service_diagnostics`, `app_opens` (extended) |

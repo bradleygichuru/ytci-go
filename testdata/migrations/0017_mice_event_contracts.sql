@@ -350,8 +350,6 @@ CREATE TABLE IF NOT EXISTS event_registrations (
     user_id               text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     status                text NOT NULL DEFAULT 'confirmed'
                             CHECK (status IN ('confirmed','waitlisted','cancelled','checked_in')),
-    mode                  text NOT NULL DEFAULT 'rsvp'
-                            CHECK (mode IN ('rsvp','ticket_handoff')),
     answers               jsonb NOT NULL DEFAULT '{}'::jsonb
                             CHECK (jsonb_typeof(answers) = 'object'),
     reminder_offset_minutes integer CHECK (reminder_offset_minutes IN (60, 1440, 10080)),
@@ -374,18 +372,30 @@ CREATE INDEX IF NOT EXISTS event_registrations_waitlist_idx
 
 -- Legacy backfill: one registration per legacy attendee, resolving the
 -- multi-status defect by choosing the strongest state.
-INSERT INTO event_registrations (event_id, user_id, status, mode, created_at)
+INSERT INTO event_registrations (event_id, user_id, status, created_at)
 SELECT event_id, user_id,
        CASE
            WHEN bool_or(status = 'joined') THEN 'confirmed'
            WHEN bool_or(status = 'waitlist') THEN 'waitlisted'
            ELSE 'cancelled'
        END,
-       'rsvp',
        min(created_at)
 FROM event_attendees
 GROUP BY event_id, user_id
 ON CONFLICT (event_id, user_id) DO NOTHING;
+
+-- A paid event records handoff interest only. It never creates a confirmed
+-- registration, a ticket, or a capacity claim (ADR 0011 §2).
+CREATE TABLE IF NOT EXISTS event_ticket_handoffs (
+    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id    uuid NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    user_id     text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source      text NOT NULL DEFAULT 'mobile' CHECK (source IN ('mobile','web','admin')),
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (event_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS event_ticket_handoffs_event_idx
+    ON event_ticket_handoffs (event_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS event_tickets (
     id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),

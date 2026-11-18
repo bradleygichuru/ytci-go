@@ -25,7 +25,7 @@ func TestMigrationsApplyOnFreshDatabase(t *testing.T) {
 			"venues", "venue_accessibility", "organizer_profiles",
 			"organizer_verification_events", "organizer_staff",
 			"event_sessions", "event_people", "session_speakers",
-			"event_registrations", "event_tickets", "event_checkins",
+			"event_registrations", "event_ticket_handoffs", "event_tickets", "event_checkins",
 			"event_checkin_scans", "event_reports", "event_notifications",
 			"event_change_notices", "event_accessibility",
 			"recognition.events", "recognition.event_types", "recognition.rules",
@@ -107,6 +107,16 @@ func TestMigrationsApplyOnFreshDatabase(t *testing.T) {
 		}
 		if switches != 4 {
 			t.Fatalf("kill switches = %d, want 4", switches)
+		}
+	})
+
+	t.Run("contract_versions", func(t *testing.T) {
+		var count int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM platform_contract_versions WHERE version = '1.0.0'`).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 6 {
+			t.Fatalf("contract versions = %d, want 6", count)
 		}
 	})
 

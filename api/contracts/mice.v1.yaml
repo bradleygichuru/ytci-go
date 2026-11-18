@@ -23,6 +23,11 @@ registration:
   promotion_window_hours: 24
   questions_max: 2
   account_required: true
+ticket_handoff:
+  creates_registration: false
+  issues_ticket: false
+  counts_toward_capacity: false
+  records: handoff_interest
 ticket:
   one_per_registration: true
   format: 'event_id.attendee_id.expiry.hmac'

@@ -18,6 +18,7 @@ var frozenOperations = map[string][]string{
 	"/v1/public/organizers/{slug}":                   {"get"},
 	"/v1/public/venues/{slug}":                       {"get"},
 	"/v1/mobile/events/{id}/registrations":           {"post"},
+	"/v1/mobile/events/{id}/ticket-handoffs":         {"post"},
 	"/v1/mobile/events/{id}/registration":            {"get", "delete"},
 	"/v1/mobile/registrations":                       {"get"},
 	"/v1/mobile/events/{id}/ticket":                  {"get"},
@@ -172,8 +173,8 @@ func TestOpenAPIValid(t *testing.T) {
 			}
 		}
 	}
-	if count != 95 {
-		t.Fatalf("operation count = %d, want 95", count)
+	if count != 96 {
+		t.Fatalf("operation count = %d, want 96", count)
 	}
 	for path := range frozenOperations {
 		if _, ok := doc.Paths.Map()[path]; !ok {

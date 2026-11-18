@@ -26,6 +26,7 @@ var Routes = []Route{
 	{"GET", "/v1/public/venues/{slug}", "mice/venue", 200, false, false},
 	// MICE — account
 	{"POST", "/v1/mobile/events/{id}/registrations", "mice/registration", 201, false, false},
+	{"POST", "/v1/mobile/events/{id}/ticket-handoffs", "mice/ticket-handoff", 201, false, false},
 	{"GET", "/v1/mobile/events/{id}/registration", "mice/registration", 200, false, false},
 	{"DELETE", "/v1/mobile/events/{id}/registration", "mice/registration", 200, false, false},
 	{"GET", "/v1/mobile/registrations", "mice/registrations", 200, false, false},
