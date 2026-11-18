@@ -1,6 +1,7 @@
 package expo
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -13,11 +14,31 @@ import (
 )
 
 type ActionsHandler struct {
-	pool *pgxpool.Pool
+	pool        *pgxpool.Pool
+	analyticsV2 bool
 }
 
-func NewActionsHandler(pool *pgxpool.Pool) *ActionsHandler {
-	return &ActionsHandler{pool: pool}
+func NewActionsHandler(pool *pgxpool.Pool, analyticsV2 bool) *ActionsHandler {
+	return &ActionsHandler{pool: pool, analyticsV2: analyticsV2}
+}
+
+func (h *ActionsHandler) analyticsConsent(ctx context.Context, userID string) (bool, error) {
+	var enabled bool
+	err := h.pool.QueryRow(ctx,
+		`SELECT COALESCE(consent_analytics, false) FROM user_profiles WHERE user_id = $1`, userID).Scan(&enabled)
+	if err == pgx.ErrNoRows {
+		return false, nil
+	}
+	return enabled, err
+}
+
+func (h *ActionsHandler) ensureAnalyticsID(ctx context.Context, userID string) (string, error) {
+	var id string
+	err := h.pool.QueryRow(ctx, `
+		INSERT INTO analytics_id_map (user_id) VALUES ($1)
+		ON CONFLICT (user_id) DO UPDATE SET user_id = EXCLUDED.user_id
+		RETURNING analytics_id::text`, userID).Scan(&id)
+	return id, err
 }
 
 type createStoryRequest struct {
@@ -230,6 +251,45 @@ func (h *ActionsHandler) RecordAppOpen(w http.ResponseWriter, r *http.Request) {
 
 	userID := middleware.UserID(r.Context())
 
+	if h.analyticsV2 {
+		allowed, err := h.analyticsConsent(r.Context(), userID)
+		if err != nil {
+			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to check analytics consent", err)
+			return
+		}
+		if !allowed {
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]string{"status": "ignored"})
+			return
+		}
+		analyticsID, err := h.ensureAnalyticsID(r.Context(), userID)
+		if err != nil {
+			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to resolve analytics id", err)
+			return
+		}
+		var recent int
+		if err := h.pool.QueryRow(r.Context(),
+			`SELECT COUNT(*) FROM app_opens WHERE analytics_id = $1 AND opened_at > now() - interval '5 minutes'`,
+			analyticsID).Scan(&recent); err != nil {
+			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to check recent app opens", err)
+			return
+		}
+		if recent > 0 {
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]string{"status": "recorded"})
+			return
+		}
+		if _, err := h.pool.Exec(r.Context(),
+			`INSERT INTO app_opens (analytics_id, platform, app_version) VALUES ($1, $2, $3)`,
+			analyticsID, req.Platform, req.AppVersion); err != nil {
+			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to record app open", err)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"status": "recorded"})
+		return
+	}
+
 	var recent int
 	err := h.pool.QueryRow(r.Context(),
 		`SELECT COUNT(*) FROM app_opens WHERE user_id = $1 AND opened_at > now() - interval '5 minutes'`,
@@ -273,6 +333,33 @@ func (h *ActionsHandler) RecordEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userID := middleware.UserID(r.Context())
+
+	if h.analyticsV2 {
+		allowed, err := h.analyticsConsent(r.Context(), userID)
+		if err != nil {
+			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to check analytics consent", err)
+			return
+		}
+		if !allowed {
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]string{"status": "ignored"})
+			return
+		}
+		analyticsID, err := h.ensureAnalyticsID(r.Context(), userID)
+		if err != nil {
+			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to resolve analytics id", err)
+			return
+		}
+		if _, err := h.pool.Exec(r.Context(),
+			`INSERT INTO analytics_events (analytics_id, event, properties, platform, app_version) VALUES ($1, $2, $3, $4, $5)`,
+			analyticsID, req.Event, req.Properties, req.Platform, req.AppVersion); err != nil {
+			handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to record analytics event", err)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{"status": "recorded"})
+		return
+	}
 
 	_, err := h.pool.Exec(r.Context(),
 		`INSERT INTO analytics_events (user_id, event, properties, platform, app_version) VALUES ($1, $2, $3, $4, $5)`,

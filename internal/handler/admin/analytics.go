@@ -32,18 +32,18 @@ func (h *AnalyticsHandler) Summary(w http.ResponseWriter, r *http.Request) {
 
 	var dau int
 	if h.pool.QueryRow(r.Context(),
-		`SELECT COUNT(DISTINCT user_id) FROM app_opens WHERE opened_at >= $1`, today).Scan(&dau) == nil {
+		`SELECT COUNT(DISTINCT COALESCE(analytics_id::text, user_id::text)) FROM app_opens WHERE opened_at >= $1`, today).Scan(&dau) == nil {
 		resp["dau"] = dau
 	}
 	var wau int
 	if h.pool.QueryRow(r.Context(),
-		`SELECT COUNT(DISTINCT user_id) FROM app_opens WHERE opened_at >= $1`,
+		`SELECT COUNT(DISTINCT COALESCE(analytics_id::text, user_id::text)) FROM app_opens WHERE opened_at >= $1`,
 		today.AddDate(0, 0, -7)).Scan(&wau) == nil {
 		resp["wau"] = wau
 	}
 	var mau int
 	if h.pool.QueryRow(r.Context(),
-		`SELECT COUNT(DISTINCT user_id) FROM app_opens WHERE opened_at >= $1`,
+		`SELECT COUNT(DISTINCT COALESCE(analytics_id::text, user_id::text)) FROM app_opens WHERE opened_at >= $1`,
 		today.AddDate(0, -1, 0)).Scan(&mau) == nil {
 		resp["mau"] = mau
 	}
@@ -100,8 +100,8 @@ func (h *AnalyticsHandler) Export(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]string{
-		"reportId": reportID,
-		"status":   "generating",
+		"reportId":  reportID,
+		"status":    "generating",
 		"createdAt": time.Now().UTC().Format(time.RFC3339),
 	})
 }

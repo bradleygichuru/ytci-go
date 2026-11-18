@@ -100,6 +100,7 @@ type handlers struct {
 	marketplace      *expo.MarketplaceHandler
 	marketplaceAdmin *admin.MarketplaceAdminHandler
 	thenNow          *admin.ThenNowHandler
+	features         *expo.FeaturesHandler
 }
 
 func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Client, cfg *config.Config) *handlers {
@@ -122,7 +123,7 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 		profile:          expo.NewProfileHandler(pool),
 		itin:             expo.NewItinerariesHandler(pool),
 		pushReg:          expo.NewPushRegisterHandler(pool),
-		actions:          expo.NewActionsHandler(pool),
+		actions:          expo.NewActionsHandler(pool, cfg.ThenNowAnalyticsV2Enabled),
 		mStories:         expo.NewStoriesHandler(pool),
 		media:            admin.NewMediaHandler(pool, r2client),
 		comments:         expo.NewCommentHandler(pool),
@@ -133,6 +134,7 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 		marketplace:      expo.NewMarketplaceHandler(pool, r2client),
 		marketplaceAdmin: admin.NewMarketplaceAdminHandler(pool, r2client),
 		thenNow:          admin.NewThenNowHandler(pool),
+		features:         expo.NewFeaturesHandler(cfg),
 	}
 	if pushClient != nil {
 		h.pushAdmin = admin.NewPushHandler(pool, pushClient)
@@ -238,6 +240,7 @@ func mountAdminRoutes(sub chi.Router, h *handlers, r2client r2.Store, jwks *midd
 		aR.Delete("/esim-providers/{id}", h.marketplaceAdmin.DeleteEsimProvider)
 
 		aR.Get("/analytics/summary", h.analytics.Summary)
+		aR.Get("/analytics/heritage", h.analytics.Heritage)
 		aR.Get("/analytics/reports", h.analytics.ReportsList)
 		aR.Post("/analytics/reports/export", h.analytics.Export)
 
@@ -276,6 +279,8 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 		m.Get("/destinations/nearby", h.dest.NearbyMobile)
 		m.Get("/events", h.events.ListMobile)
 		m.Get("/events/{id}", h.events.GetMobile)
+		m.Get("/then-now/config", h.features.ThenNowConfig)
+		m.Post("/then-now/events", h.thenNow.RecordAnonymousEvent)
 		m.Get("/then-now/sites", h.thenNow.ListPublishedSites)
 		m.Get("/then-now/sites/{slug}", h.thenNow.GetPublishedSite)
 		m.Get("/stories", h.mStories.ListEnriched)
@@ -373,6 +378,8 @@ func mountPublicRoutes(pub chi.Router, h *handlers, r2client r2.Store) {
 	pub.Get("/destinations/nearby", h.dest.NearbyMobile)
 	pub.Get("/events", h.events.ListMobile)
 	pub.Get("/events/{id}", h.events.GetPublic)
+	pub.Get("/then-now/config", h.features.ThenNowConfig)
+	pub.Post("/then-now/events", h.thenNow.RecordAnonymousEvent)
 	pub.Get("/then-now/sites", h.thenNow.ListPublishedSites)
 	pub.Get("/then-now/sites/{slug}", h.thenNow.GetPublishedSite)
 	pub.Get("/stories", h.mStories.ListEnriched)
