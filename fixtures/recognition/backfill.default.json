@@ -1,0 +1,16 @@
+{
+  "id": "13131313-1313-4313-8313-131313131313",
+  "ruleKey": "event.attendance",
+  "ruleVersion": 3,
+  "status": "approved",
+  "processed": 1280,
+  "awarded": 212,
+  "diff": {
+    "wouldAward": 212,
+    "wouldSkip": 1068,
+    "conflicts": 0
+  },
+  "createdBy": "administrator-1",
+  "approvedBy": "super-admin-1",
+  "createdAt": "2026-11-18T16:00:00Z"
+}

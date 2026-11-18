@@ -1,0 +1,11 @@
+{
+  "id": "12121212-1212-4212-8212-121212121212",
+  "kind": "display_name",
+  "subjectRef": "entry-ref-1",
+  "reason": "Possible impersonation of a staff account",
+  "status": "decided",
+  "decision": "rename",
+  "decidedAt": "2026-11-19T08:00:00Z",
+  "appealDeadline": "2026-12-03T08:00:00Z",
+  "createdAt": "2026-11-18T14:00:00Z"
+}

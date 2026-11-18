@@ -1,0 +1,12 @@
+{
+  "analyticsId": "21212121-2121-4121-8121-212121212121",
+  "installId": "22222222-2222-4222-8222-222222222222",
+  "actorType": "guest",
+  "consent": {
+    "analyticsId": "21212121-2121-4121-8121-212121212121",
+    "scope": "analytics",
+    "version": "2026-11-01",
+    "state": "granted",
+    "recordedAt": "2026-11-19T06:00:00Z"
+  }
+}

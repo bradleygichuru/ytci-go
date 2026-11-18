@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "ROLLUP_STALE",
+    "message": "The nightly rollup has not completed. Numbers are withheld."
+  }
+}

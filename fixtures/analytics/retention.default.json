@@ -1,0 +1,20 @@
+{
+  "items": [
+    {
+      "cohortWeek": "2026-08-24",
+      "weekIndex": 4,
+      "actors": 412,
+      "retained": 181,
+      "rate": 0.44,
+      "suppressed": false
+    },
+    {
+      "cohortWeek": "2026-08-24",
+      "weekIndex": 8,
+      "actors": null,
+      "retained": null,
+      "rate": null,
+      "suppressed": true
+    }
+  ]
+}

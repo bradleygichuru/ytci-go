@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "ANALYTICS_UNAVAILABLE",
+    "message": "Analytics rollups are still being computed."
+  }
+}

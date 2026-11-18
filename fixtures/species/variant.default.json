@@ -1,0 +1,24 @@
+{
+  "language": "en",
+  "coverageTier": "full",
+  "summary": "The lion is a social big cat and a national symbol of Kenya.",
+  "description": "Lions live in prides and hunt cooperatively.",
+  "habitat": "Savannah, grassland and open woodland.",
+  "range": "Maasai Mara, Tsavo, Amboseli and Laikipia.",
+  "whereToSee": "Recorded at Maasai Mara and Tsavo East.",
+  "conservation": "Vulnerable. Habitat loss and human-wildlife conflict are the main pressures.",
+  "fieldStatus": {
+    "summary": "reviewed",
+    "description": "reviewed",
+    "habitat": "reviewed",
+    "range": "reviewed",
+    "whereToSee": "reviewed",
+    "conservation": "reviewed"
+  },
+  "reviewStatus": "reviewed",
+  "sourceVersion": 3,
+  "staleReason": null,
+  "translatorRef": "translator-1",
+  "reviewerRef": "language-reviewer-1",
+  "publishedAt": "2026-09-15T00:00:00Z"
+}

@@ -1,0 +1,28 @@
+{
+  "items": [
+    {
+      "trackKey": "county_explorer",
+      "nameEn": "County Explorer",
+      "nameSw": "Mgunduzi wa Kaunti",
+      "family": "county_collection",
+      "current": 9,
+      "target": 47,
+      "completed": false,
+      "completedAt": null,
+      "xpReward": 250,
+      "badgeKey": "county_explorer"
+    },
+    {
+      "trackKey": "mice_explorer",
+      "nameEn": "MICE Explorer",
+      "nameSw": "Mgunduzi wa MICE",
+      "family": "mission",
+      "current": 3,
+      "target": 3,
+      "completed": true,
+      "completedAt": "2026-11-10T09:00:00Z",
+      "xpReward": 150,
+      "badgeKey": "mice_explorer"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "nairobi-convention-bureau",
+  "displayName": "Nairobi Convention Bureau",
+  "trustTier": "programme_partner",
+  "label": "YTCI programme partner",
+  "id": "0a5b6c7d-1111-4a2b-9c3d-000000000001",
+  "about": "The programme partner for Nairobi MICE events.",
+  "logoUrl": null,
+  "contactEmail": "events@example.ke",
+  "contactPhone": "+254700000001",
+  "websiteUrl": "https://example.ke",
+  "verificationStatus": "verified",
+  "verifiedAt": "2026-02-01T09:00:00Z",
+  "verificationExpiresAt": "2027-02-01T09:00:00Z",
+  "revokedReason": null,
+  "upcomingEvents": [],
+  "pastEventCount": 12
+}

@@ -1,0 +1,17 @@
+{
+  "key": "2026-q4",
+  "nameEn": "Season of the Rift",
+  "nameSw": "Msimu wa Bonde",
+  "startsAt": "2026-10-01T00:00:00+03:00",
+  "endsAt": "2026-12-31T23:59:59+03:00",
+  "status": "active",
+  "badgeKey": "season_q4_2026",
+  "xpAward": 500,
+  "missionFamilies": [
+    "County Explorer",
+    "MICE Explorer",
+    "Conservation Sprint",
+    "Learning Path",
+    "Listener"
+  ]
+}

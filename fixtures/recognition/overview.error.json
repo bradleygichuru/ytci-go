@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "RECOGNITION_UNAVAILABLE",
+    "message": "Recognition is temporarily unavailable."
+  }
+}

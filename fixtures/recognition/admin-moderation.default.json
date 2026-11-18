@@ -1,0 +1,17 @@
+{
+  "items": [
+    {
+      "id": "12121212-1212-4212-8212-121212121212",
+      "kind": "display_name",
+      "subjectRef": "entry-ref-1",
+      "reason": "Possible impersonation of a staff account",
+      "status": "open",
+      "decision": null,
+      "decidedAt": null,
+      "appealDeadline": null,
+      "createdAt": "2026-11-18T14:00:00Z"
+    }
+  ],
+  "nextCursor": null,
+  "hasMore": false
+}

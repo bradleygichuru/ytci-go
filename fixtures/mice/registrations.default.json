@@ -1,0 +1,67 @@
+{
+  "items": [
+    {
+      "id": "44444444-4444-4444-8444-444444444444",
+      "eventId": "11111111-1111-4111-8111-111111111111",
+      "status": "confirmed",
+      "mode": "rsvp",
+      "answers": {
+        "accessibility": "Step-free access required"
+      },
+      "reminderOffsetMinutes": 1440,
+      "waitlistPosition": null,
+      "confirmBy": null,
+      "createdAt": "2026-11-18T10:00:00Z",
+      "cancelledAt": null,
+      "ticket": {
+        "id": "55555555-5555-4555-8555-555555555555",
+        "registrationId": "44444444-4444-4444-8444-444444444444",
+        "qrPayload": "eyJhbGciOiJIUzI1NiJ9.event-ticket.demo",
+        "issuedAt": "2026-11-18T10:00:00Z",
+        "expiresAt": "2026-12-07T17:00:00Z",
+        "state": "valid"
+      },
+      "checkIn": null,
+      "event": {
+        "id": "11111111-1111-4111-8111-111111111111",
+        "slug": "great-lakes-tourism-forum",
+        "title": "Great Lakes Tourism Forum 2026",
+        "eventClass": "conference",
+        "format": "hybrid",
+        "access": "registered",
+        "status": "published",
+        "startsAt": "2026-12-05T08:00:00+03:00",
+        "endsAt": "2026-12-06T17:00:00+03:00",
+        "timezone": "Africa/Nairobi",
+        "county": "Nairobi",
+        "countyGid": 47,
+        "venue": {
+          "slug": "kicc",
+          "name": "Kenyatta International Convention Centre",
+          "county": "Nairobi",
+          "countyGid": 47
+        },
+        "organizer": {
+          "slug": "nairobi-convention-bureau",
+          "displayName": "Nairobi Convention Bureau",
+          "trustTier": "programme_partner",
+          "label": "YTCI programme partner"
+        },
+        "imageUrl": "https://cdn.example.ke/events/forum.jpg",
+        "capacity": 400,
+        "seatsRemaining": 87,
+        "waitlistOpen": true,
+        "registrationMode": "rsvp",
+        "price": null,
+        "accessibility": {
+          "state": "reported",
+          "verifiedAt": "2026-10-15T00:00:00Z",
+          "label": "Reported by the organizer, last verified 2026-10-15"
+        },
+        "saved": false
+      }
+    }
+  ],
+  "nextCursor": null,
+  "hasMore": false
+}

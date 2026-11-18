@@ -1,0 +1,18 @@
+{
+  "items": [
+    {
+      "journey": "event_registration",
+      "entered": 1240,
+      "completed": 810,
+      "conversion": 0.65,
+      "suppressed": false
+    },
+    {
+      "journey": "course_completion",
+      "entered": null,
+      "completed": null,
+      "conversion": null,
+      "suppressed": true
+    }
+  ]
+}

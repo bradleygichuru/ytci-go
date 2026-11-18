@@ -1,0 +1,28 @@
+name: contracts
+
+on:
+  push:
+    branches: [master, 'feat/**']
+  pull_request:
+
+concurrency:
+  group: contracts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build
+        run: go build ./...
+      - name: Vet contract packages
+        run: go vet ./internal/contracts/... ./cmd/contracts-mock/... ./fixtures/...
+      - name: Contract tests (OpenAPI, CloudEvents, roles, fixtures)
+        run: go test ./internal/contracts ./cmd/contracts-mock -count=1
+      - name: Migration replay on a fresh database
+        run: go test ./internal/contracts -run TestMigrationsApplyOnFreshDatabase -count=1 -v

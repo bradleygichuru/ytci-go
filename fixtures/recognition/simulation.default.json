@@ -1,0 +1,12 @@
+{
+  "ruleKey": "event.attendance",
+  "version": 4,
+  "evaluated": 1280,
+  "wouldAward": 212,
+  "wouldDeduct": 0,
+  "sampleSubjects": [
+    "reader-1",
+    "reader-2"
+  ],
+  "notes": "Dry run only; no ledger rows were written."
+}

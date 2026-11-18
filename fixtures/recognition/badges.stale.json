@@ -1,0 +1,26 @@
+{
+  "items": [
+    {
+      "badgeKey": "event_attended",
+      "nameEn": "Event attendee",
+      "nameSw": "Mhudhuriaji wa tukio",
+      "family": "events",
+      "criteria": {
+        "verifiedCheckIns": 1
+      },
+      "earned": true,
+      "earnedAt": "2026-11-18T09:00:00Z",
+      "hidden": false,
+      "privacyClass": "public",
+      "sourceType": "event",
+      "sourceId": "11111111-1111-4111-8111-111111111111",
+      "progress": null
+    }
+  ],
+  "counts": {
+    "earned": 7,
+    "locked": 17
+  },
+  "nextCursor": null,
+  "hasMore": false
+}

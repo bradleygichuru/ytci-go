@@ -1,0 +1,22 @@
+{
+  "items": [
+    {
+      "id": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+      "ruleKey": "event.attendance",
+      "version": 3,
+      "sourceType": "event",
+      "status": "published",
+      "effectiveFrom": "2026-10-01T00:00:00+03:00",
+      "effectiveTo": null,
+      "criteria": {
+        "verifiedCheckIn": true
+      },
+      "xpAmount": 50,
+      "badgeKey": "event_attended",
+      "createdBy": "content-editor-1",
+      "publishedBy": "administrator-1"
+    }
+  ],
+  "nextCursor": null,
+  "hasMore": false
+}

@@ -1,0 +1,93 @@
+# Canonical MICE / events vocabulary (ADR 0009, 0011, 0012).
+# This file is the single source for every enum the mobile and admin streams use.
+version: 1.0.0
+owner: stream:mice
+frozen_at: '2026-11-18'
+event_class: [meeting, incentive, conference, exhibition, community]
+format: [in_person, online, hybrid]
+access: [public, registered, invite_only]
+lifecycle:
+  canonical: [draft, published, postponed, cancelled]
+  deprecated_aliases:
+    scheduled: published
+  derived_view: [upcoming, ongoing, past]
+  notes: |
+    `completed` is derived, never stored. Invite-only events never appear in
+    public discovery. Cancelled and postponed events stay visible.
+registration:
+  modes: [rsvp, ticket_handoff, none]
+  statuses: [confirmed, waitlisted, cancelled, checked_in]
+  one_row_per: [event_id, user_id]
+  capacity_counts: [confirmed, checked_in]
+  waitlist_policy: fifo
+  promotion_window_hours: 24
+  questions_max: 2
+  account_required: true
+ticket:
+  one_per_registration: true
+  format: 'event_id.attendee_id.expiry.hmac'
+  valid_until_hours_after_event: 24
+  transfer: false
+checkin:
+  opens_hours_before_start: 2
+  closes: event_end
+  one_per_registration: true
+  methods: [qr, manual, offline_queue, staff_override]
+  offline_resolution: first_write_wins
+  stores: [attendee_id, event_id, timestamp, method, staff_id]
+  never_stores: [coordinates, id_document, phone_number, county]
+notifications:
+  kinds: [reminder, change_notice, waitlist_promotion]
+  default_reminder_hours: 24
+  reminder_choices_hours: [1, 24, 168]
+  quiet_hours: '22:00-06:00'
+  caps:
+    reminder_per_event: 1
+    change_notice_per_event_per_day: 1
+  dedupe: [event_id, event_version]
+  channel: program_updates
+  inbox_filter: events
+  is_alert: false
+material_fields: [date_time, venue, status, capacity, session]
+trust:
+  tiers: [programme_partner, verified_organizer, community_organizer]
+  verification_statuses: [unverified, pending, verified, expired, revoked]
+  public_labels:
+    programme_partner: YTCI programme partner
+    verified_organizer: Verified organizer
+    community_organizer: Community organizer
+  verification_validity_months: 12
+  expiry_reminder_days: 30
+  grace_days: 30
+  appeal_days: 14
+  community_tier_never_uses_verified_label: true
+reports:
+  reasons: [impersonation, safety_concern, inaccurate_information, spam, payment_issue, accessibility_misrepresentation]
+  triage_target_hours: 48
+  creates_alert: false
+accessibility:
+  values: [yes, no, unknown]
+  unknown_renders_as_accessible: false
+  fields:
+    - step_free_entrance
+    - step_free_route
+    - accessible_toilet
+    - accessible_parking
+    - accessible_seating
+    - captioning
+    - sign_language
+    - hearing_loop
+    - quiet_room
+    - assistance_dogs
+  label: 'Reported by the organizer, last verified {date}'
+paid_events:
+  ytci_is_merchant: false
+  checkout: outbound_handoff
+  requires: [price_amount, price_currency, ticket_url, sales_window]
+  disclosure: 'YTCI does not process payment.'
+developer_roles:
+  scanner:
+    source: organizer_staff
+    scope: one_organizer
+    grant: admin
+    sees: [attendee_name, ticket_type]

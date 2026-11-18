@@ -1,0 +1,40 @@
+{
+  "contracts": [
+    {
+      "contract": "openapi",
+      "version": "1.0.0",
+      "frozenAt": "2026-11-18T00:00:00Z",
+      "ownerStream": "platform"
+    },
+    {
+      "contract": "cloudevents",
+      "version": "1.0.0",
+      "frozenAt": "2026-11-18T00:00:00Z",
+      "ownerStream": "recognition"
+    },
+    {
+      "contract": "roles",
+      "version": "1.0.0",
+      "frozenAt": "2026-11-18T00:00:00Z",
+      "ownerStream": "platform"
+    },
+    {
+      "contract": "mice",
+      "version": "1.0.0",
+      "frozenAt": "2026-11-18T00:00:00Z",
+      "ownerStream": "mice"
+    },
+    {
+      "contract": "species",
+      "version": "1.0.0",
+      "frozenAt": "2026-11-18T00:00:00Z",
+      "ownerStream": "species"
+    },
+    {
+      "contract": "analytics",
+      "version": "1.0.0",
+      "frozenAt": "2026-11-18T00:00:00Z",
+      "ownerStream": "analytics"
+    }
+  ]
+}

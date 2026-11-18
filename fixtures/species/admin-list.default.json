@@ -1,0 +1,54 @@
+{
+  "items": [
+    {
+      "slug": "panthera-leo",
+      "scientificName": "Panthera leo",
+      "nameEn": "Lion",
+      "nameSw": "Simba",
+      "iucnCategory": "VU",
+      "taxonomicStatus": "accepted",
+      "publicationState": "published",
+      "heroMediaUrl": null,
+      "languages": [
+        "en",
+        "sw",
+        "mas"
+      ],
+      "saved": false
+    },
+    {
+      "slug": "loxodonta-africana",
+      "scientificName": "Loxodonta africana",
+      "nameEn": "African elephant",
+      "nameSw": "Tembo wa Afrika",
+      "iucnCategory": "EN",
+      "taxonomicStatus": "accepted",
+      "publicationState": "published",
+      "heroMediaUrl": null,
+      "languages": [
+        "en",
+        "sw",
+        "kam"
+      ],
+      "saved": false
+    },
+    {
+      "slug": "equus-grevyi",
+      "scientificName": "Equus grevyi",
+      "nameEn": "Grévy's zebra",
+      "nameSw": "Punda milia wa Grévy",
+      "iucnCategory": "EN",
+      "taxonomicStatus": "accepted",
+      "publicationState": "published",
+      "heroMediaUrl": null,
+      "languages": [
+        "en",
+        "sw",
+        "so"
+      ],
+      "saved": false
+    }
+  ],
+  "nextCursor": null,
+  "hasMore": false
+}

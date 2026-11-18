@@ -1,0 +1,3538 @@
+openapi: 3.0.3
+info:
+  title: YTC Explorer execution contracts
+  version: 1.0.0
+  description: |
+    Frozen interface for the four execution streams (MICE, recognition, species,
+    analytics) plus the platform contract endpoints. This is a contract gate,
+    not a claim that the handlers are implemented.
+
+    Conventions:
+    - All authenticated routes use `Authorization: Bearer <token>`.
+    - Guests may call `/v1/public/*`. Account routes live under `/v1/mobile/*`
+      and require auth; `/v1/mobile/*` read routes also work without auth where
+      the contract marks `security: []`.
+    - Errors use `{ "error": { "code", "message" } }`; validation failures use
+      `{ "errors": [ { "field", "message" } ] }`.
+    - Cursor pagination uses `limit` and `cursor`; responses use
+      `items`, `nextCursor`, `hasMore`.
+    - Timestamps are RFC 3339 in `Africa/Nairobi` unless a `timezone` field says
+      otherwise.
+    - Breaking changes require the change-control ticket described in
+      docs/execution/contracts.md.
+servers:
+  - url: https://ytci-go.onrender.com
+    description: production
+  - url: http://localhost:8099
+    description: contracts mock server
+tags:
+  - name: mice
+    description: Events, venues, sessions, registration, tickets, check-in
+  - name: recognition
+    description: Rules, XP, badges, missions, seasons, leaderboard
+  - name: species
+    description: Species catalogue, languages, sources, rights
+  - name: analytics
+    description: Pseudonymous product analytics and rollups
+  - name: platform
+    description: Contract versions and shared metadata
+security:
+  - bearerAuth: []
+paths:
+  # -------------------------------------------------------------------------
+  # MICE — public
+  # -------------------------------------------------------------------------
+  /v1/public/events:
+    get:
+      tags: [mice]
+      operationId: listPublicEvents
+      summary: Published events visible to guests
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/EventClass'
+        - $ref: '#/components/parameters/Format'
+        - $ref: '#/components/parameters/CountyGid'
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 120 }
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Event page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/EventSummary' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /v1/public/events/{id}:
+    get:
+      tags: [mice]
+      operationId: getPublicEvent
+      summary: Event detail with agenda, venue, accessibility and registration state
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      responses:
+        '200':
+          description: Event detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EventDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /v1/public/events/{id}/calendar.ics:
+    get:
+      tags: [mice]
+      operationId: getPublicEventCalendar
+      summary: RFC 5545 VEVENT with VALARM
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - name: alarm_minutes
+          in: query
+          schema: { type: integer, enum: [60, 1440, 10080] }
+      responses:
+        '200':
+          description: ICS calendar
+          content:
+            text/calendar:
+              schema: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/public/organizers/{slug}:
+    get:
+      tags: [mice]
+      operationId: getPublicOrganizer
+      summary: Organizer page with trust tier and published events
+      security: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string, pattern: '^[a-z0-9-]+$' }
+      responses:
+        '200':
+          description: Organizer profile
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizerProfile' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/public/venues/{slug}:
+    get:
+      tags: [mice]
+      operationId: getPublicVenue
+      summary: Venue sheet with dated accessibility provenance
+      security: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string, pattern: '^[a-z0-9-]+$' }
+      responses:
+        '200':
+          description: Venue
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Venue' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # -------------------------------------------------------------------------
+  # MICE — account
+  # -------------------------------------------------------------------------
+  /v1/mobile/events/{id}/registrations:
+    post:
+      tags: [mice]
+      operationId: createEventRegistration
+      summary: Register (rsvp) or record a ticket handoff interest
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegistrationRequest' }
+      responses:
+        '201':
+          description: Registration created, waitlisted or handoff recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Registration' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: Capacity, duplicate registration, or registration closed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /v1/mobile/events/{id}/registration:
+    get:
+      tags: [mice]
+      operationId: getMyEventRegistration
+      summary: The reader's registration, ticket and check-in state
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      responses:
+        '200':
+          description: Registration
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Registration' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [mice]
+      operationId: cancelMyEventRegistration
+      summary: Cancel a confirmed registration and trigger FIFO waitlist promotion
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      responses:
+        '200':
+          description: Cancelled registration
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Registration' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: Event already started, already checked in, or not cancellable
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /v1/mobile/registrations:
+    get:
+      tags: [mice]
+      operationId: listMyEventRegistrations
+      summary: Registrations for the reader's ticket wallet
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: state
+          in: query
+          schema: { type: string, enum: [upcoming, past, all], default: upcoming }
+      responses:
+        '200':
+          description: Registration page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Registration' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/mobile/events/{id}/ticket:
+    get:
+      tags: [mice]
+      operationId: getEventTicket
+      summary: Signed, short-TTL QR ticket for a confirmed registration
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      responses:
+        '200':
+          description: Ticket
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ticket' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: No confirmed registration, or check-in is disabled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/mobile/events/{id}/checkins:
+    post:
+      tags: [mice]
+      operationId: checkInEventAttendee
+      summary: Staff check-in by QR token or manual name lookup
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CheckInRequest' }
+      responses:
+        '201':
+          description: Check-in recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CheckIn' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: Actor is not assigned staff for this organizer
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: Duplicate scan; the existing check-in is returned in `details`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /v1/mobile/events/{id}/checkin-scans:
+    post:
+      tags: [mice]
+      operationId: syncOfflineCheckInScans
+      summary: Batch-sync the offline scanner queue (first write wins)
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CheckInScanBatch' }
+      responses:
+        '200':
+          description: Per-scan resolution
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CheckInScanBatchResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/mobile/events/{id}/reports:
+    post:
+      tags: [mice]
+      operationId: reportEvent
+      summary: Report an event or organizer; never creates an Alert
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EventReportRequest' }
+      responses:
+        '202':
+          description: Report accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Acknowledgement' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /v1/mobile/events/{id}/notifications:
+    get:
+      tags: [mice]
+      operationId: listEventNotifications
+      summary: Durable Events filter for Alerts & updates
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Notification page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/EventNotification' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/mobile/events/{id}/reminder:
+    put:
+      tags: [mice]
+      operationId: setEventReminder
+      summary: Set or clear the opt-in reminder offset
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [offsetMinutes]
+              properties:
+                offsetMinutes:
+                  type: integer
+                  nullable: true
+                  enum: [60, 1440, 10080]
+      responses:
+        '200':
+          description: Registration with the updated reminder
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Registration' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # -------------------------------------------------------------------------
+  # MICE — admin
+  # -------------------------------------------------------------------------
+  /v1/admin/venues:
+    get:
+      tags: [mice]
+      operationId: adminListVenues
+      summary: Venue admin list
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/CountyGid'
+      responses:
+        '200':
+          description: Venue page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Venue' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [mice]
+      operationId: adminCreateVenue
+      summary: Create a curated venue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VenueWrite' }
+      responses:
+        '201':
+          description: Venue created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Venue' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/venues/{id}:
+    patch:
+      tags: [mice]
+      operationId: adminUpdateVenue
+      summary: Update a venue and its accessibility report
+      parameters:
+        - $ref: '#/components/parameters/VenueId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VenueWrite' }
+      responses:
+        '200':
+          description: Venue updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Venue' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/admin/organizers:
+    get:
+      tags: [mice]
+      operationId: adminListOrganizers
+      summary: Organizer verification queue
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [unverified, pending, verified, expired, revoked]
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Organizer page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/OrganizerProfile' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [mice]
+      operationId: adminCreateOrganizer
+      summary: Create an organizer profile draft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrganizerWrite' }
+      responses:
+        '201':
+          description: Organizer created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizerProfile' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/organizers/{id}:
+    patch:
+      tags: [mice]
+      operationId: adminUpdateOrganizer
+      summary: Update organizer profile, trust tier or expiry
+      parameters:
+        - $ref: '#/components/parameters/OrganizerId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrganizerWrite' }
+      responses:
+        '200':
+          description: Organizer updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizerProfile' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/organizers/{id}/verification:
+    post:
+      tags: [mice]
+      operationId: adminDecideOrganizerVerification
+      summary: Verify, reject, revoke, restore or expire an organizer
+      description: |
+        Requires the `organizer.verify` permission. The actor must differ from
+        the organizer requester; every decision writes an append-only
+        organizer_verification_event and an audit row.
+      parameters:
+        - $ref: '#/components/parameters/OrganizerId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrganizerVerificationDecision' }
+      responses:
+        '200':
+          description: Organizer with the new state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizerProfile' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: Reviewer is the requester, or the transition is invalid
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /v1/admin/events:
+    get:
+      tags: [mice]
+      operationId: adminListEvents
+      summary: Event review queue and event admin list
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, published, postponed, cancelled, scheduled]
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Event page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/EventSummary' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/events/{id}/publish:
+    post:
+      tags: [mice]
+      operationId: adminPublishEvent
+      summary: Publish a reviewed event (programme partners after readiness checks)
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      responses:
+        '200':
+          description: Published event
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EventDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: Readiness or organizer verification failed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /v1/admin/events/{id}/change-notices:
+    post:
+      tags: [mice]
+      operationId: adminDraftEventChangeNotice
+      summary: Draft a material change notice with EN/SW copy and a preview
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChangeNoticeWrite' }
+      responses:
+        '201':
+          description: Draft notice
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChangeNotice' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: No material field changed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /v1/admin/events/{id}/registrations:
+    get:
+      tags: [mice]
+      operationId: adminListEventRegistrations
+      summary: Registrations for an event
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [confirmed, waitlisted, cancelled, checked_in]
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Registration page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/AdminRegistration' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/events/{id}/checkins:
+    get:
+      tags: [mice]
+      operationId: adminListEventCheckIns
+      summary: Check-ins and flagged duplicate scans
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Check-in page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/CheckIn' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/event-reports:
+    get:
+      tags: [mice]
+      operationId: adminListEventReports
+      summary: Event report moderation queue
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [open, triaged, resolved, dismissed] }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Report page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/EventReport' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/event-reports/{id}/decision:
+    post:
+      tags: [mice]
+      operationId: adminDecideEventReport
+      summary: Resolve or dismiss an event report
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision, note]
+              properties:
+                decision: { type: string, enum: [resolve, dismiss, revoke_organizer] }
+                note: { type: string, minLength: 5, maxLength: 2000 }
+      responses:
+        '200':
+          description: Updated report
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EventReport' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # -------------------------------------------------------------------------
+  # Recognition — public and account
+  # -------------------------------------------------------------------------
+  /v1/public/leaderboard:
+    get:
+      tags: [recognition]
+      operationId: getPublicLeaderboard
+      summary: Heritage-only seasonal leaderboard (18+, opt-in, county scope)
+      security: []
+      parameters:
+        - name: seasonKey
+          in: query
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/CountyGid'
+      responses:
+        '200':
+          description: Leaderboard, or a suppression state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Leaderboard' }
+        '451':
+          description: Public leaderboard is unavailable (legal or kill switch)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /v1/public/seasons/{key}:
+    get:
+      tags: [recognition]
+      operationId: getPublicSeason
+      summary: Season dates, tracks and mission families
+      security: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Season
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Season' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/mobile/recognition:
+    get:
+      tags: [recognition]
+      operationId: getRecognitionOverview
+      summary: Level, private XP, recent awards, season and passport snapshot
+      responses:
+        '200':
+          description: Recognition overview
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecognitionOverview' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/mobile/recognition/badges:
+    get:
+      tags: [recognition]
+      operationId: listMyBadges
+      summary: Badge catalogue with earned, locked and hidden state
+      parameters:
+        - name: family
+          in: query
+          schema: { type: string }
+        - name: state
+          in: query
+          schema: { type: string, enum: [all, earned, locked], default: all }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Badge page with counts
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/BadgeAward' }
+                      counts:
+                        type: object
+                        properties:
+                          earned: { type: integer }
+                          locked: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/mobile/recognition/badges/{key}:
+    get:
+      tags: [recognition]
+      operationId: getMyBadge
+      summary: Badge detail with criteria, source and privacy toggle
+      parameters:
+        - $ref: '#/components/parameters/BadgeKey'
+      responses:
+        '200':
+          description: Badge detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BadgeAward' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [recognition]
+      operationId: setMyBadgeVisibility
+      summary: Hide or show an owned badge
+      parameters:
+        - $ref: '#/components/parameters/BadgeKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hidden]
+              properties:
+                hidden: { type: boolean }
+      responses:
+        '200':
+          description: Updated badge
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BadgeAward' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/mobile/recognition/missions:
+    get:
+      tags: [recognition]
+      operationId: listMyMissions
+      summary: Deterministic mission progress
+      parameters:
+        - name: state
+          in: query
+          schema: { type: string, enum: [all, active, completed], default: all }
+      responses:
+        '200':
+          description: Missions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Mission' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/mobile/recognition/seasons/{key}:
+    get:
+      tags: [recognition]
+      operationId: getMySeason
+      summary: Season detail with the reader's private progress
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Season with progress
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeasonProgress' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/mobile/recognition/passport:
+    get:
+      tags: [recognition]
+      operationId: getMyPassport
+      summary: Private county and heritage collections
+      responses:
+        '200':
+          description: Passport
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Passport' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/mobile/recognition/leaderboard:
+    get:
+      tags: [recognition]
+      operationId: getMyLeaderboardState
+      summary: Opt-in state, eligibility, own rank or the join explainer
+      parameters:
+        - name: seasonKey
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Leaderboard state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeaderboardState' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/mobile/recognition/leaderboard/join:
+    post:
+      tags: [recognition]
+      operationId: joinLeaderboard
+      summary: Join the season leaderboard after the display-name preview
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LeaderboardJoin' }
+      responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '201':
+          description: Joined
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeaderboardState' }
+        '403':
+          description: Under 18, consent missing, or public leaderboard disabled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    delete:
+      tags: [recognition]
+      operationId: leaveLeaderboard
+      summary: Withdraw from the leaderboard, keeping private progress
+      parameters:
+        - name: seasonKey
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Withdrawn
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeaderboardState' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/mobile/recognition/display-name:
+    patch:
+      tags: [recognition]
+      operationId: updateDisplayName
+      summary: Set a moderated leaderboard display name (once per 30 days)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [displayName]
+              properties:
+                displayName:
+                  type: string
+                  minLength: 2
+                  maxLength: 24
+                  pattern: '^[A-Za-z0-9 .,''-]+$'
+      responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '200':
+          description: Pending moderation
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DisplayName' }
+        '409':
+          description: Change window has not elapsed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /v1/mobile/recognition/reports:
+    post:
+      tags: [recognition]
+      operationId: reportLeaderboardEntry
+      summary: Report a display name or suspected cheating
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [seasonKey, subjectRef, reason]
+              properties:
+                seasonKey: { type: string }
+                subjectRef: { type: string, description: 'Opaque public entry reference, never a user id' }
+                reason: { type: string, enum: [fraud, abuse, impersonation, harassment, display_name] }
+                details: { type: string, maxLength: 1000 }
+      responses:
+        '202':
+          description: Report accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Acknowledgement' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # -------------------------------------------------------------------------
+  # Recognition — admin
+  # -------------------------------------------------------------------------
+  /v1/admin/recognition/rules:
+    get:
+      tags: [recognition]
+      operationId: adminListRecognitionRules
+      summary: Rules with versions and effective windows
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [draft, published, retired] }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Rule page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/RecognitionRule' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [recognition]
+      operationId: adminCreateRecognitionRule
+      summary: Draft a new immutable rule version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecognitionRuleWrite' }
+      responses:
+        '201':
+          description: Rule draft
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecognitionRule' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/recognition/rules/{id}/publish:
+    post:
+      tags: [recognition]
+      operationId: adminPublishRecognitionRule
+      summary: Publish a simulated rule version
+      parameters:
+        - $ref: '#/components/parameters/RuleId'
+      responses:
+        '200':
+          description: Published rule
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecognitionRule' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: Publisher is the author, or the rule was not simulated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /v1/admin/recognition/rules/{id}/simulate:
+    post:
+      tags: [recognition]
+      operationId: adminSimulateRecognitionRule
+      summary: Dry-run a rule against historical events
+      parameters:
+        - $ref: '#/components/parameters/RuleId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from: { type: string, format: date-time }
+                to: { type: string, format: date-time }
+      responses:
+        '200':
+          description: Simulation summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RuleSimulation' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/recognition/badges:
+    get:
+      tags: [recognition]
+      operationId: adminListBadgeDefinitions
+      summary: Badge catalogue
+      responses:
+        '200':
+          description: Badge definitions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/BadgeDefinition' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [recognition]
+      operationId: adminCreateBadgeDefinition
+      summary: Draft a badge with EN/SW names
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BadgeDefinitionWrite' }
+      responses:
+        '201':
+          description: Badge draft
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BadgeDefinition' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/recognition/seasons:
+    get:
+      tags: [recognition]
+      operationId: adminListSeasons
+      summary: Seasons with state and close windows
+      responses:
+        '200':
+          description: Seasons
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Season' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [recognition]
+      operationId: adminCreateSeason
+      summary: Create a quarterly season
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SeasonWrite' }
+      responses:
+        '201':
+          description: Season
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Season' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/recognition/seasons/{id}/close:
+    post:
+      tags: [recognition]
+      operationId: adminCloseSeason
+      summary: Close and snapshot the board
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Closed season
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Season' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/recognition/moderation:
+    get:
+      tags: [recognition]
+      operationId: adminListModerationCases
+      summary: Display-name, cheating and report queue
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [open, triaged, decided, appealed, closed] }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Case page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/ModerationCase' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/recognition/moderation/{id}/decision:
+    post:
+      tags: [recognition]
+      operationId: adminDecideModerationCase
+      summary: Decide a case; disqualification is audited and appealable
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision, reason]
+              properties:
+                decision: { type: string, enum: [warn, disqualify, rename, dismiss, revoke] }
+                reason: { type: string, minLength: 10, maxLength: 2000 }
+      responses:
+        '200':
+          description: Decided case
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModerationCase' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/recognition/backfill:
+    get:
+      tags: [recognition]
+      operationId: adminListBackfillBatches
+      summary: Backfill batches with dry-run diffs
+      responses:
+        '200':
+          description: Batches
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/BackfillBatch' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [recognition]
+      operationId: adminCreateBackfillBatch
+      summary: Create a dry-run batch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ruleKey, ruleVersion, from, to]
+              properties:
+                ruleKey: { type: string }
+                ruleVersion: { type: integer, minimum: 1 }
+                from: { type: string, format: date-time }
+                to: { type: string, format: date-time }
+      responses:
+        '201':
+          description: Dry-run batch
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BackfillBatch' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/recognition/backfill/{id}/approve:
+    post:
+      tags: [recognition]
+      operationId: adminApproveBackfillBatch
+      summary: Second-approver approval; the approver must differ from the requester
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Approved batch
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BackfillBatch' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: Same actor requested and approved the batch
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /v1/admin/recognition/adjustments:
+    post:
+      tags: [recognition]
+      operationId: adminCreateXpAdjustment
+      summary: Compensating XP entry with a reason and a second approver
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subjectRef, amount, reason, note]
+              properties:
+                subjectRef: { type: string }
+                amount: { type: integer }
+                reason: { type: string, enum: [adjustment, reversal] }
+                note: { type: string, minLength: 10, maxLength: 1000 }
+                compensatingFor: { type: string, format: uuid, nullable: true }
+      responses:
+        '201':
+          description: Ledger entry
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/XpEntry' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/recognition/kill-switches:
+    get:
+      tags: [recognition]
+      operationId: adminListKillSwitches
+      summary: Global, per-source and public-leaderboard switches
+      responses:
+        '200':
+          description: Switches
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/KillSwitch' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/recognition/kill-switches/{key}:
+    patch:
+      tags: [recognition]
+      operationId: adminSetKillSwitch
+      summary: Flip a kill switch (enforced server-side on every read and write)
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [global, public_leaderboard, 'source:event', 'source:audio']
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled, reason]
+              properties:
+                enabled: { type: boolean }
+                reason: { type: string, minLength: 5, maxLength: 500 }
+      responses:
+        '200':
+          description: Updated switch
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KillSwitch' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/recognition/audit:
+    get:
+      tags: [recognition]
+      operationId: adminListRecognitionAudit
+      summary: Immutable admin and adjustment trail
+      parameters:
+        - name: entityType
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Audit page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/AuditEntry' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # -------------------------------------------------------------------------
+  # Species — public and account
+  # -------------------------------------------------------------------------
+  /v1/public/species:
+    get:
+      tags: [species]
+      operationId: listPublicSpecies
+      summary: Published species index
+      security: []
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 120 }
+        - name: language
+          in: query
+          schema: { type: string }
+        - name: iucn
+          in: query
+          schema: { type: string, enum: [CR, EN, VU, NT, LC, DD, NE] }
+        - $ref: '#/components/parameters/CountyGid'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Species page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/SpeciesSummary' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+  /v1/public/species/{slug}:
+    get:
+      tags: [species]
+      operationId: getPublicSpecies
+      summary: Full species record with language resolution and fallback reasons
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/SpeciesSlug'
+        - name: language
+          in: query
+          schema: { type: string, default: en }
+      responses:
+        '200':
+          description: Species detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpeciesDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '410':
+          description: Rights withdrawal tombstone
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /v1/public/species/{slug}/languages:
+    get:
+      tags: [species]
+      operationId: listSpeciesLanguages
+      summary: Reviewed language coverage for one species
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/SpeciesSlug'
+      responses:
+        '200':
+          description: Language coverage
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/LanguageCoverage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/mobile/species/saved:
+    get:
+      tags: [species]
+      operationId: listSavedSpecies
+      summary: The reader's saved species
+      responses:
+        '200':
+          description: Saved species
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/SpeciesSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/mobile/species/{slug}/save:
+    post:
+      tags: [species]
+      operationId: saveSpecies
+      summary: Save a species
+      parameters:
+        - $ref: '#/components/parameters/SpeciesSlug'
+      responses:
+        '201':
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Acknowledgement' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    delete:
+      tags: [species]
+      operationId: unsaveSpecies
+      summary: Remove a saved species
+      parameters:
+        - $ref: '#/components/parameters/SpeciesSlug'
+      responses:
+        '204':
+          description: Removed
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/mobile/species/packs/{language}:
+    get:
+      tags: [species]
+      operationId: getSpeciesPackManifest
+      summary: Explicit local-language pack manifest (no silent background fetch)
+      parameters:
+        - name: language
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Pack manifest
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpeciesPack' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # -------------------------------------------------------------------------
+  # Species — admin
+  # -------------------------------------------------------------------------
+  /v1/admin/species:
+    get:
+      tags: [species]
+      operationId: adminListSpecies
+      summary: Species admin catalogue
+      parameters:
+        - name: state
+          in: query
+          schema: { type: string, enum: [draft, in_review, published, unpublished, tombstoned] }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Species page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/SpeciesSummary' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [species]
+      operationId: adminCreateSpecies
+      summary: Create the base species record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpeciesWrite' }
+      responses:
+        '201':
+          description: Species draft
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpeciesDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/species/{id}:
+    get:
+      tags: [species]
+      operationId: adminGetSpecies
+      summary: Full admin record with variants, sources and review state
+      parameters:
+        - $ref: '#/components/parameters/SpeciesId'
+      responses:
+        '200':
+          description: Species
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpeciesDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [species]
+      operationId: adminUpdateSpecies
+      summary: Update taxonomy, status or publication state
+      parameters:
+        - $ref: '#/components/parameters/SpeciesId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpeciesWrite' }
+      responses:
+        '200':
+          description: Updated species
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpeciesDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/species/{id}/variants:
+    post:
+      tags: [species]
+      operationId: adminUpsertSpeciesVariant
+      summary: Create or update a per-language prose variant
+      parameters:
+        - $ref: '#/components/parameters/SpeciesId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpeciesVariantWrite' }
+      responses:
+        '200':
+          description: Variant
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpeciesVariant' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/species/{id}/publish:
+    post:
+      tags: [species]
+      operationId: adminPublishSpecies
+      summary: Publish a fully reviewed variant set
+      parameters:
+        - $ref: '#/components/parameters/SpeciesId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [language]
+              properties:
+                language: { type: string }
+      responses:
+        '200':
+          description: Published species
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpeciesDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: Missing source, rights, translation or review separation
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /v1/admin/species/{id}/unpublish:
+    post:
+      tags: [species]
+      operationId: adminUnpublishSpecies
+      summary: Unpublish or tombstone after a rights withdrawal
+      parameters:
+        - $ref: '#/components/parameters/SpeciesId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 10, maxLength: 1000 }
+                tombstone: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Unpublished species
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpeciesDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/species/review:
+    get:
+      tags: [species]
+      operationId: adminListSpeciesReviewQueue
+      summary: Translation, language, expert, rights and publish queue
+      parameters:
+        - name: stage
+          in: query
+          schema: { type: string, enum: [translation, language, expert, rights, publish] }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Review page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/SpeciesReviewItem' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/species/review/{id}/decision:
+    post:
+      tags: [species]
+      operationId: adminDecideSpeciesReview
+      summary: Record a review decision; translator and reviewer must differ
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [approved, changes_requested, rejected] }
+                notes: { type: string, maxLength: 2000 }
+      responses:
+        '200':
+          description: Review item
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpeciesReviewItem' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: Self-review or missing required stage
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /v1/admin/species/sources:
+    get:
+      tags: [species]
+      operationId: adminListSpeciesSources
+      summary: Source registry with licence and permitted use
+      parameters:
+        - name: speciesId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Sources
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/SpeciesSource' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [species]
+      operationId: adminCreateSpeciesSource
+      summary: Add a source; no source means no publish
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpeciesSourceWrite' }
+      responses:
+        '201':
+          description: Source
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpeciesSource' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/species/rights:
+    get:
+      tags: [species]
+      operationId: adminListSpeciesRights
+      summary: Media and audio rights records
+      responses:
+        '200':
+          description: Rights
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/SpeciesRights' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [species]
+      operationId: adminCreateSpeciesRights
+      summary: Record rights and consent for a media or audio asset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpeciesRightsWrite' }
+      responses:
+        '201':
+          description: Rights record
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpeciesRights' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # -------------------------------------------------------------------------
+  # Analytics
+  # -------------------------------------------------------------------------
+  /v1/mobile/analytics/installs:
+    post:
+      tags: [analytics]
+      operationId: registerAnalyticsInstall
+      summary: Mint an analytics_id for a guest or account install
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AnalyticsInstallRequest' }
+      responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '201':
+          description: Identity minted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnalyticsIdentity' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '451':
+          description: Identified analytics disabled for a self-declared under-18
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /v1/mobile/analytics/batches:
+    post:
+      tags: [analytics]
+      operationId: ingestAnalyticsBatch
+      summary: Idempotent offline-queue flush for screen_view, action and journey_step
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AnalyticsBatch' }
+      responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '202':
+          description: Batch accepted or partially accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnalyticsBatchAck' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '403':
+          description: Consent missing, stale or withdrawn
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /v1/mobile/analytics/consent:
+    put:
+      tags: [analytics]
+      operationId: setAnalyticsConsent
+      summary: Record analytics consent at enqueue and flush
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AnalyticsConsentWrite' }
+      responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '200':
+          description: Consent state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnalyticsConsent' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [analytics]
+      operationId: withdrawAnalyticsConsent
+      summary: Withdraw consent and clear the client queue
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/AnalyticsId'
+      responses:
+        '200':
+          description: Denied consent state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnalyticsConsent' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/mobile/analytics/export:
+    get:
+      tags: [analytics]
+      operationId: exportMyAnalytics
+      summary: JSON export of the reader's analytics events and sessions
+      responses:
+        '200':
+          description: Export document
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnalyticsExport' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/admin/analytics/overview:
+    get:
+      tags: [analytics]
+      operationId: adminAnalyticsOverview
+      summary: Activation, DAU/WAU/MAU and guest-to-account ratio
+      parameters:
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+      responses:
+        '200':
+          description: Overview metrics
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnalyticsOverview' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/analytics/journeys:
+    get:
+      tags: [analytics]
+      operationId: adminAnalyticsJourneys
+      summary: Top transitions and drop-off for the nine journeys
+      parameters:
+        - $ref: '#/components/parameters/Journey'
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+      responses:
+        '200':
+          description: Journey steps
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/JourneyStepMetric' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/analytics/funnels:
+    get:
+      tags: [analytics]
+      operationId: adminAnalyticsFunnels
+      summary: Funnel conversion for the nine journeys
+      parameters:
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+      responses:
+        '200':
+          description: Funnels
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/FunnelMetric' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/analytics/retention:
+    get:
+      tags: [analytics]
+      operationId: adminAnalyticsRetention
+      summary: Weekly cohorts at 4, 8 and 12 weeks
+      parameters:
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+      responses:
+        '200':
+          description: Retention cohorts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/RetentionMetric' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/analytics/adoption:
+    get:
+      tags: [analytics]
+      operationId: adminAnalyticsAdoption
+      summary: Reach, depth and repeat per feature
+      parameters:
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+      responses:
+        '200':
+          description: Adoption metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/AdoptionMetric' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/analytics/quality:
+    get:
+      tags: [analytics]
+      operationId: adminAnalyticsQuality
+      summary: Ingest volume, dropped properties, unknown keys and consent coverage
+      parameters:
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+      responses:
+        '200':
+          description: Data quality metrics
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataQuality' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/analytics/export:
+    post:
+      tags: [analytics]
+      operationId: adminAnalyticsExport
+      summary: CSV export for a date range; no PII
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from, to]
+              properties:
+                from: { type: string, format: date }
+                to: { type: string, format: date }
+                dataset: { type: string, enum: [overview, journeys, funnels, retention, adoption, quality] }
+      responses:
+        '202':
+          description: Export job accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Acknowledgement' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/analytics/erasure:
+    post:
+      tags: [analytics]
+      operationId: adminRequestAnalyticsErasure
+      summary: Request erasure for a user or analytics_id; tombstones the identity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subjectType, subjectRef]
+              properties:
+                subjectType: { type: string, enum: [user, analytics_id] }
+                subjectRef: { type: string }
+      responses:
+        '202':
+          description: Erasure accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErasureRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # -------------------------------------------------------------------------
+  # Platform
+  # -------------------------------------------------------------------------
+  /v1/public/contracts:
+    get:
+      tags: [platform]
+      operationId: getContractVersions
+      summary: Frozen contract versions the client was built against
+      security: []
+      responses:
+        '200':
+          description: Contract versions
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContractVersions' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+    EventId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    VenueId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    OrganizerId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    RuleId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    SpeciesId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    SpeciesSlug:
+      name: slug
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[a-z0-9-]+$' }
+    BadgeKey:
+      name: key
+      in: path
+      required: true
+      schema: { type: string }
+    EventClass:
+      name: eventClass
+      in: query
+      schema: { type: string, enum: [meeting, incentive, conference, exhibition, community] }
+    Format:
+      name: format
+      in: query
+      schema: { type: string, enum: [in_person, online, hybrid] }
+    CountyGid:
+      name: countyGid
+      in: query
+      schema: { type: integer, minimum: 1 }
+    Journey:
+      name: journey
+      in: query
+      schema:
+        type: string
+        enum: [onboarding, first_itinerary, event_registration, challenge_submission, conservation_checkin, course_completion, heritage_visit, audio_playback, recognition_optin]
+    DateFrom:
+      name: from
+      in: query
+      required: true
+      schema: { type: string, format: date }
+    DateTo:
+      name: to
+      in: query
+      required: true
+      schema: { type: string, format: date }
+    AnalyticsId:
+      name: analyticsId
+      in: query
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema: { type: string, minLength: 8, maxLength: 128 }
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Authenticated but not permitted
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Rate limited
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ServiceUnavailable:
+      description: Dependency or kill switch unavailable
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ValidationError:
+      description: Request validation failed
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ValidationError' }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, example: EVENT_CAPACITY_FULL }
+            message: { type: string }
+            details:
+              type: object
+              additionalProperties: true
+            requestId: { type: string }
+    ValidationError:
+      type: object
+      required: [errors]
+      properties:
+        errors:
+          type: array
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field: { type: string }
+              message: { type: string }
+    Page:
+      type: object
+      required: [items, hasMore]
+      properties:
+        items: { type: array, items: {} }
+        nextCursor: { type: string, nullable: true }
+        hasMore: { type: boolean }
+    Acknowledgement:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean, example: true }
+        id: { type: string }
+        message: { type: string }
+    ContractVersions:
+      type: object
+      required: [contracts]
+      properties:
+        contracts:
+          type: array
+          items:
+            type: object
+            required: [contract, version]
+            properties:
+              contract: { type: string }
+              version: { type: string }
+              frozenAt: { type: string, format: date-time }
+              ownerStream: { type: string }
+
+    # -----------------------------------------------------------------------
+    # MICE
+    # -----------------------------------------------------------------------
+    EventSummary:
+      type: object
+      required: [id, title, eventClass, format, access, status, startsAt, timezone, county]
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: string }
+        title: { type: string }
+        eventClass: { type: string, enum: [meeting, incentive, conference, exhibition, community] }
+        format: { type: string, enum: [in_person, online, hybrid] }
+        access: { type: string, enum: [public, registered, invite_only] }
+        status: { type: string, enum: [draft, published, postponed, cancelled, scheduled] }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time, nullable: true }
+        timezone: { type: string, example: Africa/Nairobi }
+        county: { type: string }
+        countyGid: { type: integer, nullable: true }
+        venue:
+          allOf: [{ $ref: '#/components/schemas/VenueRef' }]
+          nullable: true
+        organizer:
+          allOf: [{ $ref: '#/components/schemas/OrganizerRef' }]
+          nullable: true
+        imageUrl: { type: string, nullable: true }
+        capacity: { type: integer, nullable: true }
+        seatsRemaining: { type: integer, nullable: true }
+        waitlistOpen: { type: boolean }
+        registrationMode: { type: string, enum: [rsvp, ticket_handoff, none] }
+        price:
+          allOf: [{ $ref: '#/components/schemas/Price' }]
+          nullable: true
+        accessibility:
+          $ref: '#/components/schemas/AccessibilitySummary'
+        saved: { type: boolean }
+    EventDetail:
+      allOf:
+        - $ref: '#/components/schemas/EventSummary'
+        - type: object
+          properties:
+            description: { type: string, nullable: true }
+            highlights:
+              type: array
+              items: { type: string }
+            agenda:
+              type: array
+              items: { $ref: '#/components/schemas/Session' }
+            sessionCount: { type: integer }
+            speakerCount: { type: integer }
+            accessibilityDetail:
+              allOf: [{ $ref: '#/components/schemas/AccessibilityBlock' }]
+              nullable: true
+            venueDetail:
+              allOf: [{ $ref: '#/components/schemas/Venue' }]
+              nullable: true
+            organizerDetail:
+              allOf: [{ $ref: '#/components/schemas/OrganizerProfile' }]
+              nullable: true
+            registrationQuestions:
+              type: array
+              maxItems: 2
+              items: { $ref: '#/components/schemas/RegistrationQuestion' }
+            sales:
+              allOf: [{ $ref: '#/components/schemas/Sales' }]
+              nullable: true
+            registration:
+              allOf: [{ $ref: '#/components/schemas/Registration' }]
+              nullable: true
+            notifications:
+              type: array
+              items: { $ref: '#/components/schemas/EventNotification' }
+    VenueRef:
+      type: object
+      required: [slug, name, county]
+      properties:
+        slug: { type: string }
+        name: { type: string }
+        county: { type: string }
+        countyGid: { type: integer, nullable: true }
+    Venue:
+      allOf:
+        - $ref: '#/components/schemas/VenueRef'
+        - type: object
+          properties:
+            id: { type: string, format: uuid }
+            addressLine1: { type: string, nullable: true }
+            addressLine2: { type: string, nullable: true }
+            latitude: { type: number, format: double, nullable: true }
+            longitude: { type: number, format: double, nullable: true }
+            capacityInPerson: { type: integer, nullable: true }
+            capacityOnline: { type: integer, nullable: true }
+            rooms:
+              type: array
+              items: { type: string }
+            transportNotes: { type: string, nullable: true }
+            dropoffNotes: { type: string, nullable: true }
+            parkingNotes: { type: string, nullable: true }
+            accessibility:
+              allOf: [{ $ref: '#/components/schemas/AccessibilityBlock' }]
+              nullable: true
+            verifiedAt: { type: string, format: date-time, nullable: true }
+    VenueWrite:
+      type: object
+      required: [name, county]
+      properties:
+        name: { type: string }
+        slug: { type: string }
+        county: { type: string }
+        countyGid: { type: integer, nullable: true }
+        addressLine1: { type: string }
+        addressLine2: { type: string }
+        latitude: { type: number, nullable: true }
+        longitude: { type: number, nullable: true }
+        capacityInPerson: { type: integer, nullable: true }
+        capacityOnline: { type: integer, nullable: true }
+        rooms: { type: array, items: { type: string } }
+        transportNotes: { type: string }
+        dropoffNotes: { type: string }
+        parkingNotes: { type: string }
+        accessibility: { $ref: '#/components/schemas/AccessibilityWrite' }
+    AccessibilitySummary:
+      type: object
+      required: [state]
+      properties:
+        state: { type: string, enum: [reported, unknown] }
+        verifiedAt: { type: string, format: date-time, nullable: true }
+        label: { type: string, example: "Reported by the organizer, last verified 2026-11-01" }
+    AccessibilityBlock:
+      type: object
+      required: [reportedBy, verifiedAt, fields]
+      properties:
+        reportedBy: { type: string }
+        verifiedAt: { type: string, format: date-time, nullable: true }
+        label: { type: string }
+        fields:
+          type: object
+          required: [stepFreeEntrance, stepFreeRoute, accessibleToilet]
+          properties:
+            stepFreeEntrance: { type: string, enum: [yes, no, unknown] }
+            stepFreeRoute: { type: string, enum: [yes, no, unknown] }
+            accessibleToilet: { type: string, enum: [yes, no, unknown] }
+            accessibleParking: { type: string, enum: [yes, no, unknown] }
+            accessibleSeating: { type: string, enum: [yes, no, unknown] }
+            captioning: { type: string, enum: [yes, no, unknown] }
+            signLanguage: { type: string, enum: [yes, no, unknown] }
+            hearingLoop: { type: string, enum: [yes, no, unknown] }
+            quietRoom: { type: string, enum: [yes, no, unknown] }
+            assistanceDogs: { type: string, enum: [yes, no, unknown] }
+            companionTicketPolicy: { type: string, nullable: true }
+            contentNotes: { type: string, nullable: true }
+    AccessibilityWrite:
+      type: object
+      properties:
+        stepFreeEntrance: { type: string, enum: [yes, no, unknown] }
+        stepFreeRoute: { type: string, enum: [yes, no, unknown] }
+        accessibleToilet: { type: string, enum: [yes, no, unknown] }
+        accessibleParking: { type: string, enum: [yes, no, unknown] }
+        accessibleSeating: { type: string, enum: [yes, no, unknown] }
+        captioning: { type: string, enum: [yes, no, unknown] }
+        signLanguage: { type: string, enum: [yes, no, unknown] }
+        hearingLoop: { type: string, enum: [yes, no, unknown] }
+        quietRoom: { type: string, enum: [yes, no, unknown] }
+        assistanceDogs: { type: string, enum: [yes, no, unknown] }
+        companionTicketPolicy: { type: string }
+        contentNotes: { type: string }
+    OrganizerRef:
+      type: object
+      required: [slug, displayName, trustTier, label]
+      properties:
+        slug: { type: string }
+        displayName: { type: string }
+        trustTier: { type: string, enum: [programme_partner, verified_organizer, community_organizer] }
+        label: { type: string, example: Verified organizer }
+    OrganizerProfile:
+      allOf:
+        - $ref: '#/components/schemas/OrganizerRef'
+        - type: object
+          properties:
+            id: { type: string, format: uuid }
+            about: { type: string, nullable: true }
+            logoUrl: { type: string, nullable: true }
+            contactEmail: { type: string, nullable: true }
+            contactPhone: { type: string, nullable: true }
+            websiteUrl: { type: string, nullable: true }
+            verificationStatus: { type: string, enum: [unverified, pending, verified, expired, revoked] }
+            verifiedAt: { type: string, format: date-time, nullable: true }
+            verificationExpiresAt: { type: string, format: date-time, nullable: true }
+            revokedReason: { type: string, nullable: true }
+            upcomingEvents:
+              type: array
+              items: { $ref: '#/components/schemas/EventSummary' }
+            pastEventCount: { type: integer }
+    OrganizerWrite:
+      type: object
+      required: [displayName]
+      properties:
+        slug: { type: string }
+        displayName: { type: string }
+        trustTier: { type: string, enum: [programme_partner, verified_organizer, community_organizer] }
+        about: { type: string }
+        logoUrl: { type: string }
+        contactEmail: { type: string }
+        contactPhone: { type: string }
+        websiteUrl: { type: string }
+        legalName: { type: string }
+        registrationNumber: { type: string }
+    OrganizerVerificationDecision:
+      type: object
+      required: [action, reason]
+      properties:
+        action: { type: string, enum: [verify, reject, revoke, restore, expire, appeal_decide] }
+        trustTier: { type: string, enum: [programme_partner, verified_organizer, community_organizer] }
+        reason: { type: string, minLength: 10, maxLength: 2000 }
+        expiresAt: { type: string, format: date-time, nullable: true }
+        evidenceRef: { type: string, nullable: true }
+    Session:
+      type: object
+      required: [id, day, startsAt, endsAt, title]
+      properties:
+        id: { type: string, format: uuid }
+        day: { type: string, format: date }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        room: { type: string, nullable: true }
+        track: { type: string, nullable: true }
+        title: { type: string }
+        description: { type: string, nullable: true }
+        capacity: { type: integer, nullable: true }
+        speakers:
+          type: array
+          items: { $ref: '#/components/schemas/Speaker' }
+    Speaker:
+      type: object
+      required: [displayName]
+      properties:
+        id: { type: string, format: uuid }
+        displayName: { type: string }
+        title: { type: string, nullable: true }
+        organization: { type: string, nullable: true }
+        role: { type: string, enum: [speaker, moderator, panelist, host] }
+        photoUrl: { type: string, nullable: true }
+    Price:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount: { type: number, format: double, example: 2500 }
+        currency: { type: string, minLength: 3, maxLength: 3, example: KES }
+        display: { type: string, example: "KES 2,500" }
+    Sales:
+      type: object
+      required: [status, ticketUrl, soldBy]
+      properties:
+        status: { type: string, enum: [on_sale, sold_out, ended, not_on_sale] }
+        ticketUrl: { type: string, format: uri }
+        soldBy: { type: string, example: Organizer name }
+        salesEnd: { type: string, format: date-time, nullable: true }
+        disclosure: { type: string, example: YTCI does not process payment. }
+    RegistrationQuestion:
+      type: object
+      required: [id, promptEn, answerKind]
+      properties:
+        id: { type: string, format: uuid }
+        promptEn: { type: string }
+        promptSw: { type: string, nullable: true }
+        answerKind: { type: string, enum: [short_text, single_choice, boolean] }
+        choices: { type: array, items: { type: string } }
+        required: { type: boolean }
+    RegistrationRequest:
+      type: object
+      required: [mode]
+      properties:
+        mode: { type: string, enum: [rsvp, ticket_handoff] }
+        answers:
+          type: object
+          additionalProperties: { type: string }
+        reminderOffsetMinutes: { type: integer, nullable: true, enum: [60, 1440, 10080] }
+        acceptWaitlist: { type: boolean, default: true }
+    Registration:
+      type: object
+      required: [id, eventId, status, mode, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        eventId: { type: string, format: uuid }
+        status: { type: string, enum: [confirmed, waitlisted, cancelled, checked_in] }
+        mode: { type: string, enum: [rsvp, ticket_handoff] }
+        answers: { type: object, additionalProperties: { type: string } }
+        reminderOffsetMinutes: { type: integer, nullable: true }
+        waitlistPosition: { type: integer, nullable: true }
+        confirmBy: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        cancelledAt: { type: string, format: date-time, nullable: true }
+        ticket:
+          allOf: [{ $ref: '#/components/schemas/Ticket' }]
+          nullable: true
+        checkIn:
+          allOf: [{ $ref: '#/components/schemas/CheckIn' }]
+          nullable: true
+        event:
+          allOf: [{ $ref: '#/components/schemas/EventSummary' }]
+          nullable: true
+    AdminRegistration:
+      allOf:
+        - $ref: '#/components/schemas/Registration'
+        - type: object
+          properties:
+            attendee:
+              type: object
+              properties:
+                displayName: { type: string }
+                email: { type: string }
+            answersSummary: { type: string, nullable: true }
+    Ticket:
+      type: object
+      required: [id, registrationId, qrPayload, issuedAt, expiresAt]
+      properties:
+        id: { type: string, format: uuid }
+        registrationId: { type: string, format: uuid }
+        qrPayload: { type: string, description: Opaque signed token; never a raw registration id }
+        issuedAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        state: { type: string, enum: [valid, checked_in, expired, revoked, event_ended] }
+    CheckInRequest:
+      type: object
+      properties:
+        qrPayload: { type: string }
+        registrationId: { type: string, format: uuid }
+        method: { type: string, enum: [qr, manual, staff_override] }
+        overrideReason: { type: string, maxLength: 500 }
+        deviceId: { type: string }
+        clientTs: { type: string, format: date-time }
+      oneOf:
+        - required: [qrPayload]
+        - required: [registrationId]
+    CheckIn:
+      type: object
+      required: [id, registrationId, eventId, checkedInAt, method]
+      properties:
+        id: { type: string, format: uuid }
+        registrationId: { type: string, format: uuid }
+        eventId: { type: string, format: uuid }
+        checkedInAt: { type: string, format: date-time }
+        method: { type: string, enum: [qr, manual, offline_queue, staff_override] }
+        staffRef: { type: string, nullable: true }
+        attendeeName: { type: string, nullable: true, description: Staff scanner only }
+        duplicate: { type: boolean }
+    CheckInScan:
+      type: object
+      required: [clientScanId, qrPayload, clientTs]
+      properties:
+        clientScanId: { type: string }
+        qrPayload: { type: string }
+        clientTs: { type: string, format: date-time }
+    CheckInScanBatch:
+      type: object
+      required: [deviceId, scans]
+      properties:
+        deviceId: { type: string }
+        scans:
+          type: array
+          maxItems: 200
+          items: { $ref: '#/components/schemas/CheckInScan' }
+    CheckInScanResult:
+      type: object
+      required: [clientScanId, status]
+      properties:
+        clientScanId: { type: string }
+        status: { type: string, enum: [applied, duplicate, rejected] }
+        reason: { type: string, nullable: true }
+        checkIn:
+          allOf: [{ $ref: '#/components/schemas/CheckIn' }]
+          nullable: true
+    CheckInScanBatchResult:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          items: { $ref: '#/components/schemas/CheckInScanResult' }
+        applied: { type: integer }
+        duplicates: { type: integer }
+        rejected: { type: integer }
+    EventReportRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, enum: [impersonation, safety_concern, inaccurate_information, spam, payment_issue, accessibility_misrepresentation] }
+        details: { type: string, maxLength: 2000 }
+        organizerSlug: { type: string, nullable: true }
+    EventReport:
+      type: object
+      required: [id, reason, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        eventId: { type: string, format: uuid, nullable: true }
+        organizerId: { type: string, format: uuid, nullable: true }
+        reason: { type: string, enum: [impersonation, safety_concern, inaccurate_information, spam, payment_issue, accessibility_misrepresentation] }
+        details: { type: string, nullable: true }
+        status: { type: string, enum: [open, triaged, resolved, dismissed] }
+        createdAt: { type: string, format: date-time }
+        resolvedAt: { type: string, format: date-time, nullable: true }
+    EventNotification:
+      type: object
+      required: [id, kind, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [reminder, change_notice, waitlist_promotion] }
+        status: { type: string, enum: [queued, sent, skipped, failed, read] }
+        eventVersion: { type: integer }
+        title: { type: string }
+        body: { type: string }
+        deepLink: { type: string }
+        createdAt: { type: string, format: date-time }
+        readAt: { type: string, format: date-time, nullable: true }
+    ChangeNoticeWrite:
+      type: object
+      required: [materialFields, copyEn, copySw]
+      properties:
+        materialFields:
+          type: array
+          items: { type: string, enum: [date_time, venue, status, capacity, session] }
+        copyEn: { type: string }
+        copySw: { type: string }
+        previewOnly: { type: boolean, default: true }
+    ChangeNotice:
+      type: object
+      required: [id, eventId, status, materialFields, copyEn]
+      properties:
+        id: { type: string, format: uuid }
+        eventId: { type: string, format: uuid }
+        fromVersion: { type: integer }
+        toVersion: { type: integer }
+        materialFields: { type: array, items: { type: string } }
+        copyEn: { type: string }
+        copySw: { type: string, nullable: true }
+        status: { type: string, enum: [draft, approved, sent, cancelled] }
+        recipientCount: { type: integer }
+    OrganizerVerificationItem:
+      allOf:
+        - $ref: '#/components/schemas/OrganizerProfile'
+        - type: object
+          properties:
+            evidence:
+              type: array
+              items:
+                type: object
+                properties:
+                  kind: { type: string }
+                  uploadedAt: { type: string, format: date-time }
+                  reviewed: { type: boolean }
+
+    # -----------------------------------------------------------------------
+    # Recognition
+    # -----------------------------------------------------------------------
+    Level:
+      type: object
+      required: [value, name, threshold]
+      properties:
+        value: { type: integer }
+        name: { type: string }
+        threshold: { type: integer }
+        nextName: { type: string, nullable: true }
+        xpIntoLevel: { type: integer }
+        xpToNext: { type: integer, nullable: true }
+    XpEntry:
+      type: object
+      required: [id, amount, reason, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        amount: { type: integer }
+        reason: { type: string, enum: [award, adjustment, reversal] }
+        sourceType: { type: string }
+        sourceId: { type: string }
+        note: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+    BadgeDefinition:
+      type: object
+      required: [badgeKey, nameEn, family, privacyClass, status]
+      properties:
+        badgeKey: { type: string }
+        nameEn: { type: string }
+        nameSw: { type: string, nullable: true }
+        family: { type: string }
+        criteria: { type: object, additionalProperties: true }
+        iconKey: { type: string, nullable: true }
+        colourToken: { type: string, nullable: true }
+        privacyClass: { type: string, enum: [private, public, sensitive] }
+        hidden: { type: boolean }
+        publicEligible: { type: boolean }
+        status: { type: string, enum: [draft, published, retired] }
+        version: { type: integer }
+    BadgeAward:
+      type: object
+      required: [badgeKey, nameEn, earned, privacyClass, hidden]
+      properties:
+        badgeKey: { type: string }
+        nameEn: { type: string }
+        nameSw: { type: string, nullable: true }
+        family: { type: string }
+        criteria: { type: object, additionalProperties: true }
+        earned: { type: boolean }
+        earnedAt: { type: string, format: date-time, nullable: true }
+        hidden: { type: boolean }
+        privacyClass: { type: string, enum: [private, public, sensitive] }
+        sourceType: { type: string, nullable: true }
+        sourceId: { type: string, nullable: true }
+        progress:
+          type: object
+          nullable: true
+          properties:
+            current: { type: integer }
+            target: { type: integer }
+    Mission:
+      type: object
+      required: [trackKey, nameEn, family, current, target, completed]
+      properties:
+        trackKey: { type: string }
+        nameEn: { type: string }
+        nameSw: { type: string, nullable: true }
+        family: { type: string, enum: [trail, county_collection, course_path, mission] }
+        current: { type: integer }
+        target: { type: integer }
+        completed: { type: boolean }
+        completedAt: { type: string, format: date-time, nullable: true }
+        xpReward: { type: integer }
+        badgeKey: { type: string, nullable: true }
+    Season:
+      type: object
+      required: [key, nameEn, startsAt, endsAt, status]
+      properties:
+        key: { type: string }
+        nameEn: { type: string }
+        nameSw: { type: string, nullable: true }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        status: { type: string, enum: [upcoming, active, frozen, closed] }
+        badgeKey: { type: string, nullable: true }
+        xpAward: { type: integer }
+        missionFamilies:
+          type: array
+          items: { type: string }
+    SeasonProgress:
+      allOf:
+        - $ref: '#/components/schemas/Season'
+        - type: object
+          properties:
+            progress:
+              type: object
+              properties:
+                xp: { type: integer }
+                missionsCompleted: { type: integer }
+                missionsTotal: { type: integer }
+                badgeEarned: { type: boolean }
+            optIn: { type: boolean }
+    SeasonWrite:
+      type: object
+      required: [key, nameEn, startsAt, endsAt]
+      properties:
+        key: { type: string }
+        nameEn: { type: string }
+        nameSw: { type: string }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        badgeKey: { type: string, nullable: true }
+        xpAward: { type: integer, default: 500 }
+        missionFamilies:
+          type: array
+          items: { type: string }
+    RecognitionOverview:
+      type: object
+      required: [level, totalXp, recentAwards, season, passport]
+      properties:
+        level: { $ref: '#/components/schemas/Level' }
+        totalXp: { type: integer, description: Private to the reader }
+        recentAwards:
+          type: array
+          items: { $ref: '#/components/schemas/BadgeAward' }
+        badgeCounts:
+          type: object
+          properties:
+            earned: { type: integer }
+            total: { type: integer }
+            public: { type: integer }
+        season:
+          type: object
+          nullable: true
+          properties:
+            key: { type: string }
+            nameEn: { type: string }
+            endsAt: { type: string, format: date-time }
+            progressPercent: { type: integer }
+        passport:
+          type: object
+          properties:
+            counties: { type: integer }
+            sites: { type: integer }
+        leaderboard:
+          type: object
+          properties:
+            optedIn: { type: boolean }
+            eligible: { type: boolean }
+            reason: { type: string, nullable: true }
+        adjustmentNotices:
+          type: array
+          items: { $ref: '#/components/schemas/XpEntry' }
+    Passport:
+      type: object
+      required: [counties, sites]
+      properties:
+        counties:
+          type: array
+          items:
+            type: object
+            properties:
+              countyGid: { type: integer }
+              name: { type: string }
+              sites: { type: integer }
+              complete: { type: boolean }
+        sites:
+          type: array
+          items:
+            type: object
+            properties:
+              siteRef: { type: string }
+              name: { type: string }
+              countyGid: { type: integer }
+              visitedAt: { type: string, format: date-time, nullable: true }
+              sensitive: { type: boolean }
+    LeaderboardEntry:
+      type: object
+      required: [rank, displayName, level, publicBadgeCount, verifiedSites, trailCompletions]
+      properties:
+        rank: { type: integer }
+        displayName: { type: string }
+        county: { type: string, nullable: true }
+        level: { type: integer }
+        publicBadgeCount: { type: integer }
+        verifiedSites: { type: integer }
+        trailCompletions: { type: integer }
+        isSelf: { type: boolean }
+    Leaderboard:
+      type: object
+      required: [seasonKey, suppressed, entries]
+      properties:
+        seasonKey: { type: string }
+        countyGid: { type: integer, nullable: true }
+        suppressed: { type: boolean }
+        suppressionReason: { type: string, nullable: true, example: Not enough participants yet. }
+        entries:
+          type: array
+          maxItems: 50
+          items: { $ref: '#/components/schemas/LeaderboardEntry' }
+        updatedAt: { type: string, format: date-time }
+        rankingNote: { type: string }
+    LeaderboardState:
+      type: object
+      required: [seasonKey, optedIn, eligible]
+      properties:
+        seasonKey: { type: string }
+        optedIn: { type: boolean }
+        eligible: { type: boolean }
+        ineligibleReason: { type: string, nullable: true, enum: [under_18, consent_missing, disabled] }
+        displayName:
+          allOf: [{ $ref: '#/components/schemas/DisplayName' }]
+          nullable: true
+        ownEntry:
+          allOf: [{ $ref: '#/components/schemas/LeaderboardEntry' }]
+          nullable: true
+        board:
+          allOf: [{ $ref: '#/components/schemas/Leaderboard' }]
+          nullable: true
+    LeaderboardJoin:
+      type: object
+      required: [seasonKey, displayName]
+      properties:
+        seasonKey: { type: string }
+        displayName: { type: string, minLength: 2, maxLength: 24 }
+        consentVersion: { type: string }
+        countyGid: { type: integer, nullable: true }
+    DisplayName:
+      type: object
+      required: [displayName, status]
+      properties:
+        displayName: { type: string }
+        status: { type: string, enum: [pending, approved, rejected] }
+        previousApproved: { type: string, nullable: true }
+        nextChangeAllowed: { type: string, format: date-time, nullable: true }
+    RecognitionRule:
+      type: object
+      required: [id, ruleKey, version, sourceType, status, effectiveFrom]
+      properties:
+        id: { type: string, format: uuid }
+        ruleKey: { type: string }
+        version: { type: integer }
+        sourceType: { type: string }
+        status: { type: string, enum: [draft, published, retired] }
+        effectiveFrom: { type: string, format: date-time }
+        effectiveTo: { type: string, format: date-time, nullable: true }
+        criteria: { type: object, additionalProperties: true }
+        xpAmount: { type: integer }
+        badgeKey: { type: string, nullable: true }
+        createdBy: { type: string, nullable: true }
+        publishedBy: { type: string, nullable: true }
+    RecognitionRuleWrite:
+      type: object
+      required: [ruleKey, sourceType, xpAmount]
+      properties:
+        ruleKey: { type: string }
+        sourceType: { type: string }
+        effectiveFrom: { type: string, format: date-time }
+        criteria: { type: object, additionalProperties: true }
+        xpAmount: { type: integer, minimum: 0 }
+        badgeKey: { type: string, nullable: true }
+    RuleSimulation:
+      type: object
+      required: [ruleKey, version, evaluated, wouldAward, wouldDeduct]
+      properties:
+        ruleKey: { type: string }
+        version: { type: integer }
+        evaluated: { type: integer }
+        wouldAward: { type: integer }
+        wouldDeduct: { type: integer }
+        sampleSubjects:
+          type: array
+          items: { type: string }
+        notes: { type: string, nullable: true }
+    BadgeDefinitionWrite:
+      type: object
+      required: [badgeKey, nameEn, nameSw, family, privacyClass]
+      properties:
+        badgeKey: { type: string }
+        nameEn: { type: string }
+        nameSw: { type: string }
+        family: { type: string }
+        criteria: { type: object, additionalProperties: true }
+        iconKey: { type: string }
+        colourToken: { type: string }
+        privacyClass: { type: string, enum: [private, public, sensitive] }
+        hidden: { type: boolean }
+        publicEligible: { type: boolean }
+    ModerationCase:
+      type: object
+      required: [id, kind, reason, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [display_name, leaderboard_cheat, leaderboard_report, event_report] }
+        subjectRef: { type: string, nullable: true }
+        reason: { type: string }
+        status: { type: string, enum: [open, triaged, decided, appealed, closed] }
+        decision: { type: string, nullable: true, enum: [none, warn, disqualify, rename, dismiss, revoke] }
+        decidedAt: { type: string, format: date-time, nullable: true }
+        appealDeadline: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+    BackfillBatch:
+      type: object
+      required: [id, ruleKey, ruleVersion, status, processed, awarded]
+      properties:
+        id: { type: string, format: uuid }
+        ruleKey: { type: string }
+        ruleVersion: { type: integer }
+        status: { type: string, enum: [dry_run, approved, running, paused, completed, failed] }
+        processed: { type: integer }
+        awarded: { type: integer }
+        diff:
+          type: object
+          properties:
+            wouldAward: { type: integer }
+            wouldSkip: { type: integer }
+            conflicts: { type: integer }
+        createdBy: { type: string }
+        approvedBy: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+    KillSwitch:
+      type: object
+      required: [key, enabled]
+      properties:
+        key: { type: string }
+        enabled: { type: boolean }
+        reason: { type: string, nullable: true }
+        updatedBy: { type: string, nullable: true }
+        updatedAt: { type: string, format: date-time }
+    AuditEntry:
+      type: object
+      required: [id, action, entityType, createdAt]
+      properties:
+        id: { type: string }
+        actorRef: { type: string, nullable: true }
+        action: { type: string }
+        entityType: { type: string }
+        entityId: { type: string, nullable: true }
+        reason: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    # -----------------------------------------------------------------------
+    # Species
+    # -----------------------------------------------------------------------
+    SpeciesSummary:
+      type: object
+      required: [slug, scientificName, nameEn]
+      properties:
+        slug: { type: string }
+        scientificName: { type: string }
+        nameEn: { type: string }
+        nameSw: { type: string, nullable: true }
+        iucnCategory: { type: string, nullable: true, enum: [CR, EN, VU, NT, LC, DD, NE] }
+        taxonomicStatus: { type: string }
+        publicationState: { type: string, enum: [draft, in_review, published, unpublished, tombstoned] }
+        heroMediaUrl: { type: string, nullable: true }
+        languages:
+          type: array
+          items: { type: string }
+        saved: { type: boolean }
+    SpeciesDetail:
+      allOf:
+        - $ref: '#/components/schemas/SpeciesSummary'
+        - type: object
+          properties:
+            id: { type: string, format: uuid }
+            authorship: { type: string, nullable: true }
+            rank: { type: string }
+            gbifKey: { type: string, nullable: true }
+            iucn:
+              type: object
+              nullable: true
+              properties:
+                category: { type: string, enum: [CR, EN, VU, NT, LC, DD, NE] }
+                assessmentId: { type: string }
+                redListVersion: { type: string }
+                asOf: { type: string, format: date }
+                label: { type: string }
+            requestedLanguage: { type: string }
+            resolvedLanguage: { type: string }
+            fallback:
+              type: object
+              nullable: true
+              properties:
+                used: { type: boolean }
+                reason: { type: string, enum: [missing, unpublished, stale, not_reviewed] }
+                chip: { type: string, example: English }
+            content:
+              $ref: '#/components/schemas/SpeciesVariant'
+            names:
+              type: array
+              items: { $ref: '#/components/schemas/SpeciesName' }
+            media:
+              type: array
+              items: { $ref: '#/components/schemas/SpeciesMedia' }
+            audio:
+              type: array
+              items: { $ref: '#/components/schemas/SpeciesAudio' }
+            sources:
+              type: array
+              items: { $ref: '#/components/schemas/SpeciesSource' }
+            whereToSee:
+              type: array
+              items: { $ref: '#/components/schemas/WhereToSee' }
+            links:
+              type: array
+              items: { $ref: '#/components/schemas/SpeciesLink' }
+            coverage:
+              type: array
+              items: { $ref: '#/components/schemas/LanguageCoverage' }
+            contentVersion: { type: integer }
+    SpeciesVariant:
+      type: object
+      required: [language, coverageTier, reviewStatus]
+      properties:
+        language: { type: string }
+        coverageTier: { type: string, enum: [full, summary, names, audio] }
+        summary: { type: string, nullable: true }
+        description: { type: string, nullable: true }
+        habitat: { type: string, nullable: true }
+        range: { type: string, nullable: true }
+        whereToSee: { type: string, nullable: true }
+        conservation: { type: string, nullable: true }
+        fieldStatus:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [missing, draft, reviewed, stale]
+        reviewStatus: { type: string, enum: [missing, draft, reviewed, stale] }
+        sourceVersion: { type: integer }
+        staleReason: { type: string, nullable: true }
+        translatorRef: { type: string, nullable: true }
+        reviewerRef: { type: string, nullable: true }
+        publishedAt: { type: string, format: date-time, nullable: true }
+    SpeciesVariantWrite:
+      type: object
+      required: [language, coverageTier]
+      properties:
+        language: { type: string }
+        coverageTier: { type: string, enum: [full, summary, names, audio] }
+        summary: { type: string }
+        description: { type: string }
+        habitat: { type: string }
+        range: { type: string }
+        whereToSee: { type: string }
+        conservation: { type: string }
+        fieldStatus: { type: object, additionalProperties: { type: string } }
+        sourceVersion: { type: integer }
+        translatorRef: { type: string }
+    SpeciesName:
+      type: object
+      required: [language, name, reviewStatus]
+      properties:
+        language: { type: string }
+        script: { type: string }
+        name: { type: string }
+        nameType: { type: string, enum: [common, local, scientific, alternate] }
+        region: { type: string, nullable: true }
+        countyGid: { type: integer, nullable: true }
+        reviewStatus: { type: string, enum: [missing, draft, reviewed, stale] }
+        preferred: { type: boolean }
+        source:
+          allOf: [{ $ref: '#/components/schemas/SpeciesSource' }]
+          nullable: true
+    SpeciesMedia:
+      type: object
+      required: [id, mediaKind, url, credit, rightsHolder, licenceCode]
+      properties:
+        id: { type: string, format: uuid }
+        mediaKind: { type: string, enum: [image, video, map] }
+        url: { type: string }
+        width: { type: integer, nullable: true }
+        height: { type: integer, nullable: true }
+        credit: { type: string }
+        rightsHolder: { type: string }
+        licenceCode: { type: string }
+        licenceUrl: { type: string, nullable: true }
+        sensitiveLocation: { type: boolean }
+        alt:
+          type: object
+          additionalProperties: { type: string }
+    SpeciesAudio:
+      type: object
+      required: [language, url, narrator, transcript, durationSeconds]
+      properties:
+        language: { type: string }
+        url: { type: string }
+        narrator: { type: string }
+        transcript: { type: string }
+        durationSeconds: { type: integer }
+        reviewStatus: { type: string, enum: [missing, draft, reviewed, stale] }
+        rights:
+          allOf: [{ $ref: '#/components/schemas/SpeciesRights' }]
+          nullable: true
+    SpeciesSource:
+      type: object
+      required: [id, publisher, citation, licenceCode, permittedUse, attribution]
+      properties:
+        id: { type: string, format: uuid }
+        publisher: { type: string }
+        citation: { type: string }
+        url: { type: string, nullable: true }
+        accessedAt: { type: string, format: date }
+        licenceCode: { type: string }
+        licenceUrl: { type: string, nullable: true }
+        permittedUse: { type: string, enum: [taxonomy_only, occurrence, prose, media, audio, link_only] }
+        attribution: { type: string }
+        snapshotHash: { type: string, nullable: true }
+        reviewStatus: { type: string, enum: [missing, draft, reviewed, stale] }
+    SpeciesSourceWrite:
+      type: object
+      required: [publisher, citation, accessedAt, licenceCode, permittedUse, attribution]
+      properties:
+        speciesId: { type: string, format: uuid, nullable: true }
+        publisher: { type: string }
+        citation: { type: string }
+        url: { type: string }
+        accessedAt: { type: string, format: date }
+        licenceCode: { type: string }
+        licenceUrl: { type: string }
+        permittedUse: { type: string, enum: [taxonomy_only, occurrence, prose, media, audio, link_only] }
+        attribution: { type: string }
+        snapshotHash: { type: string }
+    SpeciesRights:
+      type: object
+      required: [id, subjectType, subjectId, rightsHolder, licenceCode, permittedUse, attribution]
+      properties:
+        id: { type: string, format: uuid }
+        subjectType: { type: string, enum: [media, audio] }
+        subjectId: { type: string, format: uuid }
+        rightsHolder: { type: string }
+        licenceCode: { type: string }
+        licenceUrl: { type: string, nullable: true }
+        permittedUse: { type: string }
+        attribution: { type: string }
+        consentRecord: { type: string, nullable: true }
+        expiresAt: { type: string, format: date-time, nullable: true }
+        withdrawnAt: { type: string, format: date-time, nullable: true }
+    SpeciesRightsWrite:
+      type: object
+      required: [subjectType, subjectId, rightsHolder, licenceCode, permittedUse, attribution]
+      properties:
+        subjectType: { type: string, enum: [media, audio] }
+        subjectId: { type: string, format: uuid }
+        rightsHolder: { type: string }
+        licenceCode: { type: string }
+        licenceUrl: { type: string }
+        permittedUse: { type: string }
+        attribution: { type: string }
+        consentRecord: { type: string }
+        expiresAt: { type: string, format: date-time, nullable: true }
+    WhereToSee:
+      type: object
+      required: [evidenceType, confidence]
+      properties:
+        destinationSlug: { type: string, nullable: true }
+        countyGid: { type: integer, nullable: true }
+        county: { type: string, nullable: true }
+        protectedArea: { type: string, nullable: true }
+        evidenceType: { type: string, enum: [survey, occurrence_record, expert_observation, published_report] }
+        confidence: { type: string, enum: [low, medium, high] }
+        reviewStatus: { type: string, enum: [missing, draft, reviewed, stale] }
+        copy: { type: string, example: Recorded at Nairobi National Park }
+        source:
+          allOf: [{ $ref: '#/components/schemas/SpeciesSource' }]
+          nullable: true
+    SpeciesLink:
+      type: object
+      required: [targetType, targetId, title]
+      properties:
+        targetType: { type: string, enum: [destination, course, audio_story, event] }
+        targetId: { type: string }
+        title: { type: string }
+        href: { type: string }
+    LanguageCoverage:
+      type: object
+      required: [language, tier, available]
+      properties:
+        language: { type: string }
+        name: { type: string }
+        tier: { type: string, enum: [full, summary, names, audio] }
+        available: { type: boolean }
+        reviewedNames: { type: integer }
+        audio: { type: boolean }
+        fallback: { type: boolean }
+    SpeciesWrite:
+      type: object
+      required: [scientificName]
+      properties:
+        scientificName: { type: string }
+        slug: { type: string }
+        authorship: { type: string }
+        taxonomicRank: { type: string }
+        taxonomicStatus: { type: string, enum: [accepted, synonym, provisional, uncertain] }
+        acceptedSpeciesId: { type: string, format: uuid, nullable: true }
+        gbifKey: { type: string }
+        iucnTaxonId: { type: string }
+        wikidataQid: { type: string }
+        iucnCategory: { type: string, enum: [CR, EN, VU, NT, LC, DD, NE] }
+        iucnAssessmentId: { type: string }
+        redListVersion: { type: string }
+        statusAsOf: { type: string, format: date }
+    SpeciesReviewItem:
+      type: object
+      required: [id, entityType, entityId, stage, status]
+      properties:
+        id: { type: string, format: uuid }
+        entityType: { type: string, enum: [species, name, content, media, audio, where_to_see] }
+        entityId: { type: string, format: uuid }
+        speciesSlug: { type: string }
+        language: { type: string, nullable: true }
+        stage: { type: string, enum: [translation, language, expert, rights, publish] }
+        status: { type: string, enum: [pending, approved, changes_requested, rejected] }
+        assignedTo: { type: string, nullable: true }
+        translatorRef: { type: string, nullable: true }
+        reviewerRef: { type: string, nullable: true }
+        submittedAt: { type: string, format: date-time, nullable: true }
+    SpeciesPack:
+      type: object
+      required: [language, version, sizeBytes, entries]
+      properties:
+        language: { type: string }
+        version: { type: string }
+        sizeBytes: { type: integer }
+        generatedAt: { type: string, format: date-time }
+        entries:
+          type: array
+          items:
+            type: object
+            properties:
+              slug: { type: string }
+              contentVersion: { type: integer }
+              hasAudio: { type: boolean }
+
+    # -----------------------------------------------------------------------
+    # Analytics
+    # -----------------------------------------------------------------------
+    AnalyticsInstallRequest:
+      type: object
+      required: [installId, platform]
+      properties:
+        installId: { type: string, format: uuid }
+        platform: { type: string, enum: [ios, android] }
+        osVersion: { type: string }
+        appVersion: { type: string }
+        build: { type: string }
+        locale: { type: string }
+        actorType: { type: string, enum: [guest, account] }
+    AnalyticsIdentity:
+      type: object
+      required: [analyticsId, installId, actorType, consent]
+      properties:
+        analyticsId: { type: string, format: uuid }
+        installId: { type: string, format: uuid }
+        actorType: { type: string, enum: [guest, account, under_18_private] }
+        consent: { $ref: '#/components/schemas/AnalyticsConsent' }
+    AnalyticsConsent:
+      type: object
+      required: [analyticsId, scope, version, state]
+      properties:
+        analyticsId: { type: string, format: uuid }
+        scope: { type: string, enum: [analytics] }
+        version: { type: string }
+        state: { type: string, enum: [unknown, granted, denied] }
+        recordedAt: { type: string, format: date-time }
+    AnalyticsConsentWrite:
+      type: object
+      required: [analyticsId, version, state, source]
+      properties:
+        analyticsId: { type: string, format: uuid }
+        version: { type: string }
+        state: { type: string, enum: [granted, denied] }
+        source: { type: string, enum: [guest_device, account] }
+    AnalyticsEvent:
+      type: object
+      required: [eventId, sessionId, sessionSeq, family, name, clientTs]
+      properties:
+        eventId: { type: string, format: uuid }
+        sessionId: { type: string, format: uuid }
+        sessionSeq: { type: integer, minimum: 1 }
+        family: { type: string, enum: [screen_view, action, journey_step] }
+        name: { type: string, description: 'Template route for screen_view, verb for action, reserved journey_step' }
+        route: { type: string, nullable: true, description: Template route only; never a resolved URL or query string }
+        clientTs: { type: string, format: date-time }
+        properties:
+          type: object
+          additionalProperties: true
+          description: Allow-listed per event; unknown keys are dropped and counted
+    AnalyticsBatch:
+      type: object
+      required: [analyticsId, installId, consentVersion, appVersion, platform, sessionId, events]
+      properties:
+        analyticsId: { type: string, format: uuid }
+        installId: { type: string, format: uuid }
+        consentVersion: { type: string }
+        appVersion: { type: string }
+        build: { type: string }
+        platform: { type: string, enum: [ios, android] }
+        osVersion: { type: string }
+        locale: { type: string }
+        tzOffsetMin: { type: integer, minimum: -840, maximum: 840 }
+        network: { type: string, enum: [wifi, cellular, none, unknown] }
+        actorType: { type: string, enum: [guest, account, under_18_private] }
+        sessionId: { type: string, format: uuid }
+        events:
+          type: array
+          maxItems: 100
+          items: { $ref: '#/components/schemas/AnalyticsEvent' }
+    AnalyticsBatchAck:
+      type: object
+      required: [batchId, accepted, dropped, unknownKeys]
+      properties:
+        batchId: { type: string, format: uuid }
+        accepted: { type: integer }
+        dropped: { type: integer }
+        unknownKeys: { type: integer }
+        rejectedEventIds:
+          type: array
+          items: { type: string, format: uuid }
+    MetricCell:
+      type: object
+      required: [metric, value, suppressed]
+      properties:
+        metric: { type: string }
+        value: { type: number, nullable: true }
+        unit: { type: string, enum: [count, percent, ratio, currency] }
+        suppressed: { type: boolean }
+        definition: { type: string }
+        caveat: { type: string, nullable: true }
+    AnalyticsOverview:
+      type: object
+      required: [from, to, cells]
+      properties:
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        cells:
+          type: array
+          items: { $ref: '#/components/schemas/MetricCell' }
+        daily:
+          type: array
+          items:
+            type: object
+            properties:
+              day: { type: string, format: date }
+              dau: { type: integer, nullable: true }
+              guests: { type: integer, nullable: true }
+              accounts: { type: integer, nullable: true }
+              suppressed: { type: boolean }
+    JourneyStepMetric:
+      type: object
+      required: [journey, step, stepIndex, reached, suppressed]
+      properties:
+        journey: { type: string, enum: [onboarding, first_itinerary, event_registration, challenge_submission, conservation_checkin, course_completion, heritage_visit, audio_playback, recognition_optin] }
+        step: { type: string }
+        stepIndex: { type: integer }
+        reached: { type: integer, nullable: true }
+        dropped: { type: integer, nullable: true }
+        medianDurationBucket: { type: string, nullable: true }
+        suppressed: { type: boolean }
+    FunnelMetric:
+      type: object
+      required: [journey, entered, completed, suppressed]
+      properties:
+        journey: { type: string }
+        entered: { type: integer, nullable: true }
+        completed: { type: integer, nullable: true }
+        conversion: { type: number, nullable: true }
+        suppressed: { type: boolean }
+    RetentionMetric:
+      type: object
+      required: [cohortWeek, weekIndex, actors, retained, suppressed]
+      properties:
+        cohortWeek: { type: string, format: date }
+        weekIndex: { type: integer }
+        actors: { type: integer, nullable: true }
+        retained: { type: integer, nullable: true }
+        rate: { type: number, nullable: true }
+        suppressed: { type: boolean }
+    AdoptionMetric:
+      type: object
+      required: [feature, reach, suppressed]
+      properties:
+        feature: { type: string }
+        reach: { type: integer, nullable: true }
+        depthPerActor: { type: number, nullable: true }
+        repeatRate: { type: number, nullable: true }
+        suppressed: { type: boolean }
+    DataQuality:
+      type: object
+      required: [from, to, ingest, suppression]
+      properties:
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        ingest:
+          type: object
+          properties:
+            events: { type: integer }
+            batches: { type: integer }
+            droppedEvents: { type: integer }
+            unknownKeys: { type: integer }
+            rejectedBatches: { type: integer }
+        consent:
+          type: object
+          properties:
+            granted: { type: integer }
+            denied: { type: integer }
+            unknown: { type: integer }
+            staleVersion: { type: integer }
+        queue:
+          type: object
+          properties:
+            clientDrops: { type: integer }
+            expired: { type: integer }
+        suppression:
+          type: object
+          properties:
+            threshold: { type: integer, example: 10 }
+            cellsSuppressed: { type: integer }
+        rollups:
+          type: array
+          items:
+            type: object
+            properties:
+              rollup: { type: string }
+              lastDay: { type: string, format: date }
+              status: { type: string, enum: [running, ok, failed] }
+    AnalyticsExport:
+      type: object
+      required: [analyticsId, generatedAt, events, sessions]
+      properties:
+        analyticsId: { type: string, format: uuid }
+        generatedAt: { type: string, format: date-time }
+        events:
+          type: array
+          items: { $ref: '#/components/schemas/AnalyticsEvent' }
+        sessions:
+          type: array
+          items:
+            type: object
+            properties:
+              sessionId: { type: string, format: uuid }
+              startedAt: { type: string, format: date-time }
+              endedAt: { type: string, format: date-time, nullable: true }
+              eventCount: { type: integer }
+    ErasureRequest:
+      type: object
+      required: [id, subjectType, status, requestedAt, targetBy]
+      properties:
+        id: { type: string, format: uuid }
+        subjectType: { type: string, enum: [user, analytics_id] }
+        status: { type: string, enum: [pending, in_progress, completed, failed] }
+        requestedAt: { type: string, format: date-time }
+        targetBy: { type: string, format: date-time }
+        backupCycleUntil: { type: string, format: date-time, nullable: true }

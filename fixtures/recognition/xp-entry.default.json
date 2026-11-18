@@ -1,0 +1,9 @@
+{
+  "id": "14141414-1414-4414-8414-141414141414",
+  "amount": 50,
+  "reason": "adjustment",
+  "sourceType": "event",
+  "sourceId": "11111111-1111-4111-8111-111111111111",
+  "note": "Compensating entry after duplicate scan review.",
+  "createdAt": "2026-11-19T07:00:00Z"
+}

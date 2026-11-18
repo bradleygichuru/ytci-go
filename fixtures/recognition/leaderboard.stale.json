@@ -1,0 +1,30 @@
+{
+  "seasonKey": "2026-q4",
+  "countyGid": null,
+  "suppressed": false,
+  "suppressionReason": null,
+  "entries": [
+    {
+      "rank": 1,
+      "displayName": "SavannaFox",
+      "county": "Nairobi",
+      "level": 3,
+      "publicBadgeCount": 9,
+      "verifiedSites": 22,
+      "trailCompletions": 4,
+      "isSelf": false
+    },
+    {
+      "rank": 2,
+      "displayName": "RiftReader",
+      "county": "Nakuru",
+      "level": 2,
+      "publicBadgeCount": 6,
+      "verifiedSites": 17,
+      "trailCompletions": 3,
+      "isSelf": true
+    }
+  ],
+  "updatedAt": "2026-11-19T06:00:00Z",
+  "rankingNote": "Ranked by verified trail completions, then verified sites, XP, and earliest completion."
+}
