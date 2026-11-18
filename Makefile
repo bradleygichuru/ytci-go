@@ -1,4 +1,4 @@
-.PHONY: build run test test-short lint sqlc-generate dev
+.PHONY: build run test test-short lint sqlc-generate dev seed-then-now verify-then-now-seed
 
 build:
 	go build -o bin/server ./cmd/server
@@ -23,3 +23,6 @@ sqlc-generate:
 
 seed-then-now:
 	go run ./cmd/seed-then-now
+
+verify-then-now-seed:
+	psql "$${DATABASE_URL:-postgres://postgres@localhost:5432/ytci}" -v ON_ERROR_STOP=1 -f cmd/seed-then-now/verify.sql
