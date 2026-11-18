@@ -288,3 +288,46 @@ func TestAnonymousHeritageCounts(t *testing.T) {
 	assert.Equal(t, float64(5), item["count"])
 
 }
+
+func TestPrivacyExport(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	ts, pool, token := setupPrivacyServer(t, false)
+	auth := bearer(token)
+	ctx := context.Background()
+
+	resp := doJSON(t, ts, "PATCH", "/v1/mobile/profile/consent", map[string]any{
+		"recognition": true,
+		"analytics":   true,
+	}, auth)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+
+	var destinationID string
+	require.NoError(t, pool.QueryRow(ctx, `
+		INSERT INTO destinations (id, name, slug, county, category, status)
+		VALUES (gen_random_uuid(), 'Privacy Destination', 'privacy-destination', 'Nairobi', 'nature', 'published')
+		RETURNING id::text`).Scan(&destinationID))
+	_, err := pool.Exec(ctx, `
+		INSERT INTO bucket_list_items (user_id, destination_id, visited, visited_at)
+		VALUES ($1, $2, true, now())`, privacyUserID, destinationID)
+	require.NoError(t, err)
+
+	resp = doJSON(t, ts, "GET", "/v1/mobile/privacy/export", nil, auth)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	body := decodeBody(t, resp)
+
+	assert.Equal(t, "ytci@tourism.go.ke", body["contact"])
+	consent := body["consent"].(map[string]any)
+	assert.Equal(t, true, consent["recognition"])
+	assert.Equal(t, true, consent["analytics"])
+	assert.Len(t, body["consentHistory"], 1)
+	visits := body["destinationVisits"].([]any)
+	require.Len(t, visits, 1)
+	assert.Equal(t, "Privacy Destination", visits[0].(map[string]any)["name"])
+	recognition := body["recognition"].(map[string]any)
+	assert.Equal(t, "local_only", recognition["status"])
+	analytics := body["analytics"].(map[string]any)
+	assert.Equal(t, true, analytics["consent"])
+}

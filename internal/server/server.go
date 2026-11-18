@@ -86,6 +86,7 @@ type handlers struct {
 	feed             *expo.FeedHandler
 	bucket           *expo.BucketHandler
 	profile          *expo.ProfileHandler
+	privacy          *expo.PrivacyHandler
 	itin             *expo.ItinerariesHandler
 	pushReg          *expo.PushRegisterHandler
 	actions          *expo.ActionsHandler
@@ -121,6 +122,7 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 		feed:             expo.NewFeedHandler(pool),
 		bucket:           expo.NewBucketHandler(pool),
 		profile:          expo.NewProfileHandler(pool),
+		privacy:          expo.NewPrivacyHandler(pool),
 		itin:             expo.NewItinerariesHandler(pool),
 		pushReg:          expo.NewPushRegisterHandler(pool),
 		actions:          expo.NewActionsHandler(pool, cfg.ThenNowAnalyticsV2Enabled),
@@ -355,6 +357,7 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 			aR.Get("/profile/badges", h.profile.Badges)
 			aR.Get("/profile/consent", h.profile.ConsentGet)
 			aR.Patch("/profile/consent", h.profile.ConsentUpdate)
+			aR.Get("/privacy/export", h.privacy.Export)
 			aR.Get("/stories/mine", h.mStories.MyStories)
 			aR.Get("/stories/saved", h.mStories.SavedStories)
 			aR.Get("/events/saved", h.actions.ListSavedEvents)

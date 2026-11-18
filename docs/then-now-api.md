@@ -233,6 +233,10 @@ Allowed events: `portal_opened`, `video_played`, `visit_marked`, `verified_visit
 
 `GET /v1/analytics/heritage` (admin) returns the last 30 days of counts, suppressing any cell below 5. Sensitive rows show `Sensitive sites (combined)` and no site identity.
 
+### Privacy export
+
+`GET /v1/mobile/privacy/export` returns the reader's consent state and history, existing destination visits, badges, the recognition status (`local_only` in v1), and the analytics model. It never includes passwords, tokens, analytics event streams, or other readers' data. The mobile client merges the device-local heritage visited list into the same JSON before sharing it.
+
 ## Known follow-ups
 
 - Real R2 uploads remain on the existing media presign/complete pipeline; this API stores object keys.
