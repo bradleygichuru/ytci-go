@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/bradleygichuru/ytci-go/fixtures"
 )
 
 func TestHealth(t *testing.T) {
@@ -147,4 +150,31 @@ func get(t *testing.T, url string) *http.Response {
 		t.Fatal(err)
 	}
 	return resp
+}
+
+func TestEveryRouteServesDefault(t *testing.T) {
+	srv := httptest.NewServer(newMux())
+	defer srv.Close()
+	for _, route := range fixtures.Routes {
+		path := route.Pattern
+		for _, part := range []string{"{id}", "{slug}", "{key}", "{language}"} {
+			path = strings.ReplaceAll(path, part, "demo")
+		}
+		req, err := http.NewRequest(route.Method, srv.URL+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("%s %s: %v", route.Method, path, err)
+		}
+		resp.Body.Close()
+		want := route.Status
+		if route.NoContent {
+			want = http.StatusNoContent
+		}
+		if resp.StatusCode != want {
+			t.Fatalf("%s %s: status = %d, want %d", route.Method, path, resp.StatusCode, want)
+		}
+	}
 }
