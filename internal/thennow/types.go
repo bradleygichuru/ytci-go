@@ -102,6 +102,8 @@ type Site struct {
 	StandingPointNote    string  `json:"standingPointNote"`
 	ImageKey             string  `json:"imageKey"`
 	PublishedExperiences int     `json:"publishedExperiences"`
+	// UpdatedAt is the RFC3339 site version used as the PATCH precondition.
+	UpdatedAt string `json:"updatedAt"`
 }
 
 func normalizedSensitivity(value string) string {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bradleygichuru/ytci-go/internal/handler"
@@ -43,11 +44,13 @@ const siteSelect = `SELECT s.id::text, s.name, s.slug, s.county, COALESCE(s.loca
 	COALESCE(s.latitude, 0)::float8, COALESCE(s.longitude, 0)::float8,
 	s.geofence_radius_m, COALESCE(s.standing_point_note, ''), COALESCE(s.image_key, ''),
 	(SELECT count(*)::int FROM then_now_experiences e
-	 WHERE e.site_id = s.id AND e.status = 'published')
+	 WHERE e.site_id = s.id AND e.status = 'published'),
+	s.updated_at
 	FROM heritage_sites s`
 
 func scanSite(row scanner, site *thennow.Site) error {
-	return row.Scan(
+	var updatedAt pgtype.Timestamp
+	if err := row.Scan(
 		&site.ID, &site.Name, &site.Slug, &site.County, &site.Locality,
 		&site.SiteType, &site.AccessMode, &site.Sensitivity, &site.Status,
 		&site.ManagingAuthority, &site.DestinationID, &site.PhotographyPolicy,
@@ -56,8 +59,12 @@ func scanSite(row scanner, site *thennow.Site) error {
 		&site.FullDescription, &site.Sources, &site.FactCheck,
 		&site.PublicRightsLine, &site.Latitude, &site.Longitude,
 		&site.GeofenceRadiusM, &site.StandingPointNote, &site.ImageKey,
-		&site.PublishedExperiences,
-	)
+		&site.PublishedExperiences, &updatedAt,
+	); err != nil {
+		return err
+	}
+	site.UpdatedAt = formatTSNano(updatedAt)
+	return nil
 }
 
 func (h *ThenNowHandler) loadSite(ctx context.Context, id string) (thennow.Site, error) {
@@ -126,6 +133,10 @@ type sitePatch struct {
 	GeofenceRadiusM   *int     `json:"geofenceRadiusM"`
 	StandingPointNote *string  `json:"standingPointNote"`
 	ImageKey          *string  `json:"imageKey"`
+	// ExpectedUpdatedAt is an optional compare-and-swap precondition. When it
+	// does not match the stored updated_at the PATCH returns 409 STALE_SITE.
+	// The same value may be sent in the If-Match header instead.
+	ExpectedUpdatedAt *string `json:"expectedUpdatedAt"`
 }
 
 func validateSiteRequest(req siteRequest) string {
@@ -339,6 +350,16 @@ func (h *ThenNowHandler) UpdateSite(w http.ResponseWriter, r *http.Request) {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_BODY", "invalid request body")
 		return
 	}
+	expected := ""
+	if patch.ExpectedUpdatedAt != nil {
+		expected = strings.TrimSpace(*patch.ExpectedUpdatedAt)
+	}
+	if expected == "" {
+		expected = strings.Trim(strings.TrimSpace(r.Header.Get("If-Match")), `"`)
+	}
+	if expected == "*" {
+		expected = ""
+	}
 	sets := []string{"updated_at = now()"}
 	args := []any{id}
 	add := func(column string, value any) {
@@ -448,13 +469,35 @@ func (h *ThenNowHandler) UpdateSite(w http.ResponseWriter, r *http.Request) {
 	if patch.ImageKey != nil {
 		add("image_key", nullIfEmpty(*patch.ImageKey))
 	}
-	_, err := h.pool.Exec(r.Context(), fmt.Sprintf("UPDATE heritage_sites SET %s WHERE id = $1", strings.Join(sets, ", ")), args...)
+	where := "id = $1"
+	if expected != "" {
+		args = append(args, expected)
+		where += fmt.Sprintf(" AND updated_at = ((($%d)::timestamptz) AT TIME ZONE 'UTC')", len(args))
+	}
+	tag, err := h.pool.Exec(r.Context(), fmt.Sprintf("UPDATE heritage_sites SET %s WHERE %s", strings.Join(sets, ", "), where), args...)
 	if err != nil {
 		if isUniqueViolation(err) {
 			handler.WriteError(w, http.StatusConflict, "SLUG_EXISTS", "a site with that slug already exists")
 			return
 		}
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to update heritage site", err)
+		return
+	}
+	if expected != "" && tag.RowsAffected() == 0 {
+		// The record moved on after the caller loaded it. Return the current
+		// server copy so the client can reload and merge instead of overwriting.
+		current, loadErr := h.loadSite(r.Context(), id)
+		if loadErr != nil {
+			handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "heritage site not found")
+			return
+		}
+		writeThenNowJSON(w, http.StatusConflict, map[string]any{
+			"error": map[string]string{
+				"code":    "STALE_SITE",
+				"message": "this site changed after it was loaded; reload before saving",
+			},
+			"site": current,
+		})
 		return
 	}
 	h.audit(r.Context(), "site", id, "save", middleware.UserID(r.Context()), "Site saved", nil)
@@ -514,18 +557,37 @@ func (h *ThenNowHandler) setSiteStatus(w http.ResponseWriter, r *http.Request, s
 		handler.WriteError(w, http.StatusForbidden, "FORBIDDEN", "publishing access required")
 		return
 	}
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	reason := strings.TrimSpace(body.Reason)
 	id := chi.URLParam(r, "id")
 	if _, err := h.pool.Exec(r.Context(), `UPDATE heritage_sites SET status = $2, updated_at = now(), updated_by = $3 WHERE id = $1`, id, status, middleware.UserID(r.Context())); err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to change site status", err)
 		return
 	}
-	h.audit(r.Context(), "site", id, status, middleware.UserID(r.Context()), event, nil)
+	var metadata any
+	if reason != "" {
+		metadata = map[string]string{"reason": reason}
+	}
+	h.audit(r.Context(), "site", id, status, middleware.UserID(r.Context()), event, metadata)
 	site, err := h.loadSite(r.Context(), id)
 	if err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to load heritage site", err)
 		return
 	}
 	writeThenNowJSON(w, http.StatusOK, site)
+}
+
+// statusMetadata keeps the operator's optional unpublish/archive/revoke reason
+// in the audit event. The dialog requires a reason; the API keeps it optional
+// for compatibility and omits the key when nothing was supplied.
+func statusMetadata(reason string) any {
+	if strings.TrimSpace(reason) == "" {
+		return nil
+	}
+	return map[string]string{"reason": strings.TrimSpace(reason)}
 }
 
 func writeThenNowJSON(w http.ResponseWriter, status int, body any) {
