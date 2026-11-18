@@ -163,9 +163,10 @@ The public payload returns the site's public identity, access mode, county/local
 
 ```sh
 DATABASE_URL=... go run ./cmd/seed-then-now
+DATABASE_URL=... make verify-then-now-seed
 ```
 
-The seed is idempotent and inserts the four illustrative sites (Railway Museum, War Cemetery, African Heritage House, Nabongo Cultural Centre). The photos/object keys are illustrative; replace them with client-cleared assets before launch.
+The seed is idempotent and inserts the four illustrative sites (Railway Museum, War Cemetery, African Heritage House, Nabongo Cultural Centre). All four are published with live experiences; the two cultural sites use `not_available` access and carry a permission-pending public rights line. The photos/object keys are illustrative; replace them with client-cleared assets before launch.
 
 ## Tests
 

@@ -51,7 +51,20 @@ func TestThenNowSeedIsIdempotentAndPublishedReadsWork(t *testing.T) {
 		Items []map[string]any `json:"items"`
 	}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	assert.Len(t, body.Items, 2)
+	require.Len(t, body.Items, 4)
+
+	accessModes := make(map[string]string, len(body.Items))
+	for _, item := range body.Items {
+		slug, _ := item["slug"].(string)
+		mode, _ := item["accessMode"].(string)
+		accessModes[slug] = mode
+	}
+	assert.Equal(t, map[string]string{
+		"nairobi-railway-museum":  "camera_video",
+		"nairobi-war-cemetery":    "video_only",
+		"african-heritage-house":  "not_available",
+		"nabongo-cultural-centre": "not_available",
+	}, accessModes)
 
 	detail, err := http.Get(ts.URL + "/v1/public/then-now/sites/nairobi-railway-museum")
 	require.NoError(t, err)
@@ -67,4 +80,17 @@ func TestThenNowSeedIsIdempotentAndPublishedReadsWork(t *testing.T) {
 	renditionKeys := experience["renditionKeys"].(map[string]any)
 	assert.Contains(t, renditionKeys["1080"], "1080.mp4")
 	assert.NotEmpty(t, experience["posterKey"])
+
+	houseResp, err := http.Get(ts.URL + "/v1/public/then-now/sites/african-heritage-house")
+	require.NoError(t, err)
+	defer houseResp.Body.Close()
+	require.Equal(t, http.StatusOK, houseResp.StatusCode)
+	var house struct {
+		Site map[string]any `json:"site"`
+	}
+	require.NoError(t, json.NewDecoder(houseResp.Body).Decode(&house))
+	assert.Equal(t, "not_available", house.Site["accessMode"])
+	houseExperience := house.Site["experience"].(map[string]any)
+	assert.Equal(t, float64(102), houseExperience["duration"])
+	assert.Len(t, houseExperience["textCards"], 3)
 }
