@@ -334,14 +334,18 @@ func TestPublicEventDetail(t *testing.T) {
 	assert.NotNil(t, detail["locationLat"], "coordinates must be returned for events with lat/lng")
 	assert.NotNil(t, detail["locationLng"], "coordinates must be returned for events with lat/lng")
 
-	// Cancelled event not visible via public
+	// Cancelled events stay visible with their state (ADR 0009 §9): the old
+	// 404 hid a registrant's own event record.
 	_, err = pool.Exec(ctx, `UPDATE events SET status = 'cancelled' WHERE id = $1`, eventID)
 	require.NoError(t, err)
 
 	resp2, err := http.Get(ts.URL + "/v1/public/events/" + eventID)
 	require.NoError(t, err)
 	defer resp2.Body.Close()
-	assert.Equal(t, http.StatusNotFound, resp2.StatusCode)
+	assert.Equal(t, http.StatusOK, resp2.StatusCode)
+	var cancelled map[string]any
+	require.NoError(t, json.NewDecoder(resp2.Body).Decode(&cancelled))
+	assert.Equal(t, "cancelled", cancelled["status"])
 
 	// Non-existent event
 	resp3, err := http.Get(ts.URL + "/v1/public/events/00000000-0000-0000-0000-000000000000")
@@ -409,7 +413,9 @@ func TestSavedEvents(t *testing.T) {
 	err := pool.QueryRow(ctx, `INSERT INTO events (id, title, organizer, county, event_date, type) VALUES (gen_random_uuid(), 'Festival', 'Org', 'Nairobi', now()::date, 'cultural') RETURNING id`).Scan(&eventID)
 	require.NoError(t, err)
 
-	_, err = pool.Exec(ctx, `INSERT INTO event_saves (user_id, event_id) VALUES ($1, $2)`, userID, eventID)
+	// The MICE cutover keys saved events by text user id; the legacy
+	// event_saves table expects a uuid and cannot hold a better-auth id.
+	_, err = pool.Exec(ctx, `INSERT INTO event_saved_events (user_id, event_id) VALUES ($1, $2)`, userID, eventID)
 	require.NoError(t, err)
 
 	req := authReq(t, "GET", ts.URL+"/v1/mobile/events/saved", "token-e")
