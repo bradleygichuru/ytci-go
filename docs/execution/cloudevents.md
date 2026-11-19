@@ -127,7 +127,10 @@ event.attendance|reader_01HX…|event|11111111-1111-4111-8111-111111111111
 - XP awards carry `(subject_id, rule_key, source_type, source_id)` where
   `reason = 'award'` (partial unique index).
 - Corrections are new rows with `reason = 'adjustment'` or `'reversal'`, an
-  approver and a note. XP is never edited or deleted.
+  approver and a note. XP is never edited or deleted. The approver is supplied
+  as `X-Second-Approver` on the adjustments operation and is verified to be a
+  distinct, active user holding `recognition.approve_adjustment`; the audit
+  records both the adjuster and the approver.
 
 ## 5. Idempotency and delivery
 

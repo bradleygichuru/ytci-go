@@ -1555,6 +1555,22 @@ paths:
       tags: [recognition]
       operationId: adminCreateXpAdjustment
       summary: Compensating XP entry with a reason and a second approver
+      description: >-
+        Records an immutable compensating XP entry. Enforces the "no
+        self-approval" actor separation: X-Second-Approver must name an active
+        user, distinct from the caller, that holds recognition.approve_adjustment.
+        Both the adjuster and the approver are recorded in recognition.audit.
+        Rejections use 403 with code SECOND_APPROVER_REQUIRED (missing or same as
+        the caller), SECOND_APPROVER_UNKNOWN, SECOND_APPROVER_INACTIVE, or
+        SECOND_APPROVER_FORBIDDEN (lacks the approval permission).
+      parameters:
+        - name: X-Second-Approver
+          in: header
+          required: true
+          description: >-
+            User id of the second approver. Must differ from the authenticated
+            caller and hold recognition.approve_adjustment.
+          schema: { type: string, minLength: 1 }
       requestBody:
         required: true
         content:
@@ -2179,6 +2195,13 @@ paths:
       tags: [analytics]
       operationId: setAnalyticsConsent
       summary: Record analytics consent at enqueue and flush
+      description: >-
+        Consent writes are bound to the caller. An authenticated account may
+        only write consent for the analytics_id mapped to it in
+        analytics_id_map; a guest must send the installId that minted the
+        analytics_id. Unknown or mismatched bindings return 403
+        ANALYTICS_ID_UNKNOWN; guest writes without installId return 400
+        INSTALL_ID_REQUIRED.
       security: []
       requestBody:
         required: true
@@ -2193,13 +2216,22 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AnalyticsConsent' }
         '400': { $ref: '#/components/responses/ValidationError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     delete:
       tags: [analytics]
       operationId: withdrawAnalyticsConsent
       summary: Withdraw consent and clear the client queue
+      description: >-
+        Bound to the caller like PUT: accounts must own the analytics_id and
+        guests must present the installId that minted it.
       security: []
       parameters:
         - $ref: '#/components/parameters/AnalyticsId'
+        - name: installId
+          in: query
+          required: false
+          description: Required for guest withdrawals; must be the install that minted the analytics_id.
+          schema: { type: string, format: uuid }
       responses:
         '200':
           description: Denied consent state
@@ -2207,6 +2239,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AnalyticsConsent' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /v1/mobile/analytics/export:
     get:
       tags: [analytics]
@@ -3783,6 +3816,10 @@ components:
       required: [analyticsId, version, state, source]
       properties:
         analyticsId: { type: string, format: uuid }
+        installId:
+          type: string
+          format: uuid
+          description: The install that minted the analytics_id. Required for guest writes; ignored for authenticated accounts.
         version: { type: string }
         state: { type: string, enum: [granted, denied] }
         source: { type: string, enum: [guest_device, account] }
