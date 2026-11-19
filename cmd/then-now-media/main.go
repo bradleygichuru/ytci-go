@@ -60,6 +60,14 @@ func main() {
 			fail(err)
 		}
 		fmt.Println(u)
+	case "delete":
+		if len(os.Args) < 3 {
+			usage()
+		}
+		if err := deleteObject(ctx, client, bucket, os.Args[2]); err != nil {
+			fail(err)
+		}
+		fmt.Println("deleted", os.Args[2])
 	case "upload":
 		if len(os.Args) < 4 {
 			usage()
@@ -82,6 +90,7 @@ func usage() {
 	fmt.Fprint(os.Stderr, `usage:
   then-now-media ls
   then-now-media upload <dir> <key-prefix> [--dry-run]
+  then-now-media delete <key>
   then-now-media sign <key> [ttl]
 `)
 	os.Exit(2)
@@ -189,6 +198,11 @@ func upload(ctx context.Context, client *s3.Client, bucket, dir, prefix string, 
 		if e.IsDir() {
 			continue
 		}
+		// Never publish a render that is still being written.
+		if strings.Contains(e.Name(), ".part") {
+			fmt.Printf("skipping in-progress file %s\n", e.Name())
+			continue
+		}
 		info, err := e.Info()
 		if err != nil {
 			return err
@@ -248,6 +262,17 @@ func put(ctx context.Context, client *s3.Client, bucket, path, key, ct string) e
 	})
 	if err != nil {
 		return fmt.Errorf("put %s: %w", key, err)
+	}
+	return nil
+}
+
+func deleteObject(ctx context.Context, client *s3.Client, bucket, key string) error {
+	_, err := client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return fmt.Errorf("delete %s: %w", key, err)
 	}
 	return nil
 }
