@@ -57,6 +57,7 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 	r.Route("/v1/public", func(pub chi.Router) {
 		pub.Use(publicLimiter.Middleware)
 		mountPublicRoutes(pub, h, r2client, publicEventLimiter)
+		mountRecognitionPublicRoutes(pub, pool)
 	})
 
 	authLimiter := middleware.AuthenticatedRateLimiter()
@@ -66,6 +67,7 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 		mountThenNowRoutes(sub, h, jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud)
 		mountAdminRoutes(sub, h, r2client, jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud)
 		mountMobileRoutes(sub, h, r2client, authLimiter)
+		mountRecognitionRoutes(sub, pool, jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud)
 	})
 
 	return r
