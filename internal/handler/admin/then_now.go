@@ -15,15 +15,21 @@ import (
 
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 	"github.com/bradleygichuru/ytci-go/internal/middleware"
+	"github.com/bradleygichuru/ytci-go/internal/r2"
 	"github.com/bradleygichuru/ytci-go/internal/thennow"
 )
 
 type ThenNowHandler struct {
-	pool *pgxpool.Pool
+	pool     *pgxpool.Pool
+	media    r2.Store
+	mediaTTL time.Duration
 }
 
-func NewThenNowHandler(pool *pgxpool.Pool) *ThenNowHandler {
-	return &ThenNowHandler{pool: pool}
+func NewThenNowHandler(pool *pgxpool.Pool, media r2.Store, mediaTTL time.Duration) *ThenNowHandler {
+	if mediaTTL <= 0 {
+		mediaTTL = 15 * time.Minute
+	}
+	return &ThenNowHandler{pool: pool, media: media, mediaTTL: mediaTTL}
 }
 
 type scanner interface {

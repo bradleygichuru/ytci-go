@@ -274,8 +274,33 @@ The public write is rate-limited per client IP with a 20-event burst and a one-e
 
 `GET /v1/mobile/privacy/export` returns the reader's consent state and history, existing destination visits, badges, the recognition status (`local_only` in v1), and the analytics model. It never includes passwords, tokens, analytics event streams, or other readers' data. The mobile client merges the device-local heritage visited list into the same JSON before sharing it.
 
+## Signed media
+
+Published reads sign every stored object and return a `media` block beside the object keys:
+
+```json
+{
+  "media": {
+    "video": { "1080": "https://…", "720": "https://…", "540": "https://…" },
+    "master": "https://…",
+    "poster": "https://…",
+    "captions": { "en": "https://…" },
+    "transcript": "https://…",
+    "audioDescription": "https://…",
+    "expiresAt": "2026-11-19T10:15:00Z"
+  }
+}
+```
+
+`GET /v1/public/then-now/sites` also returns `imageUrl` for the site plate. `THEN_NOW_MEDIA_URL_TTL_MINUTES` (default `15`) sets the window.
+
+Signing is a local HMAC over the credentials the service already holds, so it adds no network round trip and no R2 operations of its own. The URLs count as Class B reads only when a client fetches them. Keep the object keys: a document fetched before the expiry can be re-resolved by refetching the site rather than by re-deriving storage paths.
+
+When no media store is configured the `media` block and `imageUrl` are omitted, and clients fall back to the keys plus whatever media base they have.
+
 ## Known follow-ups
 
-- Real R2 uploads remain on the existing media presign/complete pipeline; this API stores object keys.
+- Real R2 uploads remain on the existing media presign/complete pipeline; this API stores object keys and signs reads.
+- The seed's `master.mp4` keys point at 4K mezzanines that are not uploaded; delivery uses the `1080`/`720`/`540` renditions. A `master` URL is only returned when the object exists in the bucket.
 - `testdata/migrations/0013_then_now.sql` and `0014_then_now_privacy.sql` mirror the schema for Go integration tests only. Mirror the same DDL into TanStack admin Drizzle migrations before wiring the admin.
 - The recognition privacy decision is resolved; server-side visits, verification, XP, badges, passports, and leaderboards remain gated and are not part of v1. V1 visits stay local-only.

@@ -25,6 +25,9 @@ type Config struct {
 	ThenNowRecognitionEnabled       bool `env:"THEN_NOW_RECOGNITION_ENABLED" envDefault:"false"`
 	ThenNowPublicRecognitionEnabled bool `env:"THEN_NOW_PUBLIC_RECOGNITION_ENABLED" envDefault:"false"`
 	ThenNowAnalyticsV2Enabled       bool `env:"THEN_NOW_ANALYTICS_V2_ENABLED" envDefault:"false"`
+
+	// Published Then & Now media is served as short-lived signed R2 URLs.
+	ThenNowMediaURLTTLMinutes int `env:"THEN_NOW_MEDIA_URL_TTL_MINUTES" envDefault:"15"`
 }
 
 func Load() (*Config, error) {

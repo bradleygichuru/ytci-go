@@ -140,7 +140,7 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 		marketplaceAdmin: admin.NewMarketplaceAdminHandler(pool, r2client),
 		alerts:           expo.NewAlertsHandler(pool),
 		programUpdates:   admin.NewProgramUpdateHandler(pool, pushClient),
-		thenNow:          admin.NewThenNowHandler(pool),
+		thenNow:          admin.NewThenNowHandler(pool, r2client, time.Duration(cfg.ThenNowMediaURLTTLMinutes)*time.Minute),
 		features:         expo.NewFeaturesHandler(cfg),
 	}
 	if pushClient != nil {
