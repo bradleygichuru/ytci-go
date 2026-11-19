@@ -27,8 +27,8 @@ func TestBackfillAnalyticsIDs(t *testing.T) {
 
 	_, err := pool.Exec(ctx, `
 		INSERT INTO users (id, name, email, created_at, updated_at, role) VALUES
-			($1, 'Backfill One', 'backfill-one@test.com', now(), now(), 'youth'),
-			($2, 'Backfill Two', 'backfill-two@test.com', now(), now(), 'youth')`,
+			($1, 'Backfill One', 'backfill-one@test.com', now(), now(), 'user'),
+			($2, 'Backfill Two', 'backfill-two@test.com', now(), now(), 'user')`,
 		backfillUserOne, backfillUserTwo)
 	require.NoError(t, err)
 
