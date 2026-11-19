@@ -106,6 +106,14 @@ Then & Now gates from it, so there is no second role table in code.
 - **No self-approval.** `actor_separations` forbid the same actor from
   publishing their own recognition rule, verifying the organizer they
   submitted, approving their own backfill, or approving their own XP adjustment.
+- **XP adjustment second approver.** `POST /v1/admin/recognition/adjustments`
+  carries the approver in the required `X-Second-Approver` header (an additive
+  operation parameter; the request body is unchanged). The named user id must
+  exist, be active (not banned), differ from the authenticated caller, and hold
+  `recognition.approve_adjustment` (`super_admin`). Both actors are written to
+  `recognition.audit` — `xp.adjust` for the requester and `xp.approve` for the
+  approver. The header is documented in the frozen OpenAPI operation and is
+  pending change-control sign-off; see ytci-go#47.
 - **Recognition RBAC:** authors draft and simulate; administrators publish;
   super-admins reverse, retract, disqualify, close seasons, and flip kill
   switches. Moderators are read-only.

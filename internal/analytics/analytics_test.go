@@ -48,14 +48,15 @@ func newIdentity(t *testing.T, ctx context.Context, pool *pgxpool.Pool, actor, u
 	return installID, id.AnalyticsID
 }
 
-func grantConsent(t *testing.T, ctx context.Context, pool *pgxpool.Pool, analyticsID, version string) {
+func grantConsent(t *testing.T, ctx context.Context, pool *pgxpool.Pool, analyticsID, installID, version string) {
 	t.Helper()
 	_, err := analytics.NewStore(pool).SetConsent(ctx, analytics.ConsentWrite{
 		AnalyticsID: analyticsID,
+		InstallID:   installID,
 		Version:     version,
 		State:       analytics.ConsentGranted,
 		Source:      "guest_device",
-	})
+	}, "")
 	require.NoError(t, err)
 }
 
@@ -114,7 +115,7 @@ func TestConsentGatesIngest(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, rej.Status)
 	assert.Equal(t, "CONSENT_REQUIRED", rej.Code)
 
-	grantConsent(t, ctx, pool, analyticsID, version)
+	grantConsent(t, ctx, pool, analyticsID, installID, version)
 	// A stale version is rejected even with a grant on file.
 	_, err = store.IngestBatch(ctx, "", &analytics.Batch{
 		AnalyticsID: analyticsID, InstallID: installID, ConsentVersion: "2020-01-01",
@@ -131,7 +132,7 @@ func TestConsentGatesIngest(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, ack.Accepted)
 
-	_, err = store.WithdrawConsent(ctx, analyticsID, version)
+	_, err = store.WithdrawConsent(ctx, analyticsID, installID, version, "")
 	require.NoError(t, err)
 	batch2 := makeBatch(analyticsID, installID, sessionID, version,
 		[]analytics.Event{screenEvent(sessionID, 2, "/feed", nil)})
@@ -145,7 +146,7 @@ func TestBatchIdempotencyAndOfflineQueue(t *testing.T) {
 	store := analytics.NewStore(pool)
 	installID, analyticsID := newIdentity(t, ctx, pool, analytics.ActorGuest, "")
 	version := analytics.ConsentVersion()
-	grantConsent(t, ctx, pool, analyticsID, version)
+	grantConsent(t, ctx, pool, analyticsID, installID, version)
 	sessionID := uuid.NewString()
 
 	seenBatchIDs := make([]string, 0, 5)
@@ -187,7 +188,7 @@ func TestPropertyAllowListAndRoutePrivacy(t *testing.T) {
 	store := analytics.NewStore(pool)
 	installID, analyticsID := newIdentity(t, ctx, pool, analytics.ActorGuest, "")
 	version := analytics.ConsentVersion()
-	grantConsent(t, ctx, pool, analyticsID, version)
+	grantConsent(t, ctx, pool, analyticsID, installID, version)
 	sessionID := uuid.NewString()
 
 	good := screenEvent(sessionID, 1, "/events/[id]", map[string]any{
@@ -249,7 +250,7 @@ func TestErasureTombstonesIdentity(t *testing.T) {
 	newUser(t, ctx, pool, "reader-erase")
 	installID, analyticsID := newIdentity(t, ctx, pool, analytics.ActorAccount, "reader-erase")
 	version := analytics.ConsentVersion()
-	grantConsent(t, ctx, pool, analyticsID, version)
+	grantConsent(t, ctx, pool, analyticsID, installID, version)
 	sessionID := uuid.NewString()
 	batch := makeBatch(analyticsID, installID, sessionID, version,
 		[]analytics.Event{screenEvent(sessionID, 1, "/feed", nil)})
@@ -282,7 +283,7 @@ func TestRollupsAndSuppression(t *testing.T) {
 	store := analytics.NewStore(pool)
 	installID, analyticsID := newIdentity(t, ctx, pool, analytics.ActorGuest, "")
 	version := analytics.ConsentVersion()
-	grantConsent(t, ctx, pool, analyticsID, version)
+	grantConsent(t, ctx, pool, analyticsID, installID, version)
 	sessionID := uuid.NewString()
 	batch := makeBatch(analyticsID, installID, sessionID, version, []analytics.Event{
 		screenEvent(sessionID, 1, "/events/[id]", nil),
@@ -372,4 +373,64 @@ func TestRetentionDeletesExpiredRows(t *testing.T) {
 		`SELECT count(*) FROM analytics_daily WHERE day < CURRENT_DATE - INTERVAL '24 months'`).Scan(&daily))
 	assert.Zero(t, events)
 	assert.Zero(t, daily)
+}
+
+func TestConsentWritesAreBoundToTheCaller(t *testing.T) {
+	pool, ctx := setup(t)
+	store := analytics.NewStore(pool)
+	version := analytics.ConsentVersion()
+
+	installA, analyticsA := newIdentity(t, ctx, pool, analytics.ActorGuest, "")
+	installB, _ := newIdentity(t, ctx, pool, analytics.ActorGuest, "")
+	newUser(t, ctx, pool, "acct-1")
+	_, accountAnalytics := newIdentity(t, ctx, pool, analytics.ActorAccount, "acct-1")
+
+	var rej *analytics.RejectError
+
+	// A guest cannot write consent for an analytics_id using another install.
+	_, err := store.SetConsent(ctx, analytics.ConsentWrite{
+		AnalyticsID: analyticsA, InstallID: installB, Version: version,
+		State: analytics.ConsentGranted, Source: "guest_device",
+	}, "")
+	require.ErrorAs(t, err, &rej)
+	assert.Equal(t, http.StatusForbidden, rej.Status)
+	assert.Equal(t, "ANALYTICS_ID_UNKNOWN", rej.Code)
+
+	// A guest write without an install cannot be bound at all.
+	_, err = store.SetConsent(ctx, analytics.ConsentWrite{
+		AnalyticsID: analyticsA, Version: version,
+		State: analytics.ConsentGranted, Source: "guest_device",
+	}, "")
+	require.ErrorAs(t, err, &rej)
+	assert.Equal(t, http.StatusBadRequest, rej.Status)
+	assert.Equal(t, "INSTALL_ID_REQUIRED", rej.Code)
+
+	// An account cannot write consent for an id it does not own.
+	_, err = store.SetConsent(ctx, analytics.ConsentWrite{
+		AnalyticsID: analyticsA, Version: version,
+		State: analytics.ConsentGranted, Source: "account",
+	}, "acct-1")
+	require.ErrorAs(t, err, &rej)
+	assert.Equal(t, http.StatusForbidden, rej.Status)
+	assert.Equal(t, "ANALYTICS_ID_UNKNOWN", rej.Code)
+
+	// The real bindings work.
+	_, err = store.SetConsent(ctx, analytics.ConsentWrite{
+		AnalyticsID: analyticsA, InstallID: installA, Version: version,
+		State: analytics.ConsentGranted, Source: "guest_device",
+	}, "")
+	require.NoError(t, err)
+	_, err = store.SetConsent(ctx, analytics.ConsentWrite{
+		AnalyticsID: accountAnalytics, Version: version,
+		State: analytics.ConsentGranted, Source: "account",
+	}, "acct-1")
+	require.NoError(t, err)
+
+	// Withdrawal is bound by the same rule.
+	_, err = store.WithdrawConsent(ctx, analyticsA, installB, version, "")
+	require.ErrorAs(t, err, &rej)
+	assert.Equal(t, http.StatusForbidden, rej.Status)
+	assert.Equal(t, "ANALYTICS_ID_UNKNOWN", rej.Code)
+	_, err = store.WithdrawConsent(ctx, analyticsA, installA, version, "")
+	require.NoError(t, err)
 }

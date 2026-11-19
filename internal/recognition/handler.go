@@ -719,9 +719,11 @@ func (h *Handler) AdminCreateAdjustment(w http.ResponseWriter, r *http.Request) 
 	if !decode(w, r, &body) {
 		return
 	}
-	// The frozen body has no approver field. A second actor proves the
-	// two-person rule with an explicit header rather than a silent self-award.
-	approver := r.Header.Get("X-Second-Approver")
+	// The frozen body has no approver field, so the approver is carried in an
+	// explicit header (documented on the operation). The engine verifies it is
+	// a distinct, active account holding recognition.approve_adjustment;
+	// a header string alone is not an approval.
+	approver := strings.TrimSpace(r.Header.Get("X-Second-Approver"))
 	out, err := h.engine.CreateAdjustment(r.Context(), middleware.UserID(r.Context()), approver,
 		body.SubjectRef, body.Amount, body.Reason, body.Note, body.CompensatingFor,
 		chimw.GetReqID(r.Context()))
@@ -729,6 +731,18 @@ func (h *Handler) AdminCreateAdjustment(w http.ResponseWriter, r *http.Request) 
 	case errors.Is(err, ErrSelfApproval):
 		handler.WriteError(w, http.StatusForbidden, "SECOND_APPROVER_REQUIRED",
 			"a second approver is required and must differ from the actor")
+		return
+	case errors.Is(err, ErrApproverUnknown):
+		handler.WriteError(w, http.StatusForbidden, "SECOND_APPROVER_UNKNOWN",
+			"the second approver must identify an existing user")
+		return
+	case errors.Is(err, ErrApproverInactive):
+		handler.WriteError(w, http.StatusForbidden, "SECOND_APPROVER_INACTIVE",
+			"the second approver must identify an active user")
+		return
+	case errors.Is(err, ErrApproverRole):
+		handler.WriteError(w, http.StatusForbidden, "SECOND_APPROVER_FORBIDDEN",
+			"the second approver must hold recognition.approve_adjustment")
 		return
 	case err != nil && isValidation(err):
 		validation(w, "note", err.Error())

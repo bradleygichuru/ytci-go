@@ -381,6 +381,35 @@ func TestAdjustmentRequiresSecondApproverAndIsAudited(t *testing.T) {
 		"adjustment", "correcting a missed verified visit", nil, "")
 	assert.ErrorIs(t, err, recognition.ErrSelfApproval)
 
+	_, err = e.CreateAdjustment(ctx, "admin-a", "", "reader-x", 20,
+		"adjustment", "correcting a missed verified visit", nil, "")
+	assert.ErrorIs(t, err, recognition.ErrSelfApproval)
+
+	// A header string that is not a real user is not an approval.
+	_, err = e.CreateAdjustment(ctx, "admin-a", "any-other-string", "reader-x", 20,
+		"adjustment", "correcting a missed verified visit", nil, "")
+	assert.ErrorIs(t, err, recognition.ErrApproverUnknown)
+
+	// A real user without recognition.approve_adjustment cannot approve.
+	_, err = e.CreateAdjustment(ctx, "admin-a", "author-a", "reader-x", 20,
+		"adjustment", "correcting a missed verified visit", nil, "")
+	assert.ErrorIs(t, err, recognition.ErrApproverRole)
+
+	// A banned account cannot approve.
+	_, err = pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, role, banned)
+		VALUES ('banned-b', 'banned-b', 'banned-b@example.test', 'super_admin', true)`)
+	require.NoError(t, err)
+	_, err = e.CreateAdjustment(ctx, "admin-a", "banned-b", "reader-x", 20,
+		"adjustment", "correcting a missed verified visit", nil, "")
+	assert.ErrorIs(t, err, recognition.ErrApproverInactive)
+
+	// No ledger entry was written by any rejected attempt.
+	var entries int
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM recognition.xp_entries WHERE subject_id='reader-x'`).Scan(&entries))
+	assert.Equal(t, 0, entries)
+
 	entry, err := e.CreateAdjustment(ctx, "admin-a", "admin-b", "reader-x", 20,
 		"adjustment", "correcting a missed verified visit", nil, "")
 	require.NoError(t, err)
@@ -389,6 +418,26 @@ func TestAdjustmentRequiresSecondApproverAndIsAudited(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx,
 		`SELECT total_xp FROM recognition.xp_totals WHERE subject_id='reader-x'`).Scan(&total))
 	assert.Equal(t, int64(20), total)
+
+	var approvedBy *string
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT approved_by FROM recognition.xp_entries WHERE id=$1::uuid`,
+		entry.ID).Scan(&approvedBy))
+	require.NotNil(t, approvedBy)
+	assert.Equal(t, "admin-b", *approvedBy)
+
+	// Both actors are named in the audit: the adjuster and the approver.
+	var adjusters, approvers int
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM recognition.audit
+		 WHERE action='xp.adjust' AND entity_id=$1 AND actor_id='admin-a'`,
+		entry.ID).Scan(&adjusters))
+	assert.Equal(t, 1, adjusters)
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM recognition.audit
+		 WHERE action='xp.approve' AND entity_id=$1 AND actor_id='admin-b'`,
+		entry.ID).Scan(&approvers))
+	assert.Equal(t, 1, approvers)
 
 	var audited int
 	require.NoError(t, pool.QueryRow(ctx,

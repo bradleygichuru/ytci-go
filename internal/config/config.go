@@ -2,10 +2,16 @@ package config
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/caarlos0/env/v11"
 )
 
 type Config struct {
+	// Environment is the deployment tier. Insecure development fallbacks are
+	// only allowed in the development tier; anything else must be configured
+	// explicitly. Defaults to development so local runs need no extra setup.
+	Environment        string `env:"APP_ENV" envDefault:"development"`
 	Port               string `env:"PORT" envDefault:"8080"`
 	DatabaseURL        string `env:"DATABASE_URL,required"`
 	CORSOrigins        string `env:"CORS_ALLOWED_ORIGINS" envDefault:"*"`
@@ -41,4 +47,28 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("config: %w", err)
 	}
 	return &cfg, nil
+}
+
+// IsDevelopment reports whether the process runs in the local development
+// tier, where documented insecure fallbacks are allowed.
+func (c *Config) IsDevelopment() bool {
+	switch strings.ToLower(strings.TrimSpace(c.Environment)) {
+	case "", "development", "dev", "local":
+		return true
+	default:
+		return false
+	}
+}
+
+// Validate enforces startup invariants that environment decoding cannot
+// express. It is called once at process start, before any handler is built, so
+// a misconfigured deployment fails immediately instead of running with a
+// development fallback.
+func (c *Config) Validate() error {
+	if !c.IsDevelopment() && strings.TrimSpace(c.MiceTicketSecret) == "" {
+		return fmt.Errorf(
+			"config: MICE_TICKET_SECRET is required when APP_ENV=%q; refusing to sign MICE tickets with the development key",
+			c.Environment)
+	}
+	return nil
 }

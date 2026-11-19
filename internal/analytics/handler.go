@@ -182,7 +182,7 @@ func (h *Handler) SetConsent(w http.ResponseWriter, r *http.Request) {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
 		return
 	}
-	consent, err := h.store.SetConsent(r.Context(), req)
+	consent, err := h.store.SetConsent(r.Context(), req, middleware.UserID(r.Context()))
 	if err != nil {
 		var rej *RejectError
 		if errors.As(err, &rej) {
@@ -202,7 +202,9 @@ func (h *Handler) WithdrawConsent(w http.ResponseWriter, r *http.Request) {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_ANALYTICS_ID", "analyticsId must be a uuid")
 		return
 	}
-	consent, err := h.store.WithdrawConsent(r.Context(), analyticsID, r.URL.Query().Get("version"))
+	consent, err := h.store.WithdrawConsent(r.Context(), analyticsID,
+		r.URL.Query().Get("installId"), r.URL.Query().Get("version"),
+		middleware.UserID(r.Context()))
 	if err != nil {
 		var rej *RejectError
 		if errors.As(err, &rej) {

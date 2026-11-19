@@ -54,9 +54,30 @@ func TestAnalyticsRoutesAreWired(t *testing.T) {
 	require.NotEmpty(t, analyticsID)
 	assert.Equal(t, "guest", identity["actorType"])
 
+	// A consent write must prove the install that minted the analytics id.
+	resp = doJSON(t, ts, http.MethodPut, "/v1/mobile/analytics/consent", map[string]any{
+		"analyticsId": analyticsID,
+		"installId":   uuid.NewString(),
+		"version":     "2026-11-01",
+		"state":       "granted",
+		"source":      "guest_device",
+	}, nil)
+	require.Equal(t, http.StatusForbidden, resp.StatusCode)
+	assert.Equal(t, "ANALYTICS_ID_UNKNOWN", errorCode(t, resp))
+
+	resp = doJSON(t, ts, http.MethodPut, "/v1/mobile/analytics/consent", map[string]any{
+		"analyticsId": analyticsID,
+		"version":     "2026-11-01",
+		"state":       "granted",
+		"source":      "guest_device",
+	}, nil)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	assert.Equal(t, "INSTALL_ID_REQUIRED", errorCode(t, resp))
+
 	// Consent, then a batch.
 	resp = doJSON(t, ts, http.MethodPut, "/v1/mobile/analytics/consent", map[string]any{
 		"analyticsId": analyticsID,
+		"installId":   installID,
 		"version":     "2026-11-01",
 		"state":       "granted",
 		"source":      "guest_device",
