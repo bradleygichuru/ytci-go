@@ -60,9 +60,12 @@ type Identity struct {
 	Consent     Consent `json:"consent"`
 }
 
-// ConsentWrite is the body of PUT /v1/mobile/analytics/consent.
+// ConsentWrite is the body of PUT /v1/mobile/analytics/consent. InstallID is
+// optional in the frozen schema and required for guest writes: consent must be
+// provable against the install that minted the analytics_id.
 type ConsentWrite struct {
 	AnalyticsID string `json:"analyticsId"`
+	InstallID   string `json:"installId,omitempty"`
 	Version     string `json:"version"`
 	State       string `json:"state"`
 	Source      string `json:"source"`

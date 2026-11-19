@@ -81,10 +81,13 @@ func (s *Store) LatestConsent(ctx context.Context, analyticsID string) (Consent,
 }
 
 // SetConsent records a consent decision. Consent is versioned: a new version
-// creates a new row rather than rewriting history.
-func (s *Store) SetConsent(ctx context.Context, w ConsentWrite) (Consent, error) {
-	if _, err := uuid.Parse(w.AnalyticsID); err != nil {
-		return Consent{}, reject(http.StatusBadRequest, "INVALID_ANALYTICS_ID", "analyticsId must be a uuid")
+// creates a new row rather than rewriting history. The write must be bound to
+// the caller: an authenticated account may only write consent for its own
+// analytics_id, and a guest must prove the install that minted the id. Without
+// this a caller who knows an id could forge a grant.
+func (s *Store) SetConsent(ctx context.Context, w ConsentWrite, userID string) (Consent, error) {
+	if rej := s.checkIdentityBinding(ctx, s.pool, w.AnalyticsID, w.InstallID, userID); rej != nil {
+		return Consent{}, rej
 	}
 	switch w.State {
 	case ConsentGranted, ConsentDenied:
@@ -128,17 +131,23 @@ func (s *Store) SetConsent(ctx context.Context, w ConsentWrite) (Consent, error)
 }
 
 // WithdrawConsent records a denial at the supplied version (or the current
-// default). Withdrawal is the client's signal to clear its offline queue.
-func (s *Store) WithdrawConsent(ctx context.Context, analyticsID, version string) (Consent, error) {
+// default). Withdrawal is the client's signal to clear its offline queue. Like
+// SetConsent it is bound to the caller's account or install.
+func (s *Store) WithdrawConsent(ctx context.Context, analyticsID, installID, version, userID string) (Consent, error) {
 	if version == "" {
 		version = ConsentVersion()
 	}
+	source := "guest_device"
+	if userID != "" {
+		source = "account"
+	}
 	return s.SetConsent(ctx, ConsentWrite{
 		AnalyticsID: analyticsID,
+		InstallID:   installID,
 		Version:     version,
 		State:       ConsentDenied,
-		Source:      "guest_device",
-	})
+		Source:      source,
+	}, userID)
 }
 
 // UpsertIdentity mints or reuses an analytics_id for an install. install_id is
@@ -246,12 +255,28 @@ func batchID(b *Batch) string {
 }
 
 func (s *Store) checkBatchIdentity(ctx context.Context, tx pgx.Tx, b *Batch, userID string) *RejectError {
+	return s.checkIdentityBinding(ctx, tx, b.AnalyticsID, b.InstallID, userID)
+}
+
+// rowQuerier is satisfied by *pgxpool.Pool and pgx.Tx.
+type rowQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// checkIdentityBinding proves the caller may act on the analytics_id. An
+// authenticated account must own the id through analytics_id_map; a guest must
+// present the install that minted it. Both reads are the only paths from an
+// actor to an analytics_id.
+func (s *Store) checkIdentityBinding(ctx context.Context, q rowQuerier, analyticsID, installID, userID string) *RejectError {
+	if _, err := uuid.Parse(analyticsID); err != nil {
+		return reject(http.StatusBadRequest, "INVALID_ANALYTICS_ID", "analyticsId must be a uuid")
+	}
 	if userID != "" {
 		var mapped string
-		err := tx.QueryRow(ctx, `
+		err := q.QueryRow(ctx, `
 			SELECT analytics_id::text FROM analytics_id_map
 			WHERE user_id = $1 AND erased_at IS NULL`, userID).Scan(&mapped)
-		if errors.Is(err, pgx.ErrNoRows) || (err == nil && mapped != b.AnalyticsID) {
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && mapped != analyticsID) {
 			return reject(http.StatusForbidden, "ANALYTICS_ID_UNKNOWN", "analytics_id is not bound to this account")
 		}
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -259,11 +284,14 @@ func (s *Store) checkBatchIdentity(ctx context.Context, tx pgx.Tx, b *Batch, use
 		}
 		return nil
 	}
+	if installID == "" {
+		return reject(http.StatusBadRequest, "INSTALL_ID_REQUIRED", "installId is required for guest requests")
+	}
 	var installAnalytics string
-	err := tx.QueryRow(ctx,
+	err := q.QueryRow(ctx,
 		`SELECT COALESCE(analytics_id::text, '') FROM analytics_installs WHERE install_id = $1`,
-		b.InstallID).Scan(&installAnalytics)
-	if err != nil || installAnalytics != b.AnalyticsID {
+		installID).Scan(&installAnalytics)
+	if err != nil || installAnalytics != analyticsID {
 		return reject(http.StatusForbidden, "ANALYTICS_ID_UNKNOWN", "analytics_id is not bound to this install")
 	}
 	return nil
