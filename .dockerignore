@@ -1,0 +1,12 @@
+.git
+.gitignore
+.github
+bin
+tmp
+*.md
+.env
+.env.*
+*.local
+*.swp
+*.swo
+.DS_Store

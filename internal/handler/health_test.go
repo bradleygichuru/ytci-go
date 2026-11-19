@@ -25,15 +25,42 @@ func TestHealthEndpoint(t *testing.T) {
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/health")
+	for _, path := range []string{"/health", "/healthz"} {
+		resp, err := http.Get(ts.URL + path)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+
+		var body map[string]string
+		err = json.NewDecoder(resp.Body).Decode(&body)
+		require.NoError(t, err)
+		assert.Equal(t, "ok", body["status"], path)
+	}
+}
+
+func TestReadinessWithoutDatabaseIsUnavailable(t *testing.T) {
+	cfg := &config.Config{
+		Port:         "8080",
+		DatabaseURL:  "postgres://localhost:5432/test",
+		AdminJWKSURL: "http://localhost:8081/jwks",
+		CORSOrigins:  "*",
+	}
+
+	ts := httptest.NewServer(server.New(cfg, nil))
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/readyz")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
-
-	var body map[string]string
-	err = json.NewDecoder(resp.Body).Decode(&body)
-	require.NoError(t, err)
-	assert.Equal(t, "ok", body["status"])
+	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+	var body struct {
+		Status string            `json:"status"`
+		Checks map[string]string `json:"checks"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	assert.Equal(t, "unavailable", body.Status)
+	assert.Equal(t, "unavailable", body.Checks["database"])
 }
