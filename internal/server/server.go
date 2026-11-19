@@ -48,7 +48,11 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 		MaxAge:           300,
 	}))
 
+	// Probes stay outside /v1 and the rate limiters: liveness is process-only,
+	// readiness checks the database and contract schema without auth.
 	r.Get("/health", handler.Health)
+	r.Get("/healthz", handler.Health)
+	r.Get("/readyz", handler.Ready(pool))
 
 	h := mountHandlers(pool, r2client, pushClient, cfg)
 
