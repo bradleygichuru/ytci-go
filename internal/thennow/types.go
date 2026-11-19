@@ -11,28 +11,32 @@ type TextCard struct {
 }
 
 type Snapshot struct {
-	Title               string            `json:"title"`
-	Promise             string            `json:"promise"`
-	Story               string            `json:"story"`
-	Period              string            `json:"period"`
-	Duration            int               `json:"duration"`
-	ContentNotes        string            `json:"contentNotes"`
-	SafetyNotes         string            `json:"safetyNotes"`
-	Sources             string            `json:"sources"`
-	FactCheck           string            `json:"factCheck"`
-	PrimaryMode         string            `json:"primaryMode"`
-	Languages           []string          `json:"languages"`
-	RightsRecord        string            `json:"rightsRecord"`
-	RightsEvidence      string            `json:"rightsEvidence"`
-	RightsExpiry        string            `json:"rightsExpiry"`
-	ConsentRecord       string            `json:"consentRecord"`
-	Sensitivity         string            `json:"sensitivity"`
-	VideoMaster         string            `json:"videoMaster"`
-	VideoSize           string            `json:"videoSize"`
-	Renditions          map[string]string `json:"renditions"`
-	RenditionKeys       map[string]string `json:"renditionKeys"`
-	Poster              bool              `json:"poster"`
-	PosterKey           string            `json:"posterKey"`
+	Title          string            `json:"title"`
+	Promise        string            `json:"promise"`
+	Story          string            `json:"story"`
+	Period         string            `json:"period"`
+	Duration       int               `json:"duration"`
+	ContentNotes   string            `json:"contentNotes"`
+	SafetyNotes    string            `json:"safetyNotes"`
+	Sources        string            `json:"sources"`
+	FactCheck      string            `json:"factCheck"`
+	PrimaryMode    string            `json:"primaryMode"`
+	Languages      []string          `json:"languages"`
+	RightsRecord   string            `json:"rightsRecord"`
+	RightsEvidence string            `json:"rightsEvidence"`
+	RightsExpiry   string            `json:"rightsExpiry"`
+	ConsentRecord  string            `json:"consentRecord"`
+	Sensitivity    string            `json:"sensitivity"`
+	VideoMaster    string            `json:"videoMaster"`
+	VideoSize      string            `json:"videoSize"`
+	Renditions     map[string]string `json:"renditions"`
+	RenditionKeys  map[string]string `json:"renditionKeys"`
+	Poster         bool              `json:"poster"`
+	PosterKey      string            `json:"posterKey"`
+	// Optional short loop filmed from the standing point. When it is absent the
+	// portal plays the full film and drifts as the film moves.
+	PortalKey           string            `json:"portalKey"`
+	PortalDuration      int               `json:"portalDuration"`
 	Captions            map[string]bool   `json:"captions"`
 	CaptionKeys         map[string]string `json:"captionKeys"`
 	Transcript          bool              `json:"transcript"`

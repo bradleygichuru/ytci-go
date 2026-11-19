@@ -31,6 +31,8 @@ type publishedExperience struct {
 	RenditionKeys       map[string]string  `json:"renditionKeys"`
 	Poster              bool               `json:"poster"`
 	PosterKey           string             `json:"posterKey"`
+	PortalKey           string             `json:"portalKey"`
+	PortalDuration      int                `json:"portalDuration"`
 	Captions            map[string]bool    `json:"captions"`
 	CaptionKeys         map[string]string  `json:"captionKeys"`
 	Transcript          bool               `json:"transcript"`
@@ -45,6 +47,7 @@ type publishedExperience struct {
 // fresh site document instead of re-deriving storage paths.
 type publishedMedia struct {
 	Video            map[string]string `json:"video,omitempty"`
+	Portal           string            `json:"portal,omitempty"`
 	Master           string            `json:"master,omitempty"`
 	Poster           string            `json:"poster,omitempty"`
 	Captions         map[string]string `json:"captions,omitempty"`
@@ -133,6 +136,8 @@ func (h *ThenNowHandler) loadPublishedExperience(ctx context.Context, siteID str
 		RenditionKeys:       data.RenditionKeys,
 		Poster:              data.Poster,
 		PosterKey:           data.PosterKey,
+		PortalKey:           data.PortalKey,
+		PortalDuration:      data.PortalDuration,
 		Captions:            data.Captions,
 		CaptionKeys:         data.CaptionKeys,
 		Transcript:          data.Transcript,
@@ -187,12 +192,13 @@ func (h *ThenNowHandler) signedMedia(ctx context.Context, data thennow.Snapshot)
 		}
 	}
 
+	media.Portal = h.signURL(ctx, data.PortalKey)
 	media.Master = h.signURL(ctx, data.VideoMaster)
 	media.Poster = h.signURL(ctx, data.PosterKey)
 	media.Transcript = h.signURL(ctx, data.TranscriptKey)
 	media.AudioDescription = h.signURL(ctx, data.AudioDescriptionKey)
 
-	if len(media.Video) == 0 && media.Master == "" && media.Poster == "" &&
+	if len(media.Video) == 0 && media.Portal == "" && media.Master == "" && media.Poster == "" &&
 		len(media.Captions) == 0 && media.Transcript == "" && media.AudioDescription == "" {
 		return nil
 	}
