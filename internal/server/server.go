@@ -71,6 +71,7 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 		mountMobileRoutes(sub, h, r2client, authLimiter)
 		mountRecognitionRoutes(sub, pool, jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud)
 		mountSpeciesRoutes(sub, pool, r2client, jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud)
+		mountAnalyticsRoutes(sub, pool, jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud)
 	})
 
 	return r
