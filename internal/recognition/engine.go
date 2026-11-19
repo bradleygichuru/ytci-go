@@ -190,6 +190,12 @@ func normaliseEvent(ev Event) (Event, Payload, error) {
 		p.OccurredAt = &t
 	}
 	p.OccurredAt = timePtr(p.OccurredAt.UTC())
+	if p.SourceRevision != nil && *p.SourceRevision < 0 {
+		return Event{}, Payload{}, errors.New("recognition: source_revision must be zero or greater")
+	}
+	if len(p.SourceID) > 128 || len(p.OccurrenceKey) > 256 {
+		return Event{}, Payload{}, errors.New("recognition: source_id or occurrence_key is too long")
+	}
 	if p.Sensitivity == "" {
 		p.Sensitivity = "standard"
 	}
