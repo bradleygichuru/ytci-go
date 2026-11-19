@@ -20,9 +20,12 @@ jobs:
           cache: true
       - name: Build
         run: go build ./...
-      - name: Vet contract packages
-        run: go vet ./internal/contracts/... ./cmd/contracts-mock/... ./fixtures/...
-      - name: Contract tests (OpenAPI, CloudEvents, roles, fixtures)
-        run: go test ./internal/contracts ./cmd/contracts-mock -count=1
+      - name: Vet
+        run: go vet ./internal/... ./cmd/... ./fixtures/...
+      # The full suite, not just the contract package: internal/mice,
+      # internal/recognition, internal/species, internal/analytics and
+      # internal/server carry the feature tests that gate the admin surfaces.
+      - name: Tests (all packages)
+        run: go test ./... -count=1
       - name: Migration replay on a fresh database
         run: go test ./internal/contracts -run TestMigrationsApplyOnFreshDatabase -count=1 -v
