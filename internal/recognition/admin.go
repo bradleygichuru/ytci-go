@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/bradleygichuru/ytci-go/internal/contracts"
 )
 
 // Admin errors map to frozen responses.
@@ -21,6 +23,13 @@ var (
 	ErrKillSwitchOn   = errors.New("recognition: global kill switch is enabled")
 	ErrInvalidInput   = errors.New("recognition: invalid input")
 	ErrAlreadyDecided = errors.New("recognition: case is already decided")
+
+	// Second-approver verification (ADR 0015 §7). The approver named on an
+	// adjustment must be a distinct, active account that holds the approval
+	// permission; an arbitrary caller-supplied string is not an approval.
+	ErrApproverUnknown  = errors.New("recognition: second approver is not a known user")
+	ErrApproverInactive = errors.New("recognition: second approver is not an active user")
+	ErrApproverRole     = errors.New("recognition: second approver does not hold recognition.approve_adjustment")
 )
 
 func writeAudit(ctx context.Context, q interface {
@@ -1079,6 +1088,32 @@ func (e *Engine) awardHistorical(ctx context.Context, subject, eventID string, o
 // Adjustments, switches, audit
 // ---------------------------------------------------------------------------
 
+// verifyApprover proves the named second approver is a real, active account
+// that holds recognition.approve_adjustment (roles.v1.yaml `xp_approver`).
+// Without this the two-person rule is satisfied by any string that differs
+// from the actor.
+func verifyApprover(ctx context.Context, q querier, approver string) error {
+	var role pgtype.Text
+	var banned bool
+	var banExpires pgtype.Timestamptz
+	err := q.QueryRow(ctx, `
+		SELECT role, COALESCE(banned, false), ban_expires
+		FROM users WHERE id = $1`, approver).Scan(&role, &banned, &banExpires)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrApproverUnknown
+	}
+	if err != nil {
+		return err
+	}
+	if banned && (!banExpires.Valid || banExpires.Time.After(time.Now())) {
+		return ErrApproverInactive
+	}
+	if !role.Valid || !contracts.MustRoles().Can(role.String, contracts.PermRecognitionApproveAdjust) {
+		return ErrApproverRole
+	}
+	return nil
+}
+
 func (e *Engine) CreateAdjustment(ctx context.Context, actor, approver, subject string, amount int, reason, note string, compensatingFor *string, requestID string) (XpEntry, error) {
 	if amount == 0 || subject == "" || len(note) < 10 || (reason != "adjustment" && reason != "reversal") {
 		return XpEntry{}, ErrInvalidInput
@@ -1101,6 +1136,12 @@ func (e *Engine) CreateAdjustment(ctx context.Context, actor, approver, subject 
 		return XpEntry{}, err
 	}
 	defer tx.Rollback(ctx)
+	// The approver must be a real, active account holding the approval
+	// permission. Checking inside the transaction keeps a concurrently banned
+	// or demoted account from approving.
+	if err := verifyApprover(ctx, tx, approver); err != nil {
+		return XpEntry{}, err
+	}
 	var id string
 	var createdAt time.Time
 	err = tx.QueryRow(ctx, `
@@ -1119,7 +1160,16 @@ func (e *Engine) CreateAdjustment(ctx context.Context, actor, approver, subject 
 		return XpEntry{}, err
 	}
 	if err := writeAudit(ctx, tx, actor, "xp.adjust", "xp_entry", id,
-		nil, map[string]any{"amount": amount, "reason": reason, "note": note},
+		nil, map[string]any{
+			"amount": amount, "reason": reason, "note": note, "approvedBy": approver,
+		},
+		note, requestID); err != nil {
+		return XpEntry{}, err
+	}
+	// Attribute the approval to the approver as its own audit row so the audit
+	// trail names both actors, not just the requester.
+	if err := writeAudit(ctx, tx, approver, "xp.approve", "xp_entry", id,
+		nil, map[string]any{"amount": amount, "reason": reason, "adjustedBy": actor},
 		note, requestID); err != nil {
 		return XpEntry{}, err
 	}

@@ -105,3 +105,78 @@ func TestRecognitionRoutesAreWired(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 	resp.Body.Close()
 }
+
+// TestXpAdjustmentRejectsUnverifiedApprover proves the second-approver header
+// is not a caller-supplied free string: the named user must exist, be active,
+// hold recognition.approve_adjustment, and differ from the caller.
+func TestXpAdjustmentRejectsUnverifiedApprover(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	ctx := context.Background()
+	pool := db.SetupTestDB(t)
+	defer pool.Close()
+	setupAuthTables(t, ctx, pool)
+
+	createSession(t, ctx, pool, "adjuster-a", "adjuster-a@example.test", "xp-adjuster")
+	createSession(t, ctx, pool, "approver-b", "approver-b@example.test", "xp-approver")
+	createSession(t, ctx, pool, "reader-x", "reader-x@example.test", "xp-reader")
+	for id, role := range map[string]string{
+		"adjuster-a": "super_admin",
+		"approver-b": "super_admin",
+		"reader-x":   "user",
+	} {
+		_, err := pool.Exec(ctx, `UPDATE users SET role=$2 WHERE id=$1`, id, role)
+		require.NoError(t, err)
+	}
+
+	cfg := &config.Config{Port: "8080", DatabaseURL: "ignored",
+		AdminJWKSURL: "http://test.invalid/jwks", CORSOrigins: "*"}
+	ts := httptest.NewServer(server.New(cfg, pool))
+	defer ts.Close()
+
+	body := map[string]any{
+		"subjectRef": "reader-x", "amount": 15, "reason": "adjustment",
+		"note": "correcting a missed verified visit",
+	}
+	asAdjuster := func(r *http.Request) { r.Header.Set("Authorization", "Bearer xp-adjuster") }
+	approveAs := func(id string) func(*http.Request) {
+		return func(r *http.Request) {
+			asAdjuster(r)
+			r.Header.Set("X-Second-Approver", id)
+		}
+	}
+
+	resp := doJSON(t, ts, http.MethodPost, "/v1/admin/recognition/adjustments", body, asAdjuster)
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	assert.Equal(t, "SECOND_APPROVER_REQUIRED", errorCode(t, resp))
+
+	resp = doJSON(t, ts, http.MethodPost, "/v1/admin/recognition/adjustments", body,
+		approveAs("any-other-string"))
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	assert.Equal(t, "SECOND_APPROVER_UNKNOWN", errorCode(t, resp))
+
+	resp = doJSON(t, ts, http.MethodPost, "/v1/admin/recognition/adjustments", body,
+		approveAs("reader-x"))
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	assert.Equal(t, "SECOND_APPROVER_FORBIDDEN", errorCode(t, resp))
+
+	resp = doJSON(t, ts, http.MethodPost, "/v1/admin/recognition/adjustments", body,
+		approveAs("adjuster-a"))
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	assert.Equal(t, "SECOND_APPROVER_REQUIRED", errorCode(t, resp))
+
+	resp = doJSON(t, ts, http.MethodPost, "/v1/admin/recognition/adjustments", body,
+		approveAs("approver-b"))
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+}
+
+func errorCode(t *testing.T, resp *http.Response) string {
+	t.Helper()
+	body := decodeBody(t, resp)
+	envelope, ok := body["error"].(map[string]any)
+	require.True(t, ok, "expected an error envelope")
+	code, _ := envelope["code"].(string)
+	return code
+}
