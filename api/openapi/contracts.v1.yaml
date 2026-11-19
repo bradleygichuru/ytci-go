@@ -588,7 +588,195 @@ paths:
                       items:
                         type: array
                         items: { $ref: '#/components/schemas/EventSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [mice]
+      operationId: adminCreateEvent
+      summary: Create an event draft for review
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EventWrite' }
+      responses:
+        '201':
+          description: Draft event
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EventDetail' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/events/{id}:
+    get:
+      tags: [mice]
+      operationId: adminGetEvent
+      summary: Event admin detail including draft state
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      responses:
+        '200':
+          description: Event
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EventDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [mice]
+      operationId: adminUpdateEvent
+      summary: Edit an event draft or submit a material change
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EventWrite' }
+      responses:
+        '200':
+          description: Updated event
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EventDetail' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: Material edit requires review
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /v1/admin/events/{id}/sessions:
+    post:
+      tags: [mice]
+      operationId: adminCreateEventSession
+      summary: Add an agenda session
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SessionWrite' }
+      responses:
+        '201':
+          description: Session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/events/{id}/sessions/{sessionId}:
+    patch:
+      tags: [mice]
+      operationId: adminUpdateEventSession
+      summary: Update an agenda session
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SessionWrite' }
+      responses:
+        '200':
+          description: Session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/events/{id}/people:
+    post:
+      tags: [mice]
+      operationId: adminCreateEventPerson
+      summary: Create a speaker content record
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PersonWrite' }
+      responses:
+        '201':
+          description: Speaker
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Speaker' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/sessions/{sessionId}/speakers:
+    post:
+      tags: [mice]
+      operationId: adminLinkSessionSpeaker
+      summary: Link a speaker to a session
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [personId]
+              properties:
+                personId: { type: string, format: uuid }
+                role: { type: string, enum: [speaker, moderator, panelist, host] }
+      responses:
+        '200':
+          description: Session with speakers
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/mobile/events/{id}/save:
+    post:
+      tags: [mice]
+      operationId: saveEvent
+      summary: Save an event to the shortlist (not a registration)
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      responses:
+        '201':
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Acknowledgement' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/mobile/events/saved:
+    get:
+      tags: [mice]
+      operationId: listSavedEvents
+      summary: Saved events
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Event page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/EventSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /v1/admin/events/{id}/publish:
     post:
       tags: [mice]
@@ -1142,6 +1330,62 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/BadgeDefinition' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/recognition/badges/{key}/publish:
+    post:
+      tags: [recognition]
+      operationId: adminPublishBadgeDefinition
+      summary: Publish a badge after both names are reviewed
+      parameters:
+        - $ref: '#/components/parameters/BadgeKey'
+      responses:
+        '200':
+          description: Published badge
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BadgeDefinition' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: Missing translation or reviewer is the author
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /v1/admin/recognition/seasons/{id}/publish:
+    post:
+      tags: [recognition]
+      operationId: adminPublishSeason
+      summary: Publish a prepared season
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Published season
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Season' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/recognition/seasons/{id}/freeze:
+    post:
+      tags: [recognition]
+      operationId: adminFreezeSeason
+      summary: Freeze a season during an investigation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Frozen season
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Season' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /v1/admin/recognition/seasons:
     get:
       tags: [recognition]
@@ -1637,6 +1881,66 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SpeciesVariant' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/species/{id}/names:
+    post:
+      tags: [species]
+      operationId: adminUpsertSpeciesName
+      summary: Add or update a sourced language/region name
+      parameters:
+        - $ref: '#/components/parameters/SpeciesId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpeciesNameWrite' }
+      responses:
+        '200':
+          description: Name
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpeciesName' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/species/{id}/media:
+    post:
+      tags: [species]
+      operationId: adminCreateSpeciesMedia
+      summary: Register a managed media asset with rights and per-language alt text
+      parameters:
+        - $ref: '#/components/parameters/SpeciesId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpeciesMediaWrite' }
+      responses:
+        '201':
+          description: Media
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpeciesMedia' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/admin/species/{id}/audio:
+    post:
+      tags: [species]
+      operationId: adminCreateSpeciesAudio
+      summary: Register a per-language audio track with narrator, transcript and rights
+      parameters:
+        - $ref: '#/components/parameters/SpeciesId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpeciesAudioWrite' }
+      responses:
+        '201':
+          description: Audio
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpeciesAudio' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
   /v1/admin/species/{id}/publish:
     post:
@@ -2298,6 +2602,31 @@ components:
         accessibility:
           $ref: '#/components/schemas/AccessibilitySummary'
         saved: { type: boolean }
+    EventWrite:
+      type: object
+      required: [title, eventClass, format, access, type, eventDate]
+      properties:
+        title: { type: string, maxLength: 200 }
+        organizerProfileId: { type: string, format: uuid, nullable: true }
+        venueId: { type: string, format: uuid, nullable: true }
+        eventClass: { type: string, enum: [meeting, incentive, conference, exhibition, community] }
+        format: { type: string, enum: [in_person, online, hybrid] }
+        access: { type: string, enum: [public, registered, invite_only] }
+        type: { type: string, description: 'Editorial theme, not the event class' }
+        eventDate: { type: string, format: date }
+        endDate: { type: string, format: date, nullable: true }
+        startTime: { type: string, example: '09:00' }
+        endTime: { type: string, example: '17:00' }
+        timezone: { type: string, default: Africa/Nairobi }
+        description: { type: string }
+        capacity: { type: integer, nullable: true }
+        waitlistCapacity: { type: integer, nullable: true }
+        registrationMode: { type: string, enum: [rsvp, ticket_handoff, none] }
+        priceAmount: { type: number, nullable: true }
+        priceCurrency: { type: string, minLength: 3, maxLength: 3, nullable: true }
+        salesEnd: { type: string, format: date-time, nullable: true }
+        ticketUrl: { type: string, format: uri, nullable: true }
+        accessibility: { $ref: '#/components/schemas/AccessibilityWrite' }
     EventDetail:
       allOf:
         - $ref: '#/components/schemas/EventSummary'
@@ -2494,6 +2823,29 @@ components:
         speakers:
           type: array
           items: { $ref: '#/components/schemas/Speaker' }
+    SessionWrite:
+      type: object
+      required: [day, startsAt, endsAt, title]
+      properties:
+        day: { type: string, format: date }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        room: { type: string }
+        track: { type: string }
+        title: { type: string }
+        description: { type: string }
+        capacity: { type: integer, nullable: true }
+        displayOrder: { type: integer }
+    PersonWrite:
+      type: object
+      required: [displayName]
+      properties:
+        displayName: { type: string }
+        title: { type: string }
+        organization: { type: string }
+        bio: { type: string }
+        photoUrl: { type: string }
+        isPublic: { type: boolean, default: true }
     Speaker:
       type: object
       required: [displayName]
@@ -3171,6 +3523,45 @@ components:
         fieldStatus: { type: object, additionalProperties: { type: string } }
         sourceVersion: { type: integer }
         translatorRef: { type: string }
+    SpeciesNameWrite:
+      type: object
+      required: [language, name]
+      properties:
+        language: { type: string }
+        script: { type: string, default: Latn }
+        name: { type: string }
+        nameType: { type: string, enum: [common, local, scientific, alternate] }
+        region: { type: string }
+        countyGid: { type: integer, nullable: true }
+        sourceId: { type: string, format: uuid, nullable: true }
+        preferred: { type: boolean }
+    SpeciesMediaWrite:
+      type: object
+      required: [mediaKind, storageKey, credit, rightsHolder, licenceCode]
+      properties:
+        mediaKind: { type: string, enum: [image, video, map] }
+        storageKey: { type: string }
+        width: { type: integer }
+        height: { type: integer }
+        rightsId: { type: string, format: uuid, nullable: true }
+        credit: { type: string }
+        rightsHolder: { type: string }
+        licenceCode: { type: string }
+        licenceUrl: { type: string }
+        sensitiveLocation: { type: boolean }
+        alt:
+          type: object
+          additionalProperties: { type: string }
+    SpeciesAudioWrite:
+      type: object
+      required: [language, storageKey, narrator, transcript, durationSeconds]
+      properties:
+        language: { type: string }
+        storageKey: { type: string }
+        narrator: { type: string }
+        transcript: { type: string }
+        durationSeconds: { type: integer, minimum: 1 }
+        rightsId: { type: string, format: uuid, nullable: true }
     SpeciesName:
       type: object
       required: [language, name, reviewStatus]

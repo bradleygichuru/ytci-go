@@ -12,27 +12,42 @@ import (
 // frozenOperations is the change-control list. Adding, removing or renaming an
 // operation requires a contract change ticket and a version bump.
 var frozenOperations = map[string][]string{
-	"/v1/public/events":                              {"get"},
-	"/v1/public/events/{id}":                         {"get"},
-	"/v1/public/events/{id}/calendar.ics":            {"get"},
-	"/v1/public/organizers/{slug}":                   {"get"},
-	"/v1/public/venues/{slug}":                       {"get"},
-	"/v1/mobile/events/{id}/registrations":           {"post"},
-	"/v1/mobile/events/{id}/ticket-handoffs":         {"post"},
-	"/v1/mobile/events/{id}/registration":            {"get", "delete"},
-	"/v1/mobile/registrations":                       {"get"},
-	"/v1/mobile/events/{id}/ticket":                  {"get"},
-	"/v1/mobile/events/{id}/checkins":                {"post"},
-	"/v1/mobile/events/{id}/checkin-scans":           {"post"},
-	"/v1/mobile/events/{id}/reports":                 {"post"},
-	"/v1/mobile/events/{id}/notifications":           {"get"},
-	"/v1/mobile/events/{id}/reminder":                {"put"},
-	"/v1/admin/venues":                               {"get", "post"},
-	"/v1/admin/venues/{id}":                          {"patch"},
-	"/v1/admin/organizers":                           {"get", "post"},
-	"/v1/admin/organizers/{id}":                      {"patch"},
-	"/v1/admin/organizers/{id}/verification":         {"post"},
-	"/v1/admin/events":                               {"get"},
+	"/v1/public/events":                    {"get"},
+	"/v1/public/events/{id}":               {"get"},
+	"/v1/public/events/{id}/calendar.ics":  {"get"},
+	"/v1/public/organizers/{slug}":         {"get"},
+	"/v1/public/venues/{slug}":             {"get"},
+	"/v1/mobile/events/{id}/registrations": {"post"},
+
+	"/v1/mobile/events/{id}/registration":        {"get", "delete"},
+	"/v1/mobile/registrations":                   {"get"},
+	"/v1/mobile/events/{id}/ticket":              {"get"},
+	"/v1/mobile/events/{id}/checkins":            {"post"},
+	"/v1/mobile/events/{id}/checkin-scans":       {"post"},
+	"/v1/mobile/events/{id}/reports":             {"post"},
+	"/v1/mobile/events/{id}/notifications":       {"get"},
+	"/v1/mobile/events/{id}/reminder":            {"put"},
+	"/v1/admin/venues":                           {"get", "post"},
+	"/v1/admin/venues/{id}":                      {"patch"},
+	"/v1/admin/organizers":                       {"get", "post"},
+	"/v1/admin/organizers/{id}":                  {"patch"},
+	"/v1/admin/organizers/{id}/verification":     {"post"},
+	"/v1/admin/events":                           {"get", "post"},
+	"/v1/admin/events/{id}":                      {"get", "patch"},
+	"/v1/admin/events/{id}/sessions":             {"post"},
+	"/v1/admin/events/{id}/sessions/{sessionId}": {"patch"},
+	"/v1/admin/events/{id}/people":               {"post"},
+	"/v1/admin/sessions/{sessionId}/speakers":    {"post"},
+	"/v1/mobile/events/{id}/save":                {"post"},
+	"/v1/mobile/events/saved":                    {"get"},
+	"/v1/mobile/events/{id}/ticket-handoffs":     {"post"},
+	"/v1/admin/recognition/badges/{key}/publish": {"post"},
+	"/v1/admin/recognition/seasons/{id}/publish": {"post"},
+	"/v1/admin/recognition/seasons/{id}/freeze":  {"post"},
+	"/v1/admin/species/{id}/names":               {"post"},
+	"/v1/admin/species/{id}/media":               {"post"},
+	"/v1/admin/species/{id}/audio":               {"post"},
+
 	"/v1/admin/events/{id}/publish":                  {"post"},
 	"/v1/admin/events/{id}/change-notices":           {"post"},
 	"/v1/admin/events/{id}/registrations":            {"get"},
@@ -173,8 +188,8 @@ func TestOpenAPIValid(t *testing.T) {
 			}
 		}
 	}
-	if count != 96 {
-		t.Fatalf("operation count = %d, want 96", count)
+	if count != 111 {
+		t.Fatalf("operation count = %d, want 111", count)
 	}
 	for path := range frozenOperations {
 		if _, ok := doc.Paths.Map()[path]; !ok {

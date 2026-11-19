@@ -23,7 +23,7 @@ streams to finish their handlers.
 | Mock fixtures | `fixtures/` | 1.0.0 |
 | Contract version registry | `platform_contract_versions` (migration 0069) | 1.0.0 |
 
-The OpenAPI document has **96 operations**. The change-control test
+The OpenAPI document has **111 operations**. The change-control test
 `TestOpenAPIValid` pins every path and method; adding or removing one fails CI
 until the freeze list is updated deliberately.
 

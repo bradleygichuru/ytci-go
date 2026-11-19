@@ -1,0 +1,16 @@
+{
+  "id": "17171717-1717-4717-8717-171717171717",
+  "mediaKind": "image",
+  "url": "https://cdn.example.ke/species/lion.jpg",
+  "width": 1600,
+  "height": 1067,
+  "credit": "YTCI media team",
+  "rightsHolder": "YTCI",
+  "licenceCode": "CC-BY-4.0",
+  "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+  "sensitiveLocation": false,
+  "alt": {
+    "en": "A male lion resting in tall grass.",
+    "sw": "Simba dume akipumzika kwenye nyasi ndefu."
+  }
+}
