@@ -194,7 +194,8 @@ func TestAnalyticsV2UsesPseudonymousID(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "ignored", decodeBody(t, resp)["status"])
 
-	// Account deletion removes the mapping and anonymises consent history.
+	// Account deletion removes the mapping, tombstones raw analytics rows, and
+	// anonymises consent history (ADR 0016 §8).
 	_, err = pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS audit_logs (
 		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 		user_id TEXT,
@@ -214,7 +215,7 @@ func TestAnalyticsV2UsesPseudonymousID(t *testing.T) {
 	assert.Equal(t, 0, mappings)
 	var events int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM analytics_events`).Scan(&events))
-	assert.Equal(t, 1, events)
+	assert.Equal(t, 0, events)
 	var consentUser string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT user_id FROM consent_records LIMIT 1`).Scan(&consentUser))
 	assert.NotEqual(t, privacyUserID, consentUser)
