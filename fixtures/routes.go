@@ -142,6 +142,17 @@ var Routes = []Route{
 
 // Match resolves a method and concrete path to a route.
 func Match(method, path string) (Route, bool) {
+	// Literal patterns win over wildcard patterns regardless of registration
+	// order. Without this, /v1/admin/species/{id} shadows /species/review,
+	// /species/sources and /species/rights and serves the detail fixture.
+	for _, route := range Routes {
+		if route.Method != method || strings.Contains(route.Pattern, "{") {
+			continue
+		}
+		if matchPattern(route.Pattern, path) {
+			return route, true
+		}
+	}
 	for _, route := range Routes {
 		if route.Method != method {
 			continue
