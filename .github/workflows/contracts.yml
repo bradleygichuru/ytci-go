@@ -20,9 +20,27 @@ jobs:
           cache: true
       - name: Build
         run: go build ./...
-      - name: Vet contract packages
-        run: go vet ./internal/contracts/... ./cmd/contracts-mock/... ./fixtures/...
-      - name: Contract tests (OpenAPI, CloudEvents, roles, fixtures)
-        run: go test ./internal/contracts ./cmd/contracts-mock -count=1
+      - name: Vet
+        run: go vet ./internal/... ./cmd/... ./fixtures/...
+      # Everything that is green on master. `internal/server` is listed
+      # separately because it still carries legacy suites that predate the uuid
+      # user schema (challenges, courses, marketplace, then-now) and fail with
+      # 22P02/42703 before any #376 assertion runs. Those are quarantined in
+      # ytci-go#49, not silently tolerated here.
+      - name: Tests (all packages except the quarantined legacy server suites)
+        run: |
+          go test ./internal/alerts/... ./internal/analytics/... ./internal/contracts/... \
+            ./internal/db/... ./internal/handler/... ./internal/mice/... \
+            ./internal/middleware/... ./internal/places/... ./internal/privacy/... \
+            ./internal/push/... ./internal/recognition/... ./internal/species/... \
+            ./internal/thennow/... ./internal/wikipedia/... ./cmd/... \
+            -count=1 -p 1 -timeout 20m
+      # The #376 surfaces: MICE (#364), recognition (#368), species (#372) and
+      # analytics (#375) integration tests inside internal/server.
+      - name: Server integration tests for the #376 surfaces
+        run: >-
+          go test ./internal/server
+          -run 'TestMice|TestRecognition|TestSpecies|TestAnalytics'
+          -count=1 -timeout 20m
       - name: Migration replay on a fresh database
         run: go test ./internal/contracts -run TestMigrationsApplyOnFreshDatabase -count=1 -v
