@@ -71,6 +71,11 @@ permissions:
     - administrator
     - super_admin
   platform.admin_access:
+    - content_editor
+    - species_expert
+    - translator
+    - language_reviewer
+    - rights_reviewer
     - moderator
     - administrator
     - super_admin
