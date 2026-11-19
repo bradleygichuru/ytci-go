@@ -59,9 +59,10 @@ func New(pool *pgxpool.Pool, cfg *config.Config) *Handler {
 func NewWithOptions(pool *pgxpool.Pool, opts Options) *Handler {
 	secret := []byte(opts.TicketSecret)
 	if len(secret) == 0 {
-		// Deterministic development fallback. Production must set
-		// MICE_TICKET_SECRET; the value is only used to sign short-lived
-		// tickets and never authenticates a user.
+		// Deterministic development fallback. config.Validate fails the process
+		// outside APP_ENV=development when MICE_TICKET_SECRET is unset, so this
+		// branch is only reachable in development and tests. The value signs
+		// short-lived tickets and never authenticates a user.
 		secret = []byte("ytci-mice-development-ticket-secret")
 		slog.Warn("mice: MICE_TICKET_SECRET is unset; using the development ticket key")
 	}
