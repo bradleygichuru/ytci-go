@@ -10,10 +10,10 @@ import "embed"
 var FS embed.FS
 
 const (
-	OpenAPIPath       = "openapi/contracts.v1.yaml"
-	RolesPath         = "contracts/roles.v1.yaml"
-	CloudEventsPath   = "contracts/cloudevents.v1.yaml"
-	MicePath          = "contracts/mice.v1.yaml"
-	SpeciesPath       = "contracts/species.v1.yaml"
-	AnalyticsPath     = "contracts/analytics.v1.yaml"
+	OpenAPIPath     = "openapi/contracts.v1.yaml"
+	RolesPath       = "contracts/roles.v1.yaml"
+	CloudEventsPath = "contracts/cloudevents.v1.yaml"
+	MicePath        = "contracts/mice.v1.yaml"
+	SpeciesPath     = "contracts/species.v1.yaml"
+	AnalyticsPath   = "contracts/analytics.v1.yaml"
 )
