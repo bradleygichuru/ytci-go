@@ -3,8 +3,10 @@ package push
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -166,9 +168,13 @@ func TestSendProgramUpdatePayloadAndDelivery(t *testing.T) {
 	_, err = pool.Exec(ctx, `INSERT INTO user_profiles (user_id, consent_notifications, created_by)
 		VALUES ($1,true,$1)`, userID)
 	require.NoError(t, err)
+	// Quiet hours are disabled explicitly: the default preference window
+	// (22:00-06:00 Africa/Nairobi) would otherwise make this assertion depend
+	// on the wall clock and suppress the push when CI runs inside that window.
 	_, err = pool.Exec(ctx, `INSERT INTO alert_preferences
-		(user_id, home_county_gid, categories, os_permission_ok, program_important_only)
-		VALUES ($1,1,ARRAY['Met','Program'],true,false)`, userID)
+		(user_id, home_county_gid, categories, os_permission_ok, program_important_only,
+		 quiet_hours_enabled)
+		VALUES ($1,1,ARRAY['Met','Program'],true,false,false)`, userID)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO push_tokens (user_id, token, platform)
 		VALUES ($1,'ExponentPushToken[program]','android')`, userID)
@@ -205,4 +211,58 @@ func TestSendProgramUpdatePayloadAndDelivery(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `
 		SELECT status FROM program_update_deliveries WHERE program_update_id=$1`, programID).Scan(&status))
 	assert.Equal(t, "sent", status)
+}
+
+// Quiet-hours suppression is part of the Program delivery contract: the inbox
+// row stays, the push does not go out, and the delivery is recorded as skipped.
+// The window is anchored to the wall clock at test start so the assertion holds
+// whenever the suite runs.
+func TestSendProgramUpdateSuppressesDuringQuietHours(t *testing.T) {
+	pool := db.SetupTestDB(t)
+	ctx := context.Background()
+	_, err := pool.Exec(ctx, `INSERT INTO kenya_counties (gid, adm1_name, adm1_pcode) VALUES (1, 'Nairobi', 'KE047')`)
+	require.NoError(t, err)
+	userID := "00000000-0000-0000-0000-000000000032"
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email) VALUES ($1,'Quiet','quiet@example.com')`, userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO user_profiles (user_id, consent_notifications, created_by)
+		VALUES ($1,true,$1)`, userID)
+	require.NoError(t, err)
+
+	hour := time.Now().In(loadLocation("Africa/Nairobi")).Hour()
+	_, err = pool.Exec(ctx, `INSERT INTO alert_preferences
+		(user_id, home_county_gid, categories, os_permission_ok, program_important_only,
+		 quiet_hours_enabled, quiet_hours_start, quiet_hours_end)
+		VALUES ($1,1,ARRAY['Met','Program'],true,false,true,$2::time,$3::time)`,
+		userID, fmt.Sprintf("%02d:00", hour), fmt.Sprintf("%02d:00", (hour+1)%24))
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO push_tokens (user_id, token, platform)
+		VALUES ($1,'ExponentPushToken[quiet]','android')`, userID)
+	require.NoError(t, err)
+
+	var programID string
+	require.NoError(t, pool.QueryRow(ctx, `
+		INSERT INTO program_updates (title, body, priority, status, created_by)
+		VALUES ('Night update','Held for morning','Normal','published','test') RETURNING id`).Scan(&programID))
+
+	var requests int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"status":"ok","id":"ticket-1"}]}`))
+	}))
+	defer server.Close()
+
+	client := &Client{httpClient: server.Client(), pushAPIURL: server.URL}
+	sent, err := SendProgramUpdate(ctx, pool, client, ProgramPush{
+		ID: programID, Title: "Night update", Body: "Held for morning", Priority: "Normal",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 0, sent)
+	assert.Equal(t, int32(0), atomic.LoadInt32(&requests))
+
+	var status string
+	require.NoError(t, pool.QueryRow(ctx, `
+		SELECT status FROM program_update_deliveries WHERE program_update_id=$1`, programID).Scan(&status))
+	assert.Equal(t, "skipped", status)
 }
