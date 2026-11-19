@@ -14,6 +14,7 @@ import (
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 	"github.com/bradleygichuru/ytci-go/internal/handler/admin"
 	"github.com/bradleygichuru/ytci-go/internal/handler/expo"
+	"github.com/bradleygichuru/ytci-go/internal/mice"
 	"github.com/bradleygichuru/ytci-go/internal/middleware"
 	"github.com/bradleygichuru/ytci-go/internal/places"
 	"github.com/bradleygichuru/ytci-go/internal/push"
@@ -107,6 +108,7 @@ type handlers struct {
 	programUpdates   *admin.ProgramUpdateHandler
 	thenNow          *admin.ThenNowHandler
 	features         *expo.FeaturesHandler
+	mice             *mice.Handler
 }
 
 func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Client, cfg *config.Config) *handlers {
@@ -144,6 +146,7 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 		programUpdates:   admin.NewProgramUpdateHandler(pool, pushClient),
 		thenNow:          admin.NewThenNowHandler(pool, r2client, time.Duration(cfg.ThenNowMediaURLTTLMinutes)*time.Minute),
 		features:         expo.NewFeaturesHandler(cfg),
+		mice:             mice.New(pool, cfg),
 	}
 	if pushClient != nil {
 		h.pushAdmin = admin.NewPushHandler(pool, pushClient)
@@ -196,6 +199,9 @@ func mountAdminRoutes(sub chi.Router, h *handlers, r2client r2.Store, jwks *midd
 		aR.Patch("/destinations/{id}", h.dest.Update)
 		aR.Delete("/destinations/{id}", h.dest.Delete)
 		aR.Post("/destinations/cache/invalidate", h.dest.InvalidatePlacesCache)
+		aR.Route("/admin", func(ma chi.Router) {
+			h.mice.RegisterAdmin(ma)
+		})
 		aR.Get("/events", h.events.List)
 		aR.Get("/events/{id}", h.events.Get)
 		aR.Post("/events", h.events.Create)
@@ -368,7 +374,7 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 			aR.Post("/courses/{id}/lessons/{lessonId}/complete", h.mobileCourses.MarkLessonComplete)
 			aR.Get("/courses/enrolled", h.mobileCourses.GetEnrolledCourses)
 			aR.Get("/courses/{id}/progress", h.mobileCourses.GetCourseProgress)
-			aR.Post("/events/{id}/save", h.actions.SaveEvent)
+			h.mice.RegisterAccount(aR)
 			aR.Post("/events/{id}/attend", h.actions.AttendEvent)
 			aR.Post("/events/{id}/leave", h.actions.LeaveEvent)
 			aR.Post("/analytics/app-open", h.actions.RecordAppOpen)
@@ -385,7 +391,6 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 			aR.Get("/privacy/export", h.privacy.Export)
 			aR.Get("/stories/mine", h.mStories.MyStories)
 			aR.Get("/stories/saved", h.mStories.SavedStories)
-			aR.Get("/events/saved", h.actions.ListSavedEvents)
 
 			aR.Post("/stories/{id}/comments", h.comments.CreateComment)
 			aR.Post("/stories/{id}/comments/{cid}/replies", h.comments.CreateReply)
@@ -404,8 +409,7 @@ func mountPublicRoutes(pub chi.Router, h *handlers, r2client r2.Store, eventLimi
 	pub.Get("/destinations", h.dest.ListMobile)
 	pub.Get("/destinations/{slug}", h.dest.GetMobile)
 	pub.Get("/destinations/nearby", h.dest.NearbyMobile)
-	pub.Get("/events", h.events.ListMobile)
-	pub.Get("/events/{id}", h.events.GetPublic)
+	h.mice.RegisterPublic(pub)
 	pub.Get("/then-now/config", h.features.ThenNowConfig)
 	pub.With(eventLimiter.Middleware).Post("/then-now/events", h.thenNow.RecordAnonymousEvent)
 	pub.Get("/then-now/sites", h.thenNow.ListPublishedSites)

@@ -28,6 +28,11 @@ type Config struct {
 
 	// Published Then & Now media is served as short-lived signed R2 URLs.
 	ThenNowMediaURLTTLMinutes int `env:"THEN_NOW_MEDIA_URL_TTL_MINUTES" envDefault:"15"`
+
+	// MICE events. Tickets are signed with this secret; notifications stay
+	// dark until the Program channel owners enable event delivery.
+	MiceTicketSecret         string `env:"MICE_TICKET_SECRET"`
+	MiceNotificationsEnabled bool   `env:"MICE_NOTIFICATIONS_ENABLED" envDefault:"false"`
 }
 
 func Load() (*Config, error) {
