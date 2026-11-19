@@ -1,0 +1,23 @@
+{
+  "language": "en",
+  "script": "Latn",
+  "name": "Lion",
+  "nameType": "common",
+  "region": null,
+  "countyGid": null,
+  "reviewStatus": "reviewed",
+  "preferred": true,
+  "source": {
+    "id": "15151515-1515-4515-8515-151515151515",
+    "publisher": "GBIF",
+    "citation": "GBIF Backbone Taxonomy. doi:10.15468/39omei",
+    "url": "https://www.gbif.org/species/5219404",
+    "accessedAt": "2026-09-01",
+    "licenceCode": "CC-BY-4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "permittedUse": "taxonomy_only",
+    "attribution": "GBIF.org (2026) GBIF Backbone Taxonomy",
+    "snapshotHash": "sha256:abc123",
+    "reviewStatus": "reviewed"
+  }
+}

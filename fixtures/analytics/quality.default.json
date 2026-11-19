@@ -1,0 +1,37 @@
+{
+  "from": "2026-11-01",
+  "to": "2026-11-19",
+  "ingest": {
+    "events": 84210,
+    "batches": 3120,
+    "droppedEvents": 412,
+    "unknownKeys": 87,
+    "rejectedBatches": 6
+  },
+  "consent": {
+    "granted": 5402,
+    "denied": 611,
+    "unknown": 291,
+    "staleVersion": 44
+  },
+  "queue": {
+    "clientDrops": 33,
+    "expired": 12
+  },
+  "suppression": {
+    "threshold": 10,
+    "cellsSuppressed": 18
+  },
+  "rollups": [
+    {
+      "rollup": "analytics_daily",
+      "lastDay": "2026-11-18",
+      "status": "ok"
+    },
+    {
+      "rollup": "analytics_journey_daily",
+      "lastDay": "2026-11-18",
+      "status": "ok"
+    }
+  ]
+}

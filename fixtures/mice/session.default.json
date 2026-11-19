@@ -1,0 +1,21 @@
+{
+  "id": "66666666-6666-4666-8666-666666666666",
+  "day": "2026-12-05",
+  "startsAt": "2026-12-05T09:00:00+03:00",
+  "endsAt": "2026-12-05T10:00:00+03:00",
+  "room": "Tsavo Ballroom",
+  "track": "Policy",
+  "title": "Opening plenary",
+  "description": "Opening remarks and the state of tourism address.",
+  "capacity": 400,
+  "speakers": [
+    {
+      "id": "77777777-7777-4777-8777-777777777777",
+      "displayName": "Dr. Amina Wanjiku",
+      "title": "Principal Secretary",
+      "organization": "Ministry of Tourism",
+      "role": "speaker",
+      "photoUrl": null
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "items": [
+    {
+      "language": "en",
+      "name": "English",
+      "tier": "full",
+      "available": true,
+      "reviewedNames": 1,
+      "audio": true,
+      "fallback": false
+    },
+    {
+      "language": "sw",
+      "name": "Swahili",
+      "tier": "full",
+      "available": true,
+      "reviewedNames": 1,
+      "audio": true,
+      "fallback": false
+    },
+    {
+      "language": "mas",
+      "name": "Maasai",
+      "tier": "names",
+      "available": true,
+      "reviewedNames": 1,
+      "audio": false,
+      "fallback": false
+    },
+    {
+      "language": "fr",
+      "name": "French",
+      "tier": "summary",
+      "available": false,
+      "reviewedNames": 0,
+      "audio": false,
+      "fallback": true
+    }
+  ]
+}

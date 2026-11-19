@@ -1,0 +1,18 @@
+{
+  "items": [
+    {
+      "key": "global",
+      "enabled": false,
+      "reason": "recognition dark launch",
+      "updatedBy": "super-admin-1",
+      "updatedAt": "2026-11-18T06:00:00Z"
+    },
+    {
+      "key": "public_leaderboard",
+      "enabled": false,
+      "reason": "DPIA and 18+ pilot gate",
+      "updatedBy": "super-admin-1",
+      "updatedAt": "2026-11-18T06:00:00Z"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "EVENTS_UNAVAILABLE",
+    "message": "Event discovery is temporarily unavailable. Retry shortly."
+  }
+}

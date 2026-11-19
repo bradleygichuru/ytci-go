@@ -17,6 +17,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/bradleygichuru/ytci-go/internal/contracts"
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 )
 
@@ -372,23 +373,24 @@ func extractBearerToken(r *http.Request) string {
 
 type Role string
 
+// Role names mirror api/contracts/roles.v1.yaml. The permission checks below
+// read that contract so the role model has one source of truth.
 const (
-	RoleSuperAdmin    Role = "super_admin"
-	RoleAdmin         Role = "administrator"
-	RoleContentEditor Role = "content_editor"
-	RoleModerator     Role = "moderator"
-	RoleCountyOfficer Role = "county_officer"
-	RoleUser          Role = "user"
+	RoleSuperAdmin     Role = contracts.RoleSuperAdmin
+	RoleAdmin          Role = contracts.RoleAdministrator
+	RoleContentEditor  Role = contracts.RoleContentEditor
+	RoleSpeciesExpert  Role = contracts.RoleSpeciesExpert
+	RoleTranslator     Role = contracts.RoleTranslator
+	RoleLanguageReview Role = contracts.RoleLanguageReviewer
+	RoleRightsReviewer Role = contracts.RoleRightsReviewer
+	RoleModerator      Role = contracts.RoleModerator
+	RoleOrganizer      Role = contracts.RoleOrganizer
+	RoleCountyOfficer  Role = contracts.RoleCountyOfficer
+	RoleUser           Role = contracts.RoleUser
 )
 
-var adminRoles = map[Role]bool{
-	RoleSuperAdmin: true,
-	RoleAdmin:      true,
-	RoleModerator:  true,
-}
-
 func IsAdmin(role Role) bool {
-	return adminRoles[role]
+	return contracts.MustRoles().Can(string(role), contracts.PermPlatformAdminAccess)
 }
 
 func AdminGate(next http.Handler) http.Handler {
@@ -402,30 +404,28 @@ func AdminGate(next http.Handler) http.Handler {
 	})
 }
 
-// Then & Now has its own role set: content editors can author and submit, but
-// never reach the rest of the admin surface. Moderators are read-only.
-var thenNowRoles = map[Role]bool{
-	RoleSuperAdmin:    true,
-	RoleAdmin:         true,
-	RoleContentEditor: true,
-	RoleModerator:     true,
+// Then & Now permissions live in the same contract. Content editors can
+// author and submit, but never reach the rest of the admin surface. Moderators
+// are read-only.
+func CanThenNowRead(role Role) bool {
+	return contracts.MustRoles().Can(string(role), contracts.PermThenNowRead)
 }
 
-func CanThenNowRead(role Role) bool { return thenNowRoles[role] }
-
 func CanThenNowAuthor(role Role) bool {
-	return role == RoleSuperAdmin || role == RoleAdmin || role == RoleContentEditor
+	return contracts.MustRoles().Can(string(role), contracts.PermThenNowAuthor)
 }
 
 func CanThenNowReview(role Role) bool {
-	return role == RoleSuperAdmin || role == RoleAdmin
+	return contracts.MustRoles().Can(string(role), contracts.PermThenNowReview)
 }
 
 func CanThenNowPublish(role Role) bool {
-	return role == RoleSuperAdmin || role == RoleAdmin
+	return contracts.MustRoles().Can(string(role), contracts.PermThenNowPublish)
 }
 
-func CanThenNowTakedown(role Role) bool { return role == RoleSuperAdmin }
+func CanThenNowTakedown(role Role) bool {
+	return contracts.MustRoles().Can(string(role), contracts.PermThenNowTakedown)
+}
 
 func ThenNowGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

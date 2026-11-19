@@ -1,0 +1,26 @@
+{
+  "analyticsId": "21212121-2121-4121-8121-212121212121",
+  "generatedAt": "2026-11-19T06:00:00Z",
+  "events": [
+    {
+      "eventId": "24242424-2424-4424-8424-242424242424",
+      "sessionId": "25252525-2525-4525-8525-252525252525",
+      "sessionSeq": 1,
+      "family": "screen_view",
+      "name": "/events/[id]",
+      "route": "/events/[id]",
+      "clientTs": "2026-11-19T05:40:00Z",
+      "properties": {
+        "route": "/events/[id]"
+      }
+    }
+  ],
+  "sessions": [
+    {
+      "sessionId": "25252525-2525-4525-8525-252525252525",
+      "startedAt": "2026-11-19T05:39:00Z",
+      "endedAt": null,
+      "eventCount": 1
+    }
+  ]
+}

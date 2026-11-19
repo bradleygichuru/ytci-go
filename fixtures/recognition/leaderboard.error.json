@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "LEADERBOARD_DISABLED",
+    "message": "The public leaderboard is not available yet."
+  }
+}

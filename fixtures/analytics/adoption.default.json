@@ -1,0 +1,18 @@
+{
+  "items": [
+    {
+      "feature": "events",
+      "reach": 5210,
+      "depthPerActor": 2.8,
+      "repeatRate": 0.39,
+      "suppressed": false
+    },
+    {
+      "feature": "species",
+      "reach": 1890,
+      "depthPerActor": 4.1,
+      "repeatRate": 0.52,
+      "suppressed": false
+    }
+  ]
+}

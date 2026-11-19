@@ -1,0 +1,50 @@
+{
+  "level": {
+    "value": 2,
+    "name": "Pathfinder",
+    "threshold": 750,
+    "nextName": "Guardian",
+    "xpIntoLevel": 320,
+    "xpToNext": 430
+  },
+  "totalXp": 1070,
+  "recentAwards": [
+    {
+      "badgeKey": "event_attended",
+      "nameEn": "Event attendee",
+      "nameSw": "Mhudhuriaji wa tukio",
+      "family": "events",
+      "criteria": {
+        "verifiedCheckIns": 1
+      },
+      "earned": true,
+      "earnedAt": "2026-11-18T09:00:00Z",
+      "hidden": false,
+      "privacyClass": "public",
+      "sourceType": "event",
+      "sourceId": "11111111-1111-4111-8111-111111111111",
+      "progress": null
+    }
+  ],
+  "badgeCounts": {
+    "earned": 7,
+    "total": 24,
+    "public": 4
+  },
+  "season": {
+    "key": "2026-q4",
+    "nameEn": "Season of the Rift",
+    "endsAt": "2026-12-31T23:59:59+03:00",
+    "progressPercent": 64
+  },
+  "passport": {
+    "counties": 9,
+    "sites": 14
+  },
+  "leaderboard": {
+    "optedIn": false,
+    "eligible": true,
+    "reason": null
+  },
+  "adjustmentNotices": []
+}

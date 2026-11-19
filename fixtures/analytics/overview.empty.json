@@ -1,0 +1,23 @@
+{
+  "from": "2026-11-01",
+  "to": "2026-11-19",
+  "cells": [
+    {
+      "metric": "new_accounts",
+      "value": null,
+      "unit": "count",
+      "suppressed": true,
+      "definition": "new_accounts",
+      "caveat": null
+    },
+    {
+      "metric": "dau",
+      "value": null,
+      "unit": "count",
+      "suppressed": true,
+      "definition": "dau",
+      "caveat": null
+    }
+  ],
+  "daily": []
+}

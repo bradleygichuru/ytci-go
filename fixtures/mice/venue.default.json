@@ -1,0 +1,40 @@
+{
+  "slug": "kicc",
+  "name": "Kenyatta International Convention Centre",
+  "county": "Nairobi",
+  "countyGid": 47,
+  "id": "0a5b6c7d-1111-4a2b-9c3d-000000000002",
+  "addressLine1": "P.O. Box 30731",
+  "addressLine2": "Harambee Avenue",
+  "latitude": -1.2884,
+  "longitude": 36.8233,
+  "capacityInPerson": 5000,
+  "capacityOnline": 2000,
+  "rooms": [
+    "Tsavo Ballroom",
+    "Lenana Hall"
+  ],
+  "transportNotes": "Matatu route 34 stops at Harambee Avenue.",
+  "dropoffNotes": "Drop-off at the Harambee Avenue gate.",
+  "parkingNotes": "Underground parking, 300 spaces.",
+  "accessibility": {
+    "reportedBy": "Nairobi Convention Bureau",
+    "verifiedAt": "2026-10-15T00:00:00Z",
+    "label": "Reported by the organizer, last verified 2026-10-15",
+    "fields": {
+      "stepFreeEntrance": "yes",
+      "stepFreeRoute": "yes",
+      "accessibleToilet": "yes",
+      "accessibleParking": "yes",
+      "accessibleSeating": "yes",
+      "captioning": "yes",
+      "signLanguage": "unknown",
+      "hearingLoop": "yes",
+      "quietRoom": "yes",
+      "assistanceDogs": "yes",
+      "companionTicketPolicy": "Companion ticket on request",
+      "contentNotes": null
+    }
+  },
+  "verifiedAt": "2026-10-15T00:00:00Z"
+}

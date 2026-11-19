@@ -1,0 +1,14 @@
+{
+  "seasonKey": "2026-q4",
+  "optedIn": false,
+  "eligible": true,
+  "ineligibleReason": null,
+  "displayName": {
+    "displayName": "RiftReader",
+    "status": "approved",
+    "previousApproved": null,
+    "nextChangeAllowed": "2026-12-19T00:00:00Z"
+  },
+  "ownEntry": null,
+  "board": null
+}

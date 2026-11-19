@@ -1,0 +1,32 @@
+{
+  "counties": [
+    {
+      "countyGid": 47,
+      "name": "Nairobi",
+      "sites": 4,
+      "complete": false
+    },
+    {
+      "countyGid": 42,
+      "name": "Kisumu",
+      "sites": 2,
+      "complete": false
+    }
+  ],
+  "sites": [
+    {
+      "siteRef": "heritage-site-1",
+      "name": "Nairobi Gallery",
+      "countyGid": 47,
+      "visitedAt": "2026-10-02T11:00:00Z",
+      "sensitive": false
+    },
+    {
+      "siteRef": "heritage-site-2",
+      "name": "Karen Blixen Museum",
+      "countyGid": 47,
+      "visitedAt": null,
+      "sensitive": false
+    }
+  ]
+}

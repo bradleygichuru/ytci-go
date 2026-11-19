@@ -1,0 +1,70 @@
+{
+  "from": "2026-11-01",
+  "to": "2026-11-19",
+  "cells": [
+    {
+      "metric": "new_accounts",
+      "value": 143,
+      "unit": "count",
+      "suppressed": false,
+      "definition": "new_accounts",
+      "caveat": null
+    },
+    {
+      "metric": "dau",
+      "value": 821,
+      "unit": "count",
+      "suppressed": false,
+      "definition": "dau",
+      "caveat": null
+    },
+    {
+      "metric": "wau",
+      "value": 2410,
+      "unit": "count",
+      "suppressed": false,
+      "definition": "wau",
+      "caveat": null
+    },
+    {
+      "metric": "mau",
+      "value": 6304,
+      "unit": "count",
+      "suppressed": false,
+      "definition": "mau",
+      "caveat": null
+    },
+    {
+      "metric": "guest_to_account_ratio",
+      "value": 0.42,
+      "unit": "ratio",
+      "suppressed": false,
+      "definition": "guest_to_account_ratio",
+      "caveat": null
+    },
+    {
+      "metric": "activation_rate",
+      "value": 0.31,
+      "unit": "percent",
+      "suppressed": false,
+      "definition": "activation_rate",
+      "caveat": null
+    }
+  ],
+  "daily": [
+    {
+      "day": "2026-11-18",
+      "dau": 821,
+      "guests": 512,
+      "accounts": 309,
+      "suppressed": false
+    },
+    {
+      "day": "2026-11-19",
+      "dau": null,
+      "guests": null,
+      "accounts": null,
+      "suppressed": true
+    }
+  ]
+}

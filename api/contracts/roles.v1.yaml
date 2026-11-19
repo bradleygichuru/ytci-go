@@ -1,0 +1,351 @@
+# Single source of truth for actor roles, permissions and duty separation.
+# Loaded by internal/contracts/roles.go and validated in CI.
+# Role names are constrained by users_role_check (migration 0069).
+version: 1.0.0
+owner: stream:platform
+frozen_at: '2026-11-18'
+notes: |
+  A role is an actor's job. A permission is an allowed action. A duty is a
+  bundle of permissions that carries a conflict-of-interest obligation.
+  Per-object authority (organizer, scanner, assigned reviewer) is scoped by
+  organizer_staff and review assignment rows; it is never expressed by adding
+  more role names.
+
+roles:
+  user:
+    label: Reader
+    scope: reader
+    description: Authenticated reader. Earns recognition, registers for events, saves species.
+  county_officer:
+    label: County officer
+    scope: admin-read
+    description: Legacy read-only county operations role.
+  content_editor:
+    label: Content editor
+    scope: admin-write
+    description: Prepares events, species base records, drafts and media uploads. Cannot publish.
+  species_expert:
+    label: Species expert
+    scope: admin-write
+    description: Owns taxonomy, conservation status, habitat, range and where-to-see evidence.
+  translator:
+    label: Translator
+    scope: admin-write
+    description: Human translation pinned to a source version. Cannot review their own work.
+  language_reviewer:
+    label: Language reviewer
+    scope: admin-write
+    description: Native or community review. Must differ from the translator of the same variant.
+  rights_reviewer:
+    label: Rights reviewer
+    scope: admin-write
+    description: Licences, attribution, narrator and community consent. Cannot upload the assets they review.
+  moderator:
+    label: Moderator
+    scope: admin-read
+    description: Read-only admin and moderation queue access. Cannot publish or award.
+  organizer:
+    label: Organizer
+    scope: organizer
+    description: Limited self-service for one or more organizer profiles. Scanner access requires organizer_staff.
+  administrator:
+    label: Administrator
+    scope: admin-publish
+    description: Publishes reviewed content, verifies organizers, moderates names and reports.
+  super_admin:
+    label: Super administrator
+    scope: admin-full
+    description: Revokes, retracts, disqualifies, decides appeals, flips kill switches.
+
+permissions:
+  platform.contracts.read:
+    - user
+    - county_officer
+    - content_editor
+    - species_expert
+    - translator
+    - language_reviewer
+    - rights_reviewer
+    - moderator
+    - organizer
+    - administrator
+    - super_admin
+  platform.admin_access:
+    - moderator
+    - administrator
+    - super_admin
+  platform.roles.read:
+    - administrator
+    - super_admin
+  platform.roles.manage:
+    - super_admin
+
+  events.read:
+    - user
+    - county_officer
+    - content_editor
+    - moderator
+    - organizer
+    - administrator
+    - super_admin
+  events.create:
+    - content_editor
+    - organizer
+    - administrator
+    - super_admin
+  events.edit_draft:
+    - content_editor
+    - organizer
+    - administrator
+    - super_admin
+  events.submit_review:
+    - content_editor
+    - organizer
+  events.publish:
+    - administrator
+    - super_admin
+  events.publish_paid:
+    - administrator
+    - super_admin
+  events.verify_organizer:
+    - administrator
+    - super_admin
+  events.revoke_organizer:
+    - super_admin
+  events.view_registrations:
+    - organizer
+    - administrator
+    - super_admin
+  events.scan:
+    - organizer
+  events.override_checkin:
+    - organizer
+    - administrator
+    - super_admin
+  events.change_notice_draft:
+    - content_editor
+    - organizer
+    - administrator
+    - super_admin
+  events.change_notice_approve:
+    - administrator
+    - super_admin
+  events.report_decide:
+    - administrator
+    - super_admin
+
+  recognition.read:
+    - user
+    - content_editor
+    - moderator
+    - administrator
+    - super_admin
+  recognition.author_rule:
+    - content_editor
+    - administrator
+    - super_admin
+  recognition.simulate_rule:
+    - content_editor
+    - moderator
+    - administrator
+    - super_admin
+  recognition.publish_rule:
+    - administrator
+    - super_admin
+  recognition.author_badge:
+    - content_editor
+    - administrator
+    - super_admin
+  recognition.publish_badge:
+    - administrator
+    - super_admin
+  recognition.prepare_season:
+    - content_editor
+    - administrator
+    - super_admin
+  recognition.publish_season:
+    - administrator
+    - super_admin
+  recognition.close_season:
+    - administrator
+    - super_admin
+  recognition.moderate:
+    - moderator
+    - administrator
+    - super_admin
+  recognition.disqualify:
+    - super_admin
+  recognition.adjust_xp:
+    - administrator
+    - super_admin
+  recognition.approve_adjustment:
+    - super_admin
+  recognition.backfill:
+    - administrator
+    - super_admin
+  recognition.approve_backfill:
+    - super_admin
+  recognition.kill_switch:
+    - super_admin
+  recognition.audit_read:
+    - moderator
+    - administrator
+    - super_admin
+
+  species.read:
+    - user
+    - county_officer
+    - content_editor
+    - species_expert
+    - translator
+    - language_reviewer
+    - rights_reviewer
+    - moderator
+    - administrator
+    - super_admin
+  species.create:
+    - content_editor
+    - administrator
+    - super_admin
+  species.edit_base:
+    - content_editor
+    - species_expert
+    - administrator
+    - super_admin
+  species.expert_review:
+    - species_expert
+  species.translate:
+    - translator
+  species.review_language:
+    - language_reviewer
+  species.review_rights:
+    - rights_reviewer
+  species.upload_media:
+    - content_editor
+  species.publish:
+    - administrator
+    - super_admin
+  species.unpublish:
+    - administrator
+    - super_admin
+  species.rights_withdraw:
+    - super_admin
+
+  analytics.read:
+    - county_officer
+    - moderator
+    - administrator
+    - super_admin
+  analytics.export:
+    - administrator
+    - super_admin
+  analytics.erasure:
+    - administrator
+    - super_admin
+  analytics.support_stream:
+    - super_admin
+
+  # Legacy Then & Now admin surface. Retained as permissions so there is still
+  # one role source; the feature is not part of the four execution streams.
+  then_now.read:
+    - moderator
+    - content_editor
+    - administrator
+    - super_admin
+  then_now.author:
+    - content_editor
+    - administrator
+    - super_admin
+  then_now.review:
+    - administrator
+    - super_admin
+  then_now.publish:
+    - administrator
+    - super_admin
+  then_now.takedown:
+    - super_admin
+
+# Duties group permissions that create a conflict-of-interest obligation.
+duties:
+  content_author:
+    permissions: [events.create, events.edit_draft, species.create, species.edit_base]
+    roles: [content_editor]
+  media_uploader:
+    permissions: [species.upload_media]
+    roles: [content_editor]
+  translator:
+    permissions: [species.translate]
+    roles: [translator]
+  language_reviewer:
+    permissions: [species.review_language]
+    roles: [language_reviewer]
+  rights_reviewer:
+    permissions: [species.review_rights]
+    roles: [rights_reviewer]
+  recognition_author:
+    permissions: [recognition.author_rule, recognition.author_badge]
+    roles: [content_editor, administrator, super_admin]
+  recognition_publisher:
+    permissions: [recognition.publish_rule, recognition.publish_badge]
+    roles: [administrator, super_admin]
+  organizer_requester:
+    permissions: [events.submit_review]
+    roles: [content_editor, organizer]
+  organizer_verifier:
+    permissions: [events.verify_organizer]
+    roles: [administrator, super_admin]
+  backfill_requester:
+    permissions: [recognition.backfill]
+    roles: [administrator, super_admin]
+  backfill_approver:
+    permissions: [recognition.approve_backfill]
+    roles: [super_admin]
+  xp_adjuster:
+    permissions: [recognition.adjust_xp]
+    roles: [administrator, super_admin]
+  xp_approver:
+    permissions: [recognition.approve_adjustment]
+    roles: [super_admin]
+
+# organisers assigned the scanner staff role receive these duties at runtime.
+assignment_duties:
+  scanner:
+    permissions: [events.scan]
+    source: organizer_staff
+
+separations:
+  - name: reviewer_is_not_translator
+    cannot_hold: [translator, language_reviewer]
+    rationale: A different native reviewer checks every translated variant (ADR 0014 §6).
+  - name: reviewer_is_not_uploader
+    cannot_hold: [media_uploader, rights_reviewer]
+    rationale: The rights reviewer must not review assets they uploaded (ADR 0013 §10).
+
+# Actor separations are evaluated per object, not per role set: an
+# administrator may author a rule but may not publish that same rule.
+actor_separations:
+  - name: publisher_is_not_author
+    action: recognition.publish_rule
+    prior_action: recognition.author_rule
+    rationale: Reviewer is not publisher; no self-award (ADR 0010 §10, ADR 0015 §10).
+  - name: verifier_is_not_requester
+    action: events.verify_organizer
+    prior_action: events.submit_review
+    rationale: Organizer verification requires a different reviewer (ADR 0012 §2).
+  - name: approver_is_not_requester
+    action: recognition.approve_backfill
+    prior_action: recognition.backfill
+    rationale: Backfill needs a second approver (ADR 0010 §4).
+  - name: xp_approver_is_not_adjuster
+    action: recognition.approve_adjustment
+    prior_action: recognition.adjust_xp
+    rationale: Manual adjustments need a second approver (ADR 0015 §7).
+  - name: language_reviewer_is_not_translator
+    action: species.review_language
+    prior_action: species.translate
+    rationale: Translator and reviewer must differ (ADR 0014 §6).
+  - name: rights_reviewer_is_not_uploader
+    action: species.review_rights
+    prior_action: species.upload_media
+    rationale: Rights reviewer must not review their own upload (ADR 0013 §10).
+

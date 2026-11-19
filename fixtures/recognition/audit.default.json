@@ -1,0 +1,15 @@
+{
+  "items": [
+    {
+      "id": "1",
+      "actorRef": "administrator-1",
+      "action": "rule.publish",
+      "entityType": "recognition_rule",
+      "entityId": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+      "reason": "Season launch",
+      "createdAt": "2026-11-18T06:30:00Z"
+    }
+  ],
+  "nextCursor": null,
+  "hasMore": false
+}

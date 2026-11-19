@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "SPECIES_NOT_FOUND",
+    "message": "This species record is not available."
+  }
+}

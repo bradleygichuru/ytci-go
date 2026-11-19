@@ -1,0 +1,16 @@
+{
+  "badgeKey": "event_attended",
+  "nameEn": "Event attendee",
+  "nameSw": "Mhudhuriaji wa tukio",
+  "family": "events",
+  "criteria": {
+    "verifiedCheckIns": 1
+  },
+  "iconKey": "ticket",
+  "colourToken": "acacia",
+  "privacyClass": "public",
+  "hidden": false,
+  "publicEligible": true,
+  "status": "published",
+  "version": 2
+}

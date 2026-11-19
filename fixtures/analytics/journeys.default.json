@@ -1,0 +1,22 @@
+{
+  "items": [
+    {
+      "journey": "event_registration",
+      "step": "detail_viewed",
+      "stepIndex": 0,
+      "reached": 1240,
+      "dropped": 310,
+      "medianDurationBucket": "30-60s",
+      "suppressed": false
+    },
+    {
+      "journey": "event_registration",
+      "step": "registered",
+      "stepIndex": 1,
+      "reached": 930,
+      "dropped": 120,
+      "medianDurationBucket": "1-3m",
+      "suppressed": false
+    }
+  ]
+}

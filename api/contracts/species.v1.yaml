@@ -1,0 +1,72 @@
+# Canonical species and language vocabulary (ADR 0013, 0014).
+version: 1.0.0
+owner: stream:species
+frozen_at: '2026-11-18'
+languages:
+  ui: [en, sw]
+  full_content: [en, sw]
+  names_and_pronunciation: [ki, luo, kam, mas, so]
+  phase_2_names: [luy, kln, guz, mer, nyf]
+  phase_3_content_packs: [fr, de, zh-Hans, ar]
+  bcp47_only: true
+coverage_tiers: [full, summary, names, audio]
+review_statuses: [missing, draft, reviewed, stale]
+publication_states: [draft, in_review, published, unpublished, tombstoned]
+field_statuses: [missing, draft, reviewed, stale]
+fallback:
+  path: [requested_language, en]
+  silent_swahili_fallback: false
+  silent_machine_translation: false
+  render_reason: true
+  english_is_source_of_truth: true
+review_stages: [translation, language, expert, rights, publish]
+review_separation:
+  translator_differs_from_language_reviewer: true
+  rights_reviewer_differs_from_uploader: true
+  machine_translation_publishable: false
+iucn_categories: [CR, EN, VU, NT, LC, DD, NE]
+source_policy:
+  iucn:
+    allowed: [category, assessment_id, red_list_version, status_as_of]
+    forbidden: [narrative, threats, range_maps]
+    without_permission: link_out
+  gbif:
+    taxonomy: cc_by_4_0_with_doi
+    occurrences: [cc0, cc_by]
+    excluded: [cc_by_nc]
+    precise_coordinates: false
+  kws:
+    requires_written_permission: true
+    attribution_required: true
+    bulk_copy: false
+  wikidata:
+    role: candidate_cross_reference
+    local_name_authority: false
+  wikipedia:
+    mode: link_out
+    copy_prose: false
+  no_source_no_publish: true
+media:
+  per_asset_rights: true
+  per_language_alt_text: true
+  hotlinking: false
+  sensitive_location_flag: true
+audio:
+  per_language: true
+  narrator_credit: required
+  transcript: required
+  synthetic_voice: false
+  english_fallback_labelled: true
+where_to_see:
+  copy: 'Recorded at'
+  guarantees_sighting: false
+  precise_coordinates: false
+  live_occurrence_map: false
+  evidence_types: [survey, occurrence_record, expert_observation, published_report]
+offline:
+  always_cached: [en, sw]
+  local_language_packs: explicit_download
+  silent_background_fetch: false
+quiz:
+  grading_key: stable_option_id
+  translated_text_in_answer_key: false

@@ -1,0 +1,28 @@
+{
+  "results": [
+    {
+      "clientScanId": "scan-1",
+      "status": "applied",
+      "reason": null,
+      "checkIn": {
+        "id": "99999999-9999-4999-8999-999999999999",
+        "registrationId": "44444444-4444-4444-8444-444444444444",
+        "eventId": "11111111-1111-4111-8111-111111111111",
+        "checkedInAt": "2026-12-05T08:12:00+03:00",
+        "method": "offline_queue",
+        "staffRef": "staff-1",
+        "attendeeName": null,
+        "duplicate": false
+      }
+    },
+    {
+      "clientScanId": "scan-2",
+      "status": "duplicate",
+      "reason": "already checked in at 08:12",
+      "checkIn": null
+    }
+  ],
+  "applied": 1,
+  "duplicates": 1,
+  "rejected": 0
+}

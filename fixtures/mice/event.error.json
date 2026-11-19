@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "EVENT_NOT_FOUND",
+    "message": "This event is no longer available."
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "items": [
+    {
+      "slug": "panthera-leo",
+      "scientificName": "Panthera leo",
+      "nameEn": "Lion",
+      "nameSw": "Simba",
+      "iucnCategory": "VU",
+      "taxonomicStatus": "accepted",
+      "publicationState": "published",
+      "heroMediaUrl": null,
+      "languages": [
+        "en",
+        "sw",
+        "mas"
+      ],
+      "saved": false
+    }
+  ]
+}

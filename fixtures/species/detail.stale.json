@@ -1,0 +1,245 @@
+{
+  "slug": "panthera-leo",
+  "scientificName": "Panthera leo",
+  "nameEn": "Lion",
+  "nameSw": "Simba",
+  "iucnCategory": "VU",
+  "taxonomicStatus": "accepted",
+  "publicationState": "published",
+  "heroMediaUrl": null,
+  "languages": [
+    "en",
+    "sw",
+    "mas"
+  ],
+  "saved": false,
+  "id": "16161616-1616-4616-8616-161616161616",
+  "authorship": "(Linnaeus, 1758)",
+  "rank": "species",
+  "gbifKey": "5219404",
+  "iucn": {
+    "category": "VU",
+    "assessmentId": "TN-15951",
+    "redListVersion": "2026-1",
+    "asOf": "2026-06-01",
+    "label": "Vulnerable"
+  },
+  "requestedLanguage": "en",
+  "resolvedLanguage": "en",
+  "fallback": {
+    "used": true,
+    "reason": "stale",
+    "chip": "English"
+  },
+  "content": {
+    "language": "en",
+    "coverageTier": "full",
+    "summary": "The lion is a social big cat and a national symbol of Kenya.",
+    "description": "Lions live in prides and hunt cooperatively.",
+    "habitat": "Savannah, grassland and open woodland.",
+    "range": "Maasai Mara, Tsavo, Amboseli and Laikipia.",
+    "whereToSee": "Recorded at Maasai Mara and Tsavo East.",
+    "conservation": "Vulnerable. Habitat loss and human-wildlife conflict are the main pressures.",
+    "fieldStatus": {
+      "summary": "reviewed",
+      "description": "reviewed",
+      "habitat": "reviewed",
+      "range": "reviewed",
+      "whereToSee": "reviewed",
+      "conservation": "reviewed"
+    },
+    "reviewStatus": "reviewed",
+    "sourceVersion": 3,
+    "staleReason": null,
+    "translatorRef": "translator-1",
+    "reviewerRef": "language-reviewer-1",
+    "publishedAt": "2026-09-15T00:00:00Z"
+  },
+  "names": [
+    {
+      "language": "en",
+      "script": "Latn",
+      "name": "Lion",
+      "nameType": "common",
+      "region": null,
+      "countyGid": null,
+      "reviewStatus": "reviewed",
+      "preferred": true,
+      "source": {
+        "id": "15151515-1515-4515-8515-151515151515",
+        "publisher": "GBIF",
+        "citation": "GBIF Backbone Taxonomy. doi:10.15468/39omei",
+        "url": "https://www.gbif.org/species/5219404",
+        "accessedAt": "2026-09-01",
+        "licenceCode": "CC-BY-4.0",
+        "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+        "permittedUse": "taxonomy_only",
+        "attribution": "GBIF.org (2026) GBIF Backbone Taxonomy",
+        "snapshotHash": "sha256:abc123",
+        "reviewStatus": "reviewed"
+      }
+    },
+    {
+      "language": "sw",
+      "script": "Latn",
+      "name": "Simba",
+      "nameType": "common",
+      "region": null,
+      "countyGid": null,
+      "reviewStatus": "reviewed",
+      "preferred": true,
+      "source": {
+        "id": "15151515-1515-4515-8515-151515151515",
+        "publisher": "GBIF",
+        "citation": "GBIF Backbone Taxonomy. doi:10.15468/39omei",
+        "url": "https://www.gbif.org/species/5219404",
+        "accessedAt": "2026-09-01",
+        "licenceCode": "CC-BY-4.0",
+        "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+        "permittedUse": "taxonomy_only",
+        "attribution": "GBIF.org (2026) GBIF Backbone Taxonomy",
+        "snapshotHash": "sha256:abc123",
+        "reviewStatus": "reviewed"
+      }
+    },
+    {
+      "language": "mas",
+      "script": "Latn",
+      "name": "Olng'ojine",
+      "nameType": "local",
+      "region": "Kajiado",
+      "countyGid": 34,
+      "reviewStatus": "reviewed",
+      "preferred": true,
+      "source": {
+        "id": "15151515-1515-4515-8515-151515151515",
+        "publisher": "GBIF",
+        "citation": "GBIF Backbone Taxonomy. doi:10.15468/39omei",
+        "url": "https://www.gbif.org/species/5219404",
+        "accessedAt": "2026-09-01",
+        "licenceCode": "CC-BY-4.0",
+        "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+        "permittedUse": "taxonomy_only",
+        "attribution": "GBIF.org (2026) GBIF Backbone Taxonomy",
+        "snapshotHash": "sha256:abc123",
+        "reviewStatus": "reviewed"
+      }
+    }
+  ],
+  "media": [
+    {
+      "id": "17171717-1717-4717-8717-171717171717",
+      "mediaKind": "image",
+      "url": "https://cdn.example.ke/species/lion.jpg",
+      "width": 1600,
+      "height": 1067,
+      "credit": "YTCI media team",
+      "rightsHolder": "YTCI",
+      "licenceCode": "CC-BY-4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "sensitiveLocation": false,
+      "alt": {
+        "en": "A male lion resting in tall grass.",
+        "sw": "Simba dume akipumzika kwenye nyasi ndefu."
+      }
+    }
+  ],
+  "audio": [
+    {
+      "language": "en",
+      "url": "https://cdn.example.ke/species/lion-en.mp3",
+      "narrator": "Demo Narrator",
+      "transcript": "The lion is a social big cat.",
+      "durationSeconds": 42,
+      "reviewStatus": "reviewed",
+      "rights": null
+    }
+  ],
+  "sources": [
+    {
+      "id": "15151515-1515-4515-8515-151515151515",
+      "publisher": "GBIF",
+      "citation": "GBIF Backbone Taxonomy. doi:10.15468/39omei",
+      "url": "https://www.gbif.org/species/5219404",
+      "accessedAt": "2026-09-01",
+      "licenceCode": "CC-BY-4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "permittedUse": "taxonomy_only",
+      "attribution": "GBIF.org (2026) GBIF Backbone Taxonomy",
+      "snapshotHash": "sha256:abc123",
+      "reviewStatus": "reviewed"
+    }
+  ],
+  "whereToSee": [
+    {
+      "destinationSlug": "maasai-mara",
+      "countyGid": 34,
+      "county": "Narok",
+      "protectedArea": "Maasai Mara National Reserve",
+      "evidenceType": "survey",
+      "confidence": "high",
+      "reviewStatus": "reviewed",
+      "copy": "Recorded at Maasai Mara National Reserve",
+      "source": {
+        "id": "15151515-1515-4515-8515-151515151515",
+        "publisher": "GBIF",
+        "citation": "GBIF Backbone Taxonomy. doi:10.15468/39omei",
+        "url": "https://www.gbif.org/species/5219404",
+        "accessedAt": "2026-09-01",
+        "licenceCode": "CC-BY-4.0",
+        "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+        "permittedUse": "taxonomy_only",
+        "attribution": "GBIF.org (2026) GBIF Backbone Taxonomy",
+        "snapshotHash": "sha256:abc123",
+        "reviewStatus": "reviewed"
+      }
+    }
+  ],
+  "links": [
+    {
+      "targetType": "course",
+      "targetId": "course-1",
+      "title": "Big cats of Kenya",
+      "href": "/lms/courses/course-1"
+    }
+  ],
+  "coverage": [
+    {
+      "language": "en",
+      "name": "English",
+      "tier": "full",
+      "available": true,
+      "reviewedNames": 1,
+      "audio": true,
+      "fallback": false
+    },
+    {
+      "language": "sw",
+      "name": "Swahili",
+      "tier": "full",
+      "available": true,
+      "reviewedNames": 1,
+      "audio": true,
+      "fallback": false
+    },
+    {
+      "language": "mas",
+      "name": "Maasai",
+      "tier": "names",
+      "available": true,
+      "reviewedNames": 1,
+      "audio": false,
+      "fallback": false
+    },
+    {
+      "language": "fr",
+      "name": "French",
+      "tier": "summary",
+      "available": false,
+      "reviewedNames": 0,
+      "audio": false,
+      "fallback": true
+    }
+  ],
+  "contentVersion": 3
+}

@@ -1,0 +1,96 @@
+# Canonical product analytics vocabulary (ADR 0016).
+version: 1.0.0
+owner: stream:analytics
+frozen_at: '2026-11-18'
+identifiers:
+  install_id:
+    generated: client
+    format: uuidv4
+    storage: mmkv
+    is_advertising_id: false
+    reader_resettable: true
+  analytics_id:
+    generated: server
+    format: uuid
+    written_on_event_rows: true
+  user_id_on_event_rows: false
+  restricted_mapping: analytics_id_map
+consent:
+  states: [unknown, granted, denied]
+  scope: analytics
+  checked_at: [enqueue, flush]
+  versioned: true
+  withdrawal_clears_queue: true
+  guest_consent: device_local_with_version_per_batch
+  missing_or_stale_consent: rejected
+  under_18: identifier_free_service_counters_only
+event_families: [screen_view, action, journey_step]
+envelope:
+  required: [event_id, session_id, session_seq, client_ts, app_version, platform, actor_type, route]
+  server_adds: [received_at, server_seq]
+  ordering: client_ts
+  day_boundary: received_at
+  template_route_only: true
+  query_strings: forbidden
+session:
+  id: client_uuid
+  new_on: [cold_start, thirty_minutes_background]
+  hard_cap_hours: 24
+  session_seq_orders_events: true
+journeys:
+  - onboarding
+  - first_itinerary
+  - event_registration
+  - challenge_submission
+  - conservation_checkin
+  - course_completion
+  - heritage_visit
+  - audio_playback
+  - recognition_optin
+properties:
+  allow_list_per_event: true
+  unknown_keys: dropped_and_counted
+  banned: [email, name, phone, token, latitude, longitude, query, free_text]
+  search_logs: [surface, query_length_bucket, result_count, selected_rank, external_selection, query_hash]
+  raw_search_text: false
+queue:
+  storage: mmkv
+  max_events: 500
+  max_bytes: 204800
+  overflow: drop_oldest_with_counter
+  event_idempotent: true
+  batch_retry: backoff
+  max_age_days: 7
+  flush_on: [reconnect, background]
+retention:
+  raw_events_months: 14
+  sessions_months: 14
+  daily_aggregates_months: 24
+  device_queue_max_days: 7
+  consent_years_after_account: 2
+  leaderboard_snapshots_months: 12
+  erasure_target_days: 14
+  backup_cycle_days: 30
+admin:
+  source: aggregates_only
+  suppression_threshold: 10
+  tables: [analytics_daily, analytics_journey_daily, analytics_retention_cohorts]
+  per_user_stream: named_reason_recorded_30_day_support_access
+  csv_contains_pii: false
+  programme_impact_source: domain_tables
+service_diagnostics:
+  fields: [error_code, route, app_version, platform, stack_hash]
+  message_text: false
+  identifiers: false
+  timing_sample_percent: 10
+non_goals:
+  - session_replay
+  - heatmaps
+  - screen_recording
+  - cross_device_identity
+  - advertising_ids
+  - per_user_admin_timelines
+  - raw_search_text
+  - predictive_scoring
+  - experimentation_infrastructure
+  - realtime_dashboards

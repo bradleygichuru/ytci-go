@@ -1,0 +1,28 @@
+{
+  "level": {
+    "value": 0,
+    "name": "Newcomer",
+    "threshold": 0,
+    "nextName": "Traveler",
+    "xpIntoLevel": 0,
+    "xpToNext": 250
+  },
+  "totalXp": 0,
+  "recentAwards": [],
+  "badgeCounts": {
+    "earned": 0,
+    "total": 24,
+    "public": 0
+  },
+  "season": null,
+  "passport": {
+    "counties": 0,
+    "sites": 0
+  },
+  "leaderboard": {
+    "optedIn": false,
+    "eligible": false,
+    "reason": "consent_missing"
+  },
+  "adjustmentNotices": []
+}

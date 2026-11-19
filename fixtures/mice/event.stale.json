@@ -1,0 +1,219 @@
+{
+  "id": "11111111-1111-4111-8111-111111111111",
+  "slug": "great-lakes-tourism-forum",
+  "title": "Great Lakes Tourism Forum 2026",
+  "eventClass": "conference",
+  "format": "hybrid",
+  "access": "registered",
+  "status": "published",
+  "startsAt": "2026-12-05T08:00:00+03:00",
+  "endsAt": "2026-12-06T17:00:00+03:00",
+  "timezone": "Africa/Nairobi",
+  "county": "Nairobi",
+  "countyGid": 47,
+  "venue": {
+    "slug": "kicc",
+    "name": "Kenyatta International Convention Centre",
+    "county": "Nairobi",
+    "countyGid": 47
+  },
+  "organizer": {
+    "slug": "nairobi-convention-bureau",
+    "displayName": "Nairobi Convention Bureau",
+    "trustTier": "programme_partner",
+    "label": "YTCI programme partner"
+  },
+  "imageUrl": "https://cdn.example.ke/events/forum.jpg",
+  "capacity": 400,
+  "seatsRemaining": 87,
+  "waitlistOpen": true,
+  "registrationMode": "rsvp",
+  "price": null,
+  "accessibility": {
+    "state": "reported",
+    "verifiedAt": "2026-10-15T00:00:00Z",
+    "label": "Reported by the organizer, last verified 2026-10-15"
+  },
+  "saved": false,
+  "description": "Two days of meetings, exhibitions and conservation sessions for Kenya's tourism sector.",
+  "highlights": [
+    "Ministerial keynote",
+    "County tourism showcase",
+    "Youth careers clinic"
+  ],
+  "agenda": [
+    {
+      "id": "66666666-6666-4666-8666-666666666666",
+      "day": "2026-12-05",
+      "startsAt": "2026-12-05T09:00:00+03:00",
+      "endsAt": "2026-12-05T10:00:00+03:00",
+      "room": "Tsavo Ballroom",
+      "track": "Policy",
+      "title": "Opening plenary",
+      "description": "Opening remarks and the state of tourism address.",
+      "capacity": 400,
+      "speakers": [
+        {
+          "id": "77777777-7777-4777-8777-777777777777",
+          "displayName": "Dr. Amina Wanjiku",
+          "title": "Principal Secretary",
+          "organization": "Ministry of Tourism",
+          "role": "speaker",
+          "photoUrl": null
+        }
+      ]
+    }
+  ],
+  "sessionCount": 1,
+  "speakerCount": 1,
+  "accessibilityDetail": {
+    "reportedBy": "Nairobi Convention Bureau",
+    "verifiedAt": "2026-10-15T00:00:00Z",
+    "label": "Reported by the organizer, last verified 2026-10-15",
+    "fields": {
+      "stepFreeEntrance": "yes",
+      "stepFreeRoute": "yes",
+      "accessibleToilet": "yes",
+      "accessibleParking": "yes",
+      "accessibleSeating": "yes",
+      "captioning": "yes",
+      "signLanguage": "unknown",
+      "hearingLoop": "yes",
+      "quietRoom": "yes",
+      "assistanceDogs": "yes",
+      "companionTicketPolicy": "Companion ticket on request",
+      "contentNotes": null
+    }
+  },
+  "venueDetail": {
+    "slug": "kicc",
+    "name": "Kenyatta International Convention Centre",
+    "county": "Nairobi",
+    "countyGid": 47,
+    "id": "0a5b6c7d-1111-4a2b-9c3d-000000000002",
+    "addressLine1": "P.O. Box 30731",
+    "addressLine2": "Harambee Avenue",
+    "latitude": -1.2884,
+    "longitude": 36.8233,
+    "capacityInPerson": 5000,
+    "capacityOnline": 2000,
+    "rooms": [
+      "Tsavo Ballroom",
+      "Lenana Hall"
+    ],
+    "transportNotes": "Matatu route 34 stops at Harambee Avenue.",
+    "dropoffNotes": "Drop-off at the Harambee Avenue gate.",
+    "parkingNotes": "Underground parking, 300 spaces.",
+    "accessibility": {
+      "reportedBy": "Nairobi Convention Bureau",
+      "verifiedAt": "2026-10-15T00:00:00Z",
+      "label": "Reported by the organizer, last verified 2026-10-15",
+      "fields": {
+        "stepFreeEntrance": "yes",
+        "stepFreeRoute": "yes",
+        "accessibleToilet": "yes",
+        "accessibleParking": "yes",
+        "accessibleSeating": "yes",
+        "captioning": "yes",
+        "signLanguage": "unknown",
+        "hearingLoop": "yes",
+        "quietRoom": "yes",
+        "assistanceDogs": "yes",
+        "companionTicketPolicy": "Companion ticket on request",
+        "contentNotes": null
+      }
+    },
+    "verifiedAt": "2026-10-15T00:00:00Z"
+  },
+  "organizerDetail": {
+    "slug": "nairobi-convention-bureau",
+    "displayName": "Nairobi Convention Bureau",
+    "trustTier": "programme_partner",
+    "label": "YTCI programme partner",
+    "id": "0a5b6c7d-1111-4a2b-9c3d-000000000001",
+    "about": "The programme partner for Nairobi MICE events.",
+    "logoUrl": null,
+    "contactEmail": "events@example.ke",
+    "contactPhone": "+254700000001",
+    "websiteUrl": "https://example.ke",
+    "verificationStatus": "verified",
+    "verifiedAt": "2026-02-01T09:00:00Z",
+    "verificationExpiresAt": "2027-02-01T09:00:00Z",
+    "revokedReason": null,
+    "upcomingEvents": [],
+    "pastEventCount": 12
+  },
+  "registrationQuestions": [
+    {
+      "id": "88888888-8888-4888-8888-888888888888",
+      "promptEn": "Any accessibility or dietary needs?",
+      "promptSw": "Una mahitaji yoyote ya ufikivu au lishe?",
+      "answerKind": "short_text",
+      "choices": [],
+      "required": false
+    }
+  ],
+  "sales": null,
+  "registration": {
+    "id": "44444444-4444-4444-8444-444444444444",
+    "eventId": "11111111-1111-4111-8111-111111111111",
+    "status": "confirmed",
+    "mode": "rsvp",
+    "answers": {
+      "accessibility": "Step-free access required"
+    },
+    "reminderOffsetMinutes": 1440,
+    "waitlistPosition": null,
+    "confirmBy": null,
+    "createdAt": "2026-11-18T10:00:00Z",
+    "cancelledAt": null,
+    "ticket": {
+      "id": "55555555-5555-4555-8555-555555555555",
+      "registrationId": "44444444-4444-4444-8444-444444444444",
+      "qrPayload": "eyJhbGciOiJIUzI1NiJ9.event-ticket.demo",
+      "issuedAt": "2026-11-18T10:00:00Z",
+      "expiresAt": "2026-12-07T17:00:00Z",
+      "state": "valid"
+    },
+    "checkIn": null,
+    "event": {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "slug": "great-lakes-tourism-forum",
+      "title": "Great Lakes Tourism Forum 2026",
+      "eventClass": "conference",
+      "format": "hybrid",
+      "access": "registered",
+      "status": "published",
+      "startsAt": "2026-12-05T08:00:00+03:00",
+      "endsAt": "2026-12-06T17:00:00+03:00",
+      "timezone": "Africa/Nairobi",
+      "county": "Nairobi",
+      "countyGid": 47,
+      "venue": {
+        "slug": "kicc",
+        "name": "Kenyatta International Convention Centre",
+        "county": "Nairobi",
+        "countyGid": 47
+      },
+      "organizer": {
+        "slug": "nairobi-convention-bureau",
+        "displayName": "Nairobi Convention Bureau",
+        "trustTier": "programme_partner",
+        "label": "YTCI programme partner"
+      },
+      "imageUrl": "https://cdn.example.ke/events/forum.jpg",
+      "capacity": 400,
+      "seatsRemaining": 87,
+      "waitlistOpen": true,
+      "registrationMode": "rsvp",
+      "price": null,
+      "accessibility": {
+        "state": "reported",
+        "verifiedAt": "2026-10-15T00:00:00Z",
+        "label": "Reported by the organizer, last verified 2026-10-15"
+      },
+      "saved": false
+    }
+  },
+  "notifications": []
+}

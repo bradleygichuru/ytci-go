@@ -1,0 +1,18 @@
+{
+  "language": "sw",
+  "version": "2026.11.1",
+  "sizeBytes": 4823040,
+  "generatedAt": "2026-11-18T00:00:00Z",
+  "entries": [
+    {
+      "slug": "panthera-leo",
+      "contentVersion": 3,
+      "hasAudio": true
+    },
+    {
+      "slug": "loxodonta-africana",
+      "contentVersion": 2,
+      "hasAudio": true
+    }
+  ]
+}

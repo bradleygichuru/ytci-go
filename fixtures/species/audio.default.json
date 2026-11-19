@@ -1,0 +1,9 @@
+{
+  "language": "en",
+  "url": "https://cdn.example.ke/species/lion-en.mp3",
+  "narrator": "Demo Narrator",
+  "transcript": "The lion is a social big cat.",
+  "durationSeconds": 42,
+  "reviewStatus": "reviewed",
+  "rights": null
+}
