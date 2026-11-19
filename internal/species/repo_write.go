@@ -453,34 +453,12 @@ func (r *Repo) CreateAudio(ctx context.Context, speciesID, actor string, w Audio
 // CreateSource adds a citation. A second source for an already-published
 // species is a re-check: it bumps the content version and stales dependants.
 func (r *Repo) CreateSource(ctx context.Context, w SourceWrite) (*Source, error) {
-	if w.Publisher == "" || w.Citation == "" || w.LicenceCode == "" || w.Attribution == "" {
-		return nil, &ValidationError{Field: "citation", Message: "publisher, citation, licenceCode and attribution are required"}
-	}
-	if !validUses[w.PermittedUse] {
-		return nil, &ValidationError{Field: "permittedUse", Message: "invalid permittedUse"}
+	if err := validateSourceWrite(w); err != nil {
+		return nil, err
 	}
 	accessed, err := time.Parse("2006-01-02", w.AccessedAt)
 	if err != nil {
 		return nil, &ValidationError{Field: "accessedAt", Message: "accessedAt must be YYYY-MM-DD"}
-	}
-	if strings.EqualFold(w.Publisher, "IUCN") && w.PermittedUse != "taxonomy_only" {
-		return nil, &ValidationError{Field: "permittedUse", Message: "IUCN permits category and assessment metadata only; link out to the assessment"}
-	}
-	if strings.EqualFold(w.Publisher, "Wikipedia") && w.PermittedUse != "link_only" {
-		return nil, &ValidationError{Field: "permittedUse", Message: "Wikipedia is link-out only; prose copy is not permitted"}
-	}
-	if isKWS(w.Publisher) && w.PermittedUse != "link_only" &&
-		!strings.HasPrefix(strings.ToUpper(strings.TrimSpace(w.LicenceCode)), "PERMISSION-") {
-		return nil, &ValidationError{Field: "licenceCode", Message: "KWS material requires written permission; record it as PERMISSION-<ref> or link out"}
-	}
-	if strings.EqualFold(w.Publisher, "GBIF") && w.PermittedUse == "occurrence" {
-		code := strings.ToUpper(strings.TrimSpace(w.LicenceCode))
-		if !strings.HasPrefix(code, "CC0") && !strings.HasPrefix(code, "CC-BY-") && code != "CC-BY" {
-			return nil, &ValidationError{Field: "licenceCode", Message: "GBIF occurrences are published only under CC0 or CC BY"}
-		}
-	}
-	if strings.Contains(strings.ToUpper(w.LicenceCode), "NC") && w.PermittedUse == "occurrence" {
-		return nil, &ValidationError{Field: "licenceCode", Message: "CC BY-NC occurrence records are excluded"}
 	}
 
 	tx, err := r.pool.Begin(ctx)
@@ -1367,4 +1345,35 @@ func nullableTime(v *time.Time) any {
 		return nil
 	}
 	return *v
+}
+
+// validateSourceWrite is the licensing boundary from api/contracts/species.v1.yaml
+// and ADR 0013 §8. It runs before any row is written.
+func validateSourceWrite(w SourceWrite) error {
+	if w.Publisher == "" || w.Citation == "" || w.LicenceCode == "" || w.Attribution == "" {
+		return &ValidationError{Field: "citation", Message: "publisher, citation, licenceCode and attribution are required"}
+	}
+	if !validUses[w.PermittedUse] {
+		return &ValidationError{Field: "permittedUse", Message: "invalid permittedUse"}
+	}
+	if strings.EqualFold(w.Publisher, "IUCN") && w.PermittedUse != "taxonomy_only" {
+		return &ValidationError{Field: "permittedUse", Message: "IUCN permits category and assessment metadata only; link out to the assessment"}
+	}
+	if strings.EqualFold(w.Publisher, "Wikipedia") && w.PermittedUse != "link_only" {
+		return &ValidationError{Field: "permittedUse", Message: "Wikipedia is link-out only; prose copy is not permitted"}
+	}
+	if isKWS(w.Publisher) && w.PermittedUse != "link_only" &&
+		!strings.HasPrefix(strings.ToUpper(strings.TrimSpace(w.LicenceCode)), "PERMISSION-") {
+		return &ValidationError{Field: "licenceCode", Message: "KWS material requires written permission; record it as PERMISSION-<ref> or link out"}
+	}
+	if strings.EqualFold(w.Publisher, "GBIF") && w.PermittedUse == "occurrence" {
+		code := strings.ToUpper(strings.TrimSpace(w.LicenceCode))
+		if !strings.HasPrefix(code, "CC0") && !strings.HasPrefix(code, "CC-BY-") && code != "CC-BY" {
+			return &ValidationError{Field: "licenceCode", Message: "GBIF occurrences are published only under CC0 or CC BY"}
+		}
+	}
+	if strings.Contains(strings.ToUpper(w.LicenceCode), "NC") && w.PermittedUse == "occurrence" {
+		return &ValidationError{Field: "licenceCode", Message: "CC BY-NC occurrence records are excluded"}
+	}
+	return nil
 }

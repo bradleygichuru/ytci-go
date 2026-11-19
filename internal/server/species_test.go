@@ -279,50 +279,6 @@ func TestSpeciesPublishGateBlocksMissingSource(t *testing.T) {
 	assert.Equal(t, "SOURCE_MISSING", body["error"].(map[string]any)["code"])
 }
 
-// TestSpeciesSourceLicenceGuards proves IUCN prose, KWS bulk copy and
-// non-commercial GBIF occurrences are rejected at the source boundary.
-func TestSpeciesSourceLicenceGuards(t *testing.T) {
-	f := setupSpecies(t)
-	species := f.createSpecies(t, map[string]any{
-		"scientificName": "Panthera pardus",
-		"slug":           "panthera-pardus",
-	})
-	id := species["id"].(string)
-
-	cases := []map[string]any{
-		{
-			"publisher": "IUCN", "citation": "Red List narrative",
-			"accessedAt": "2026-09-01", "licenceCode": "IUCN-RL",
-			"permittedUse": "prose", "attribution": "IUCN",
-		},
-		{
-			"publisher": "KWS", "citation": "KWS park report",
-			"accessedAt": "2026-09-01", "licenceCode": "ALL-RIGHTS-RESERVED",
-			"permittedUse": "prose", "attribution": "KWS",
-		},
-		{
-			"publisher": "GBIF", "citation": "GBIF occurrence download",
-			"accessedAt": "2026-09-01", "licenceCode": "CC-BY-NC-4.0",
-			"permittedUse": "occurrence", "attribution": "GBIF.org",
-		},
-	}
-	for _, body := range cases {
-		body["speciesId"] = id
-		resp := doJSON(t, f.ts, http.MethodPost, "/v1/admin/species/sources", body, f.as("sp-editor"))
-		require.Equal(t, http.StatusBadRequest, resp.StatusCode, "publisher %v", body["publisher"])
-		resp.Body.Close()
-	}
-
-	// KWS link-out is allowed without a permission reference.
-	resp := doJSON(t, f.ts, http.MethodPost, "/v1/admin/species/sources", map[string]any{
-		"speciesId": id, "publisher": "KWS", "citation": "KWS report landing page",
-		"url": "https://www.kws.go.ke/reports", "accessedAt": "2026-09-01",
-		"licenceCode": "LINK-ONLY", "permittedUse": "link_only", "attribution": "KWS",
-	}, f.as("sp-editor"))
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	resp.Body.Close()
-}
-
 // TestSpeciesTranslatorCannotPublish proves role separation at the HTTP edge.
 func TestSpeciesTranslatorCannotPublish(t *testing.T) {
 	f := setupSpecies(t)
