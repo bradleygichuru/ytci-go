@@ -469,6 +469,16 @@ func (r *Repo) CreateSource(ctx context.Context, w SourceWrite) (*Source, error)
 	if strings.EqualFold(w.Publisher, "Wikipedia") && w.PermittedUse != "link_only" {
 		return nil, &ValidationError{Field: "permittedUse", Message: "Wikipedia is link-out only; prose copy is not permitted"}
 	}
+	if isKWS(w.Publisher) && w.PermittedUse != "link_only" &&
+		!strings.HasPrefix(strings.ToUpper(strings.TrimSpace(w.LicenceCode)), "PERMISSION-") {
+		return nil, &ValidationError{Field: "licenceCode", Message: "KWS material requires written permission; record it as PERMISSION-<ref> or link out"}
+	}
+	if strings.EqualFold(w.Publisher, "GBIF") && w.PermittedUse == "occurrence" {
+		code := strings.ToUpper(strings.TrimSpace(w.LicenceCode))
+		if !strings.HasPrefix(code, "CC0") && !strings.HasPrefix(code, "CC-BY-") && code != "CC-BY" {
+			return nil, &ValidationError{Field: "licenceCode", Message: "GBIF occurrences are published only under CC0 or CC BY"}
+		}
+	}
 	if strings.Contains(strings.ToUpper(w.LicenceCode), "NC") && w.PermittedUse == "occurrence" {
 		return nil, &ValidationError{Field: "licenceCode", Message: "CC BY-NC occurrence records are excluded"}
 	}
@@ -530,6 +540,9 @@ func (r *Repo) CreateRights(ctx context.Context, actor string, w RightsWrite) (*
 	}
 	if strings.Contains(strings.ToUpper(w.LicenceCode), "NC") {
 		return nil, &ValidationError{Field: "licenceCode", Message: "non-commercial licences are not publishable"}
+	}
+	if isKWS(w.RightsHolder) && (w.ConsentRecord == nil || strings.TrimSpace(*w.ConsentRecord) == "") {
+		return nil, &ValidationError{Field: "consentRecord", Message: "KWS rights require a recorded written permission reference"}
 	}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -1329,6 +1342,13 @@ func divergedPtr(a, b *string) bool {
 		bv = *b
 	}
 	return av != bv
+}
+
+// isKWS reports whether a publisher or rights holder is the Kenya Wildlife
+// Service, whose material needs written permission (ADR 0013 §8).
+func isKWS(v string) bool {
+	up := strings.ToUpper(strings.TrimSpace(v))
+	return strings.Contains(up, "KWS") || strings.Contains(up, "KENYA WILDLIFE")
 }
 
 func isUniqueViolation(err error) bool {
