@@ -35,6 +35,8 @@ func publishedSnapshot() thennow.Snapshot {
 		VideoMaster:         "then-now/railway/master.mp4",
 		RenditionKeys:       map[string]string{"1080": "then-now/railway/site-1080.mp4", "720": "then-now/railway/site-720.mp4"},
 		PosterKey:           "then-now/railway/poster.jpg",
+		PortalKey:           "then-now/railway/plate-720.mp4",
+		PortalDuration:      15,
 		CaptionKeys:         map[string]string{"en": "then-now/railway/en.vtt"},
 		TranscriptKey:       "then-now/railway/transcript.txt",
 		AudioDescriptionKey: "then-now/railway/ad.vtt",
@@ -59,6 +61,9 @@ func TestSignedMediaSignsEveryObject(t *testing.T) {
 	}
 	if !strings.Contains(media.Poster, "poster.jpg") {
 		t.Errorf("poster not signed: %q", media.Poster)
+	}
+	if !strings.Contains(media.Portal, "plate-720.mp4") {
+		t.Errorf("portal plate not signed: %q", media.Portal)
 	}
 	if !strings.Contains(media.Captions["en"], "en.vtt") {
 		t.Errorf("caption not signed: %q", media.Captions["en"])
