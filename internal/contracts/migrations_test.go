@@ -41,6 +41,9 @@ func TestMigrationsApplyOnFreshDatabase(t *testing.T) {
 			"analytics_daily", "analytics_journey_daily", "analytics_retention_cohorts",
 			"analytics_consents", "analytics_erasure_requests",
 			"analytics_service_diagnostics", "platform_contract_versions",
+			"repository_entries", "repository_entry_media",
+			"repository_upload_intents", "repository_settings",
+			"repository_categories",
 		} {
 			var exists *string
 			if err := pool.QueryRow(ctx, `SELECT to_regclass($1)::text`, table).Scan(&exists); err != nil {
@@ -75,6 +78,41 @@ func TestMigrationsApplyOnFreshDatabase(t *testing.T) {
 			if got[i] != want[i] {
 				t.Fatalf("event_types = %v, want %v", got, want)
 			}
+		}
+	})
+
+	t.Run("repository_catalogue", func(t *testing.T) {
+		var id string
+		if err := pool.QueryRow(ctx, `
+			INSERT INTO repository_entries (kind, slug, title, summary, tags, status)
+			VALUES ('innovation', 'solar-cold-storage', 'Solar cold storage',
+			        'A youth cooling project', ARRAY['conservation','technology'], 'published')
+			RETURNING id`).Scan(&id); err != nil {
+			t.Fatalf("insert repository entry: %v", err)
+		}
+		var hits int
+		if err := pool.QueryRow(ctx, `
+			SELECT count(*) FROM repository_entries
+			WHERE search_vector @@ to_tsquery('english', 'conserv')`).Scan(&hits); err != nil {
+			t.Fatalf("search_vector query: %v", err)
+		}
+		if hits != 1 {
+			t.Fatalf("search_vector hits = %d, want 1", hits)
+		}
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO repository_entries (kind, slug, title, summary)
+			VALUES ('innovation', 'solar-cold-storage', 'Duplicate', 'Duplicate slug')`); err == nil {
+			t.Fatal("duplicate repository slug must be rejected")
+		}
+		var categories, settings int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM repository_categories`).Scan(&categories); err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM repository_settings`).Scan(&settings); err != nil {
+			t.Fatal(err)
+		}
+		if categories != 23 || settings != 1 {
+			t.Fatalf("repository seed rows = (%d categories, %d settings), want (23, 1)", categories, settings)
 		}
 	})
 
