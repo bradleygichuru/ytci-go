@@ -39,6 +39,9 @@ type Config struct {
 	// dark until the Program channel owners enable event delivery.
 	MiceTicketSecret         string `env:"MICE_TICKET_SECRET"`
 	MiceNotificationsEnabled bool   `env:"MICE_NOTIFICATIONS_ENABLED" envDefault:"false"`
+	ORSAPIKey            string `env:"ORS_API_KEY"`
+	GoogleVisionAPIKey   string `env:"GOOGLE_VISION_API_KEY"`
+	GoogleVisionEndpoint string `env:"GOOGLE_VISION_ENDPOINT" envDefault:"https://eu-vision.googleapis.com"`
 }
 
 func Load() (*Config, error) {

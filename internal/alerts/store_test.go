@@ -14,8 +14,10 @@ import (
 func TestStoreUpsertAlertAndFanout(t *testing.T) {
 	pool := db.SetupTestDB(t)
 	ctx := context.Background()
+	_, _ = pool.Exec(ctx, `TRUNCATE kenya_counties CASCADE`)
+	_, _ = pool.Exec(ctx, `TRUNCATE kenya_counties CASCADE`)
 	_, err := pool.Exec(ctx, `INSERT INTO kenya_counties (gid, adm1_name, adm1_pcode, geom)
-		VALUES (1, 'Nairobi', 'KE047', ST_GeomFromText('MULTIPOLYGON(((36.7 -1.2, 36.9 -1.2, 36.9 -1.4, 36.7 -1.4, 36.7 -1.2)))', 4326))`)
+		VALUES (1, 'Nairobi', 'KE047', ST_GeomFromText('MULTIPOLYGON(((36.7 -1.2, 36.9 -1.2, 36.9 -1.4, 36.7 -1.4, 36.7 -1.2)))', 4326)) ON CONFLICT (gid) DO UPDATE SET adm1_name=EXCLUDED.adm1_name, adm1_pcode=EXCLUDED.adm1_pcode`)
 	require.NoError(t, err)
 
 	store := NewStore(pool)
@@ -76,8 +78,9 @@ func TestStoreUpsertAlertAndFanout(t *testing.T) {
 func TestUpdatePushCooldownAndBypass(t *testing.T) {
 	pool := db.SetupTestDB(t)
 	ctx := context.Background()
+	_, _ = pool.Exec(ctx, `TRUNCATE kenya_counties CASCADE`)
 	_, err := pool.Exec(ctx, `INSERT INTO kenya_counties (gid, adm1_name, adm1_pcode, geom)
-		VALUES (1, 'Nairobi', 'KE047', ST_GeomFromText('MULTIPOLYGON(((36.7 -1.2, 36.9 -1.2, 36.9 -1.4, 36.7 -1.4, 36.7 -1.2)))', 4326))`)
+		VALUES (1, 'Nairobi', 'KE047', ST_GeomFromText('MULTIPOLYGON(((36.7 -1.2, 36.9 -1.2, 36.9 -1.4, 36.7 -1.4, 36.7 -1.2)))', 4326)) ON CONFLICT (gid) DO UPDATE SET adm1_name=EXCLUDED.adm1_name, adm1_pcode=EXCLUDED.adm1_pcode`)
 	require.NoError(t, err)
 
 	store := NewStore(pool)
@@ -132,8 +135,9 @@ func TestUpdatePushCooldownAndBypass(t *testing.T) {
 func TestCancelByCAPReferencePreservesRecord(t *testing.T) {
 	pool := db.SetupTestDB(t)
 	ctx := context.Background()
+	_, _ = pool.Exec(ctx, `TRUNCATE kenya_counties CASCADE`)
 	_, err := pool.Exec(ctx, `INSERT INTO kenya_counties (gid, adm1_name, adm1_pcode, geom)
-		VALUES (1, 'Nairobi', 'KE047', ST_GeomFromText('MULTIPOLYGON(((36.7 -1.2, 36.9 -1.2, 36.9 -1.4, 36.7 -1.4, 36.7 -1.2)))', 4326))`)
+		VALUES (1, 'Nairobi', 'KE047', ST_GeomFromText('MULTIPOLYGON(((36.7 -1.2, 36.9 -1.2, 36.9 -1.4, 36.7 -1.4, 36.7 -1.2)))', 4326)) ON CONFLICT (gid) DO UPDATE SET adm1_name=EXCLUDED.adm1_name, adm1_pcode=EXCLUDED.adm1_pcode`)
 	require.NoError(t, err)
 
 	store := NewStore(pool)

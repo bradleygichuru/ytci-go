@@ -10,12 +10,14 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/bradleygichuru/ytci-go/internal/collab"
 	"github.com/bradleygichuru/ytci-go/internal/config"
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 	"github.com/bradleygichuru/ytci-go/internal/handler/admin"
 	"github.com/bradleygichuru/ytci-go/internal/handler/expo"
 	"github.com/bradleygichuru/ytci-go/internal/mice"
 	"github.com/bradleygichuru/ytci-go/internal/middleware"
+	"github.com/bradleygichuru/ytci-go/internal/ocr"
 	"github.com/bradleygichuru/ytci-go/internal/places"
 	"github.com/bradleygichuru/ytci-go/internal/push"
 	"github.com/bradleygichuru/ytci-go/internal/r2"
@@ -23,24 +25,29 @@ import (
 
 func New(cfg *config.Config, pool *pgxpool.Pool) *chi.Mux {
 	jwks := middleware.NewJWKSCache(cfg.AdminJWKSURL, cfg.JWKSCacheTTL, pool)
-	return newRouter(cfg, pool, jwks, nil, nil)
+	hub := collab.NewHub(pool)
+	return newRouter(cfg, pool, jwks, nil, nil, hub)
 }
 
 func NewWithClients(cfg *config.Config, pool *pgxpool.Pool, r2client *r2.Client, pushClient *push.Client) (*chi.Mux, *middleware.JWKSCache) {
-	jwks := middleware.NewJWKSCache(cfg.AdminJWKSURL, cfg.JWKSCacheTTL, pool)
-	r := newRouter(cfg, pool, jwks, r2client, pushClient)
+	r, jwks, _ := NewWithClientsAndHub(cfg, pool, r2client, pushClient)
 	return r, jwks
 }
 
-func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCache, r2client *r2.Client, pushClient *push.Client) *chi.Mux {
-	r := chi.NewRouter()
+func NewWithClientsAndHub(cfg *config.Config, pool *pgxpool.Pool, r2client *r2.Client, pushClient *push.Client) (*chi.Mux, *middleware.JWKSCache, *collab.Hub) {
+	jwks := middleware.NewJWKSCache(cfg.AdminJWKSURL, cfg.JWKSCacheTTL, pool)
+	hub := collab.NewHub(pool)
+	hub.Start()
+	return newRouter(cfg, pool, jwks, r2client, pushClient, hub), jwks, hub
+}
 
-	r.Use(chimw.RequestID)
-	r.Use(chimw.RealIP)
-	r.Use(middleware.Logger)
-	r.Use(chimw.Recoverer)
-	r.Use(chimw.Timeout(60 * time.Second))
-	r.Use(cors.Handler(cors.Options{
+func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCache, r2client *r2.Client, pushClient *push.Client, hub *collab.Hub) *chi.Mux {
+	root := chi.NewRouter()
+	root.Use(chimw.RequestID)
+	root.Use(chimw.RealIP)
+	root.Use(middleware.Logger)
+	root.Use(chimw.Recoverer)
+	root.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   splitOrigins(cfg.CORSOrigins),
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "Idempotency-Key"},
@@ -50,16 +57,34 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 
 	// Probes stay outside /v1 and the rate limiters: liveness is process-only,
 	// readiness checks the database and contract schema without auth.
-	r.Get("/health", handler.Health)
-	r.Get("/healthz", handler.Health)
-	r.Get("/readyz", handler.Ready(pool))
+	root.Get("/health", handler.Health)
+	root.Get("/healthz", handler.Health)
+	root.Get("/readyz", handler.Ready(pool))
 
-	h := mountHandlers(pool, r2client, pushClient, cfg)
+	var r2Store r2.Store
+	if r2client != nil {
+		r2Store = r2client
+	}
+	h := mountHandlers(pool, r2Store, pushClient, cfg, hub)
+
+	// SSE lives outside the 60s timeout and the authenticated route limiter.
+	// A stream consumes one rate-limit token at connect only; its own
+	// per-user/per-instance caps protect the process.
+	if hub != nil {
+		root.Group(func(stream chi.Router) {
+			stream.Use(middleware.OptionalAuth(jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud))
+			stream.Use(middleware.AuthGate)
+			stream.Get("/v1/mobile/itineraries/{id}/events", h.collab.Stream)
+		})
+	}
+
+	api := chi.NewRouter()
+	api.Use(chimw.Timeout(60 * time.Second))
 
 	publicLimiter := middleware.PublicRateLimiter()
 	publicEventLimiter := middleware.PublicEventRateLimiter()
 
-	r.Route("/v1/public", func(pub chi.Router) {
+	api.Route("/v1/public", func(pub chi.Router) {
 		pub.Use(publicLimiter.Middleware)
 		mountPublicRoutes(pub, h, r2client, publicEventLimiter)
 		mountRecognitionPublicRoutes(pub, pool)
@@ -68,7 +93,7 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 
 	authLimiter := middleware.AuthenticatedRateLimiter()
 
-	r.Route("/v1", func(sub chi.Router) {
+	api.Route("/v1", func(sub chi.Router) {
 		sub.Use(middleware.OptionalAuth(jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud))
 		mountThenNowRoutes(sub, h, jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud)
 		mountAdminRoutes(sub, h, r2client, jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud)
@@ -78,7 +103,8 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 		mountAnalyticsRoutes(sub, pool, jwks, cfg.JWTExpectedIss, cfg.JWTExpectedAud)
 	})
 
-	return r
+	root.Mount("/", api)
+	return root
 }
 
 type handlers struct {
@@ -117,9 +143,12 @@ type handlers struct {
 	features         *expo.FeaturesHandler
 	mice             *mice.Handler
 	audioStories     *admin.AudioStoryHandler
+	composer         *expo.ComposerHandler
+	budget           *expo.BudgetHandler
+	collab           *expo.CollaborationHandler
 }
 
-func mountHandlers(pool *pgxpool.Pool, r2client *r2.Client, pushClient *push.Client, cfg *config.Config) *handlers {
+func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Client, cfg *config.Config, hub *collab.Hub) *handlers {
 	placesCache := places.NewCache(pool)
 	var audioStore r2.Store
 	if r2client != nil {
@@ -160,6 +189,9 @@ func mountHandlers(pool *pgxpool.Pool, r2client *r2.Client, pushClient *push.Cli
 		features:         expo.NewFeaturesHandler(cfg),
 		mice:             mice.New(pool, cfg),
 		audioStories:     admin.NewAudioStoryHandler(pool, audioStore),
+		composer:         expo.NewComposerHandler(pool, cfg.GooglePlacesAPIKey, cfg.ORSAPIKey),
+		budget:           expo.NewBudgetHandler(pool, r2client, ocr.NewClient(cfg.GoogleVisionAPIKey, cfg.GoogleVisionEndpoint)),
+		collab:           expo.NewCollaborationHandler(pool, hub),
 	}
 	if pushClient != nil {
 		h.pushAdmin = admin.NewPushHandler(pool, pushClient)
@@ -377,6 +409,7 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 		m.Get("/places/search", h.places.Search)
 		m.Get("/places/location", h.places.GetLocation)
 		m.Get("/places/details", h.places.GetPlaceDetails)
+		m.Get("/places/photo", h.places.Photo)
 		m.Get("/destinations/popular", h.places.Popular)
 		m.Post("/marketplace/redirects", h.marketplace.RecordRedirect)
 		m.Get("/alerts", h.alerts.List)
@@ -394,14 +427,48 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 			aR.Post("/bucket/{destinationId}/visited", h.bucket.MarkVisited)
 			aR.Get("/profile", h.profile.Get)
 			aR.Patch("/profile", h.profile.Update)
+			aR.Post("/itineraries/suggest", h.composer.Suggest)
 			aR.Get("/itineraries", h.itin.List)
 			aR.Post("/itineraries", h.itin.Create)
 			aR.Get("/itineraries/{id}", h.itin.Get)
 			aR.Patch("/itineraries/{id}", h.itin.Update)
 			aR.Delete("/itineraries/{id}", h.itin.Delete)
 			aR.Post("/itineraries/{id}/duplicate", h.itin.Duplicate)
+			aR.Get("/itineraries/{id}/history", h.itin.ListHistory)
+			aR.Get("/itineraries/{id}/export", h.itin.Export)
+			aR.Post("/itineraries/{id}/revisions/{revisionId}/restore", h.itin.RestoreRevision)
 			aR.Get("/itineraries/{id}/stops", h.itinStops.GetStops)
 			aR.Put("/itineraries/{id}/stops", h.itinStops.UpsertStops)
+			aR.Get("/itineraries/{id}/members", h.collab.ListMembers)
+			aR.Patch("/itineraries/{id}/members/{userId}", h.collab.SetMemberRole)
+			aR.Delete("/itineraries/{id}/members/{userId}", h.collab.RemoveMember)
+			aR.Post("/itineraries/{id}/leave", h.collab.LeaveTrip)
+			aR.Get("/itineraries/{id}/invites", h.collab.ListInvites)
+			aR.Post("/itineraries/{id}/invites", h.collab.CreateInvite)
+			aR.Delete("/itineraries/{id}/invites/{inviteId}", h.collab.RevokeInvite)
+			aR.Get("/itineraries/{id}/presence", h.collab.GetPresence)
+			aR.Post("/itineraries/{id}/presence", h.collab.Heartbeat)
+			aR.Post("/invites/redeem", h.collab.RedeemInvite)
+			aR.Get("/itineraries/{id}/budget", h.budget.GetBudget)
+			aR.Put("/itineraries/{id}/budget", h.budget.UpdateBudget)
+			aR.Get("/itineraries/{id}/participants", h.budget.ListParticipants)
+			aR.Post("/itineraries/{id}/participants", h.budget.CreateParticipant)
+			aR.Delete("/itineraries/{id}/participants/{participantId}", h.budget.RemoveParticipant)
+			aR.Get("/itineraries/{id}/expenses", h.budget.ListExpenses)
+			aR.Post("/itineraries/{id}/expenses", h.budget.CreateExpense)
+			aR.Get("/itineraries/{id}/expenses/{expenseId}", h.budget.GetExpense)
+			aR.Patch("/itineraries/{id}/expenses/{expenseId}", h.budget.UpdateExpense)
+			aR.Delete("/itineraries/{id}/expenses/{expenseId}", h.budget.DeleteExpense)
+			aR.Post("/itineraries/{id}/expenses/{expenseId}/restore", h.budget.RestoreExpense)
+			aR.Get("/itineraries/{id}/settle-up", h.budget.GetSettleUp)
+			aR.Get("/itineraries/{id}/settlements", h.budget.ListSettlements)
+			aR.Post("/itineraries/{id}/settlements", h.budget.CreateSettlement)
+			aR.Delete("/itineraries/{id}/settlements/{settlementId}", h.budget.DeleteSettlement)
+			aR.Post("/itineraries/{id}/expenses/{expenseId}/receipt/presign", h.budget.PresignReceipt)
+			aR.Post("/itineraries/{id}/expenses/{expenseId}/receipt/complete", h.budget.CompleteReceipt)
+			aR.Get("/itineraries/{id}/expenses/{expenseId}/receipt", h.budget.GetReceipt)
+			aR.Patch("/itineraries/{id}/expenses/{expenseId}/receipt", h.budget.PatchReceipt)
+			aR.Delete("/itineraries/{id}/expenses/{expenseId}/receipt", h.budget.DeleteReceipt)
 			aR.Post("/push/register", h.pushReg.Register)
 			aR.Post("/alerts/{id}/read", h.alerts.MarkRead)
 			aR.Post("/alerts/{id}/dismiss", h.alerts.Dismiss)
@@ -436,6 +503,7 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 			aR.Post("/events/{id}/leave", h.actions.LeaveEvent)
 			aR.Post("/analytics/app-open", h.actions.RecordAppOpen)
 			aR.Post("/analytics", h.actions.RecordEvent)
+			aR.Get("/account/deletion-plan", h.account.DeletionPlan)
 			aR.Post("/account/delete", h.account.Delete)
 			aR.Get("/courses/{id}/quiz", h.mobileCourses.GetQuiz)
 			aR.Get("/courses/{id}/quiz/result", h.mobileCourses.GetQuizResult)
@@ -481,6 +549,7 @@ func mountPublicRoutes(pub chi.Router, h *handlers, r2client r2.Store, eventLimi
 	pub.Get("/challenges", h.challenge.ListMobile)
 	pub.Get("/conservation", h.conserv.ListMobile)
 	pub.Get("/companion", expo.GetCompanion)
+	pub.Get("/itineraries/preview", h.collab.Preview)
 
 	pub.Get("/marketplace/businesses", h.marketplace.ListBusinesses)
 	pub.Get("/marketplace/businesses/{slug}", h.marketplace.GetBusiness)

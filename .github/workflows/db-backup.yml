@@ -1,0 +1,67 @@
+name: Database backup
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dump Postgres
+        env:
+          DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?RENDER_DATABASE_URL secret is required}"
+          mkdir -p backup
+          STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+          docker run --rm \
+            --env DATABASE_URL \
+            --volume "$PWD/backup:/backup" \
+            postgres:17 \
+            pg_dump --dbname="$DATABASE_URL" --format=custom --no-owner --no-privileges \
+              --file="/backup/ytci-$STAMP.dump"
+          sha256sum "backup/ytci-$STAMP.dump" > "backup/ytci-$STAMP.dump.sha256"
+
+      - name: Upload to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_BACKUP_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_BACKUP_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BACKUP_BUCKET: ${{ secrets.R2_BACKUP_BUCKET }}
+        run: |
+          set -euo pipefail
+          : "${R2_ACCOUNT_ID:?R2_ACCOUNT_ID secret is required}"
+          : "${R2_BACKUP_BUCKET:?R2_BACKUP_BUCKET secret is required}"
+          if ! command -v aws >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y awscli
+          fi
+          DAY="$(date -u +%Y/%m/%d)"
+          ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          aws s3 cp "backup/ytci-$STAMP.dump" \
+            "s3://${R2_BACKUP_BUCKET}/daily/${DAY}/ytci-${STAMP}.dump" \
+            --endpoint-url "$ENDPOINT" --only-show-errors
+          aws s3 cp "backup/ytci-$STAMP.dump.sha256" \
+            "s3://${R2_BACKUP_BUCKET}/daily/${DAY}/ytci-${STAMP}.dump.sha256" \
+            --endpoint-url "$ENDPOINT" --only-show-errors
+          echo "backup uploaded: daily/${DAY}/ytci-${STAMP}.dump" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep failure artifacts for 7 days
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-failure-${{ github.run_id }}
+          path: backup/
+          retention-days: 7

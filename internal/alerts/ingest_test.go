@@ -18,10 +18,12 @@ import (
 func TestIngestKMDEndToEnd(t *testing.T) {
 	pool := db.SetupTestDB(t)
 	ctx := context.Background()
+	_, _ = pool.Exec(ctx, `TRUNCATE kenya_counties CASCADE`)
+	_, _ = pool.Exec(ctx, `TRUNCATE kenya_counties CASCADE`)
 	_, err := pool.Exec(ctx, `INSERT INTO kenya_counties (gid, adm1_name, adm1_pcode, geom) VALUES
 		(1, 'Nairobi', 'KE047', ST_GeomFromText('MULTIPOLYGON(((36.7 -1.2, 36.9 -1.2, 36.9 -1.4, 36.7 -1.4, 36.7 -1.2)))', 4326)),
 		(2, 'Kiambu', 'KE022', ST_GeomFromText('MULTIPOLYGON(((36.5 -0.9, 36.7 -0.9, 36.7 -1.2, 36.5 -1.2, 36.5 -0.9)))', 4326)),
-		(3, 'Machakos', 'KE016', ST_GeomFromText('MULTIPOLYGON(((37.0 -1.1, 37.7 -1.1, 37.7 -1.8, 37.0 -1.8, 37.0 -1.1)))', 4326))`)
+		(3, 'Machakos', 'KE016', ST_GeomFromText('MULTIPOLYGON(((37.0 -1.1, 37.7 -1.1, 37.7 -1.8, 37.0 -1.8, 37.0 -1.1)))', 4326)) ON CONFLICT (gid) DO UPDATE SET adm1_name=EXCLUDED.adm1_name, adm1_pcode=EXCLUDED.adm1_pcode`)
 	require.NoError(t, err)
 
 	var serverURL string

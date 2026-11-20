@@ -16,7 +16,7 @@ import (
 )
 
 type Cache struct {
-	pool      *pgxpool.Pool
+	pool       *pgxpool.Pool
 	wikiClient *wikipedia.Client
 }
 

@@ -286,16 +286,19 @@ type GooglePlacesSearchCache struct {
 }
 
 type Itinerary struct {
-	ID          pgtype.UUID      `json:"id"`
-	UserID      pgtype.UUID      `json:"user_id"`
-	Title       string           `json:"title"`
-	Inputs      []byte           `json:"inputs"`
-	TotalBudget *string          `json:"total_budget"`
-	Disclaimer  *string          `json:"disclaimer"`
-	Status      string           `json:"status"`
-	Version     *int32           `json:"version"`
-	CreatedAt   pgtype.Timestamp `json:"created_at"`
-	UpdatedAt   pgtype.Timestamp `json:"updated_at"`
+	ID             pgtype.UUID       `json:"id"`
+	UserID         pgtype.UUID       `json:"user_id"`
+	Title          string            `json:"title"`
+	Inputs         []byte            `json:"inputs"`
+	TotalBudget    *string           `json:"total_budget"`
+	Disclaimer     *string           `json:"disclaimer"`
+	Status         string            `json:"status"`
+	PlanVersion    int32             `json:"plan_version"`
+	CreatedAt      pgtype.Timestamp  `json:"created_at"`
+	UpdatedAt      pgtype.Timestamp  `json:"updated_at"`
+	BudgetVersion  int32             `json:"budget_version"`
+	MembersVersion int32             `json:"members_version"`
+	DeletedAt      *pgtype.Timestamp `json:"deleted_at"`
 }
 
 type ItineraryStop struct {

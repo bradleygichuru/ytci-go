@@ -27,6 +27,10 @@ func (s keyEchoStore) PresignedGetURL(_ context.Context, key string, _ time.Dura
 	return "https://r2.example/" + key + "?sig=1", nil
 }
 
+func (keyEchoStore) GetObject(context.Context, string) ([]byte, error) {
+	return nil, nil
+}
+
 func (keyEchoStore) PutObject(context.Context, string, io.Reader, string) error { return nil }
 func (keyEchoStore) DeleteObject(context.Context, string) error                 { return nil }
 

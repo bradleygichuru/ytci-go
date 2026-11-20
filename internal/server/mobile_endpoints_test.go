@@ -267,7 +267,7 @@ func TestMyStories(t *testing.T) {
 	createSession(t, ctx, pool, userID, "s@t.com", "token-s")
 
 	var destID string
-	err := pool.QueryRow(ctx, `INSERT INTO destinations (id, name, slug, county, category, status) VALUES (gen_random_uuid(), 'Test Dest', 'test-d-'||gen_random_uuid()::text, 'Nairobi', 'nature', 'published') RETURNING id`).Scan(&destID)
+	err := pool.QueryRow(ctx, `INSERT INTO destinations (id, name, slug, county, category, status) VALUES (gen_random_uuid(), 'Test Dest', 'test-d-'||gen_random_uuid()::text, 'Nairobi', 'Wildlife', 'published') RETURNING id`).Scan(&destID)
 	require.NoError(t, err)
 
 	_, err = pool.Exec(ctx, `INSERT INTO stories (creator_id, destination_id, caption, status) VALUES ($1, $2, 'My post', 'pending')`, userID, destID)

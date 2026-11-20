@@ -44,7 +44,7 @@ func TestResolveProgramTargetsHonoursConsentCategoryAndCounty(t *testing.T) {
 	pool := db.SetupTestDB(t)
 	ctx := context.Background()
 	_, err := pool.Exec(ctx, `INSERT INTO kenya_counties (gid, adm1_name, adm1_pcode) VALUES
-		(1, 'Nairobi', 'KE047'), (2, 'Mombasa', 'KE001')`)
+		(1, 'Nairobi', 'KE047'), (2, 'Mombasa', 'KE001') ON CONFLICT (gid) DO UPDATE SET adm1_name=EXCLUDED.adm1_name, adm1_pcode=EXCLUDED.adm1_pcode`)
 	require.NoError(t, err)
 
 	insertUser := func(id, name string, county int, program bool, importantOnly bool, preferences string) {
@@ -160,7 +160,7 @@ func TestProgramCapCountsNonExtremeAlertsAndPrograms(t *testing.T) {
 func TestSendProgramUpdatePayloadAndDelivery(t *testing.T) {
 	pool := db.SetupTestDB(t)
 	ctx := context.Background()
-	_, err := pool.Exec(ctx, `INSERT INTO kenya_counties (gid, adm1_name, adm1_pcode) VALUES (1, 'Nairobi', 'KE047')`)
+	_, err := pool.Exec(ctx, `INSERT INTO kenya_counties (gid, adm1_name, adm1_pcode) VALUES (1, 'Nairobi', 'KE047') ON CONFLICT (gid) DO UPDATE SET adm1_name=EXCLUDED.adm1_name, adm1_pcode=EXCLUDED.adm1_pcode`)
 	require.NoError(t, err)
 	userID := "00000000-0000-0000-0000-000000000031"
 	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email) VALUES ($1,'Program','program@example.com')`, userID)
@@ -220,7 +220,7 @@ func TestSendProgramUpdatePayloadAndDelivery(t *testing.T) {
 func TestSendProgramUpdateSuppressesDuringQuietHours(t *testing.T) {
 	pool := db.SetupTestDB(t)
 	ctx := context.Background()
-	_, err := pool.Exec(ctx, `INSERT INTO kenya_counties (gid, adm1_name, adm1_pcode) VALUES (1, 'Nairobi', 'KE047')`)
+	_, err := pool.Exec(ctx, `INSERT INTO kenya_counties (gid, adm1_name, adm1_pcode) VALUES (1, 'Nairobi', 'KE047') ON CONFLICT (gid) DO UPDATE SET adm1_name=EXCLUDED.adm1_name, adm1_pcode=EXCLUDED.adm1_pcode`)
 	require.NoError(t, err)
 	userID := "00000000-0000-0000-0000-000000000032"
 	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email) VALUES ($1,'Quiet','quiet@example.com')`, userID)
