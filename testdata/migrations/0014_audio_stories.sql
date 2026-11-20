@@ -155,7 +155,6 @@ ALTER TABLE "destinations" ADD COLUMN "hero_image_source" text;--> statement-bre
 ALTER TABLE "destinations" ADD COLUMN "hero_image_alt" text;--> statement-breakpoint
 ALTER TABLE "destinations" ADD COLUMN "verified_at" timestamp;--> statement-breakpoint
 ALTER TABLE "destinations" ADD COLUMN "verified_by" text;--> statement-breakpoint
-ALTER TABLE "kenya_counties" ADD COLUMN "county_code" text NOT NULL DEFAULT '';--> statement-breakpoint
 ALTER TABLE "audio_stories" ADD CONSTRAINT "audio_stories_cover_media_id_media_assets_id_fk" FOREIGN KEY ("cover_media_id") REFERENCES "public"."media_assets"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "audio_stories" ADD CONSTRAINT "audio_stories_collection_id_audio_story_collections_id_fk" FOREIGN KEY ("collection_id") REFERENCES "public"."audio_story_collections"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "audio_stories" ADD CONSTRAINT "audio_stories_created_by_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
@@ -189,4 +188,3 @@ CREATE INDEX "audio_story_revisions_reviewer_idx" ON "audio_story_revisions" USI
 CREATE UNIQUE INDEX "audio_story_tracks_revision_language_unique" ON "audio_story_tracks" USING btree ("revision_id","language");--> statement-breakpoint
 CREATE UNIQUE INDEX "audio_story_transcripts_revision_language_unique" ON "audio_story_transcripts" USING btree ("revision_id","language");--> statement-breakpoint
 ALTER TABLE "destinations" ADD CONSTRAINT "destinations_verified_by_users_id_fk" FOREIGN KEY ("verified_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "kenya_counties" ADD CONSTRAINT "kenya_counties_county_code_unique" UNIQUE("county_code");
