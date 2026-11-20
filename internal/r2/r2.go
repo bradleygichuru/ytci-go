@@ -117,6 +117,24 @@ func (c *Client) PutObject(ctx context.Context, key string, data io.Reader, cont
 	return nil
 }
 
+// StreamObject writes the whole object to w. Unlike GetObject it has no size
+// cap, so large releases can be served without buffering them in memory.
+func (c *Client) StreamObject(ctx context.Context, key string, w io.Writer) (int64, error) {
+	out, err := c.s3Client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(c.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return 0, fmt.Errorf("get object: %w", err)
+	}
+	defer out.Body.Close()
+	n, err := io.Copy(w, out.Body)
+	if err != nil {
+		return n, fmt.Errorf("stream object: %w", err)
+	}
+	return n, nil
+}
+
 func (c *Client) GetObject(ctx context.Context, key string) ([]byte, error) {
 	out, err := c.s3Client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(c.bucket),
