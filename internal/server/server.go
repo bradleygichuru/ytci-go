@@ -15,6 +15,7 @@ import (
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 	"github.com/bradleygichuru/ytci-go/internal/handler/admin"
 	"github.com/bradleygichuru/ytci-go/internal/handler/expo"
+	"github.com/bradleygichuru/ytci-go/internal/handler/repository"
 	"github.com/bradleygichuru/ytci-go/internal/mice"
 	"github.com/bradleygichuru/ytci-go/internal/middleware"
 	"github.com/bradleygichuru/ytci-go/internal/ocr"
@@ -146,6 +147,7 @@ type handlers struct {
 	composer         *expo.ComposerHandler
 	budget           *expo.BudgetHandler
 	collab           *expo.CollaborationHandler
+	repository       *repository.Handler
 }
 
 func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Client, cfg *config.Config, hub *collab.Hub) *handlers {
@@ -192,6 +194,7 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 		composer:         expo.NewComposerHandler(pool, cfg.GooglePlacesAPIKey, cfg.ORSAPIKey),
 		budget:           expo.NewBudgetHandler(pool, r2client, ocr.NewClient(cfg.GoogleVisionAPIKey, cfg.GoogleVisionEndpoint)),
 		collab:           expo.NewCollaborationHandler(pool, hub),
+		repository:       repository.New(pool, r2client),
 	}
 	if pushClient != nil {
 		h.pushAdmin = admin.NewPushHandler(pool, pushClient)
@@ -246,6 +249,12 @@ func mountAdminRoutes(sub chi.Router, h *handlers, r2client r2.Store, jwks *midd
 		aR.Post("/destinations/cache/invalidate", h.dest.InvalidatePlacesCache)
 		aR.Route("/admin", func(ma chi.Router) {
 			h.mice.RegisterAdmin(ma)
+		})
+		// The repository surface is narrower than platform admin: moderation
+		// staff can approve/publish but not create or delete entries.
+		aR.Route("/admin/repository", func(rr chi.Router) {
+			rr.Use(repository.AdminGate)
+			h.repository.RegisterAdmin(rr)
 		})
 		aR.Get("/events", h.events.List)
 		aR.Get("/events/{id}", h.events.Get)
@@ -563,6 +572,13 @@ func mountPublicRoutes(pub chi.Router, h *handlers, r2client r2.Store, eventLimi
 	pub.Get("/audio-stories/{slug}", h.audioStories.PublicGetStory)
 	pub.Get("/audio-story-collections", h.audioStories.PublicListCollections)
 	pub.Get("/audio-story-collections/{slug}", h.audioStories.PublicGetCollection)
+
+	// Repository: reads use the general public limiter; presign and
+	// submissions get their own stricter per-IP budgets.
+	h.repository.RegisterPublic(pub,
+		middleware.NewRateLimiter(1.0/6.0, 10),   // ~10 uploads per minute
+		middleware.NewRateLimiter(5.0/3600.0, 5), // 5 submissions per hour
+	)
 
 	if r2client != nil {
 		pub.Get("/media/url", h.media.GetURL)

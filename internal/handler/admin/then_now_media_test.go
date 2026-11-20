@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bradleygichuru/ytci-go/internal/r2"
 	"github.com/bradleygichuru/ytci-go/internal/thennow"
 )
 
@@ -33,6 +34,9 @@ func (keyEchoStore) GetObject(context.Context, string) ([]byte, error) {
 
 func (keyEchoStore) PutObject(context.Context, string, io.Reader, string) error { return nil }
 func (keyEchoStore) DeleteObject(context.Context, string) error                 { return nil }
+func (keyEchoStore) HeadObject(context.Context, string) (r2.ObjectInfo, error) {
+	return r2.ObjectInfo{}, nil
+}
 
 func publishedSnapshot() thennow.Snapshot {
 	return thennow.Snapshot{

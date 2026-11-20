@@ -13,6 +13,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/bradleygichuru/ytci-go/internal/r2"
 )
 
 type mockR2Store struct {
@@ -46,6 +48,12 @@ func (m *mockR2Store) GetObject(ctx context.Context, key string) ([]byte, error)
 }
 func (m *mockR2Store) DeleteObject(ctx context.Context, key string) error {
 	return m.deleteErr
+}
+func (m *mockR2Store) HeadObject(ctx context.Context, key string) (r2.ObjectInfo, error) {
+	if m.getErr != nil {
+		return r2.ObjectInfo{}, m.getErr
+	}
+	return r2.ObjectInfo{Size: int64(len("test-image")), ContentType: "image/jpeg"}, nil
 }
 
 func TestMediaPresignImageTooLarge(t *testing.T) {
