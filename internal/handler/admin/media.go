@@ -37,16 +37,28 @@ type presignResponse struct {
 }
 
 type completeRequest struct {
-	ObjectKey    string `json:"objectKey"`
-	Caption      string `json:"caption,omitempty"`
-	AltText      string `json:"altText,omitempty"`
-	Credit       string `json:"credit,omitempty"`
-	ThumbnailKey string `json:"thumbnailKey,omitempty"`
+	ObjectKey       string `json:"objectKey"`
+	Caption         string `json:"caption,omitempty"`
+	AltText         string `json:"altText,omitempty"`
+	Credit          string `json:"credit,omitempty"`
+	ThumbnailKey    string `json:"thumbnailKey,omitempty"`
+	Type            string `json:"type,omitempty"`
+	EntityType      string `json:"entityType,omitempty"`
+	EntityID        string `json:"entityId,omitempty"`
+	DurationSeconds int    `json:"durationSeconds,omitempty"`
 }
 
 func isAllowedType(ct string) bool {
 	switch ct {
-	case "image/jpeg", "image/png", "image/webp", "video/mp4", "application/pdf":
+	case "image/jpeg", "image/png", "image/webp", "video/mp4", "audio/mp4", "audio/mpeg", "application/pdf":
+		return true
+	}
+	return false
+}
+
+func isAllowedMediaType(mediaType string) bool {
+	switch mediaType {
+	case "image", "video", "audio", "pdf", "360":
 		return true
 	}
 	return false
@@ -65,13 +77,18 @@ func (h *MediaHandler) Presign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	maxSize := 100 * 1024 * 1024
-	if req.ContentType != "video/mp4" {
-		maxSize = 10 * 1024 * 1024
+	maxSize := 10 * 1024 * 1024
+	if req.ContentType == "video/mp4" || req.ContentType == "audio/mp4" || req.ContentType == "audio/mpeg" {
+		maxSize = 100 * 1024 * 1024
 	}
 	if req.FileSizeBytes > maxSize {
 		handler.WriteError(w, http.StatusBadRequest, "FILE_TOO_LARGE",
 			fmt.Sprintf("file size exceeds maximum of %d bytes", maxSize))
+		return
+	}
+
+	if h.r2 == nil {
+		handler.WriteError(w, http.StatusServiceUnavailable, "STORAGE_UNAVAILABLE", "media storage is not configured")
 		return
 	}
 
@@ -115,6 +132,23 @@ func (h *MediaHandler) Complete(w http.ResponseWriter, r *http.Request) {
 
 	userID := middleware.UserID(r.Context())
 
+	mediaType := req.Type
+	if mediaType == "" {
+		mediaType = "image"
+	}
+	if !isAllowedMediaType(mediaType) {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_MEDIA_TYPE", "unsupported media type")
+		return
+	}
+	entityType := req.EntityType
+	if entityType == "" {
+		entityType = "unlinked"
+	}
+	entityID := req.EntityID
+	if entityID == "" {
+		entityID = "00000000-0000-0000-0000-000000000000"
+	}
+
 	if h.pool != nil {
 		var pendingCount int
 		err := h.pool.QueryRow(r.Context(),
@@ -132,14 +166,14 @@ func (h *MediaHandler) Complete(w http.ResponseWriter, r *http.Request) {
 
 	status := "pending_review"
 	role := middleware.RoleFromCtx(r.Context())
-	if role == "super_admin" || role == "administrator" || role == "moderator" {
+	if role == "super_admin" || role == "administrator" || role == "moderator" || role == "content_editor" {
 		status = "ready"
 	}
 
 	row := h.pool.QueryRow(r.Context(),
-		`INSERT INTO media_assets (object_key, status, uploaded_by, caption, alt_text, credit, thumbnail_key, type, entity_type, entity_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, 'image', 'unlinked', '00000000-0000-0000-0000-000000000000') RETURNING id`,
-		req.ObjectKey, status, userID, req.Caption, req.AltText, req.Credit, req.ThumbnailKey)
+		`INSERT INTO media_assets (object_key, status, uploaded_by, caption, alt_text, credit, thumbnail_key, type, entity_type, entity_id, duration)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
+		req.ObjectKey, status, userID, req.Caption, req.AltText, req.Credit, req.ThumbnailKey, mediaType, entityType, entityID, req.DurationSeconds)
 
 	var id string
 	if err := row.Scan(&id); err != nil {
@@ -313,6 +347,11 @@ func (h *MediaHandler) GetURL(w http.ResponseWriter, r *http.Request) {
 	}
 	if objectKey == "" {
 		handler.WriteError(w, http.StatusBadRequest, "MISSING_KEY", "object key is required")
+		return
+	}
+
+	if h.r2 == nil {
+		handler.WriteError(w, http.StatusServiceUnavailable, "STORAGE_UNAVAILABLE", "media storage is not configured")
 		return
 	}
 

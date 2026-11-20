@@ -87,6 +87,10 @@ func main() {
 	defer retentionCancel()
 	go privacy.StartRetention(retentionCtx, dbpool, 24*time.Hour)
 
+	audioPublisherCtx, audioPublisherCancel := context.WithCancel(context.Background())
+	defer audioPublisherCancel()
+	admin.NewAudioStoryHandler(dbpool).StartPublishScheduler(audioPublisherCtx, time.Minute)
+
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
 		Handler: router,
