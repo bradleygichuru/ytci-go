@@ -71,25 +71,23 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 		r2Store = r2client
 	}
 	// Public app downloads. Keys live under releases/ and only safe names are
-	// served, so a stable link does not require presigning.
+	// served. Redirect to a fresh presigned URL so large APKs stream from R2
+	// instead of being buffered in the API process.
 	root.Get("/downloads/{name}", func(w http.ResponseWriter, r *http.Request) {
 		name := chi.URLParam(r, "name")
 		if !appDownloadName.MatchString(name) {
 			http.NotFound(w, r)
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 		defer cancel()
-		data, err := r2Store.GetObject(ctx, "releases/"+name)
+		url, err := r2Store.PresignedGetURL(ctx, "releases/"+name, time.Hour)
 		if err != nil {
 			http.NotFound(w, r)
 			return
 		}
-		w.Header().Set("Content-Type", "application/vnd.android.package-archive")
-		w.Header().Set("Content-Disposition", "attachment; filename=\""+name+"\"")
-		w.Header().Set("Cache-Control", "public, max-age=300")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(data)
+		w.Header().Set("Cache-Control", "no-store")
+		http.Redirect(w, r, url, http.StatusFound)
 	})
 
 	h := mountHandlers(pool, r2Store, pushClient, cfg, hub)
