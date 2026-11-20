@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -23,6 +25,8 @@ import (
 	"github.com/bradleygichuru/ytci-go/internal/push"
 	"github.com/bradleygichuru/ytci-go/internal/r2"
 )
+
+var appDownloadName = regexp.MustCompile(`^[A-Za-z0-9._-]+\.apk$`)
 
 func New(cfg *config.Config, pool *pgxpool.Pool) *chi.Mux {
 	jwks := middleware.NewJWKSCache(cfg.AdminJWKSURL, cfg.JWKSCacheTTL, pool)
@@ -66,6 +70,28 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 	if r2client != nil {
 		r2Store = r2client
 	}
+	// Public app downloads. Keys live under releases/ and only safe names are
+	// served, so a stable link does not require presigning.
+	root.Get("/downloads/{name}", func(w http.ResponseWriter, r *http.Request) {
+		name := chi.URLParam(r, "name")
+		if !appDownloadName.MatchString(name) {
+			http.NotFound(w, r)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+		defer cancel()
+		data, err := r2Store.GetObject(ctx, "releases/"+name)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/vnd.android.package-archive")
+		w.Header().Set("Content-Disposition", "attachment; filename=\""+name+"\"")
+		w.Header().Set("Cache-Control", "public, max-age=300")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(data)
+	})
+
 	h := mountHandlers(pool, r2Store, pushClient, cfg, hub)
 
 	// SSE lives outside the 60s timeout and the authenticated route limiter.
