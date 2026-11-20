@@ -236,6 +236,25 @@ func ResolveActiveTokens(ctx context.Context, pool *pgxpool.Pool) ([]string, err
 	return tokens, nil
 }
 
+// EnqueueUser queues a notification for one user. The existing worker picks it
+// up from push_notifications; target_audience is "user:<id>" so the worker does
+// not broadcast a membership event to every device.
+func EnqueueUser(ctx context.Context, pool *pgxpool.Pool, userID, title, body string, data map[string]any) error {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	_, err = pool.Exec(ctx,
+		`INSERT INTO push_notifications (title, body, data, target_audience, scheduled_at, status)
+		 VALUES ($1, $2, $3, $4, now(), 'scheduled')`,
+		title, body, string(raw), "user:"+userID)
+	if err != nil {
+		return err
+	}
+	_, _ = pool.Exec(ctx, `SELECT pg_notify('push_scheduled', '{}')`)
+	return nil
+}
+
 func chunkMessages(messages []ExpoPushMessage, chunkSize int) [][]ExpoPushMessage {
 	var chunks [][]ExpoPushMessage
 	for i := 0; i < len(messages); i += chunkSize {

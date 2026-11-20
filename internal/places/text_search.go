@@ -11,10 +11,23 @@ const textSearchFieldMask = "places.id,places.displayName,places.formattedAddres
 type textSearchRequest struct {
 	TextQuery    string        `json:"textQuery"`
 	LocationBias *locationBias `json:"locationBias,omitempty"`
+	PageSize     int           `json:"pageSize,omitempty"`
+	PageToken    string        `json:"pageToken,omitempty"`
 }
 
 type textSearchResponse struct {
-	Places []textSearchPlace `json:"places"`
+	Places        []textSearchPlace `json:"places"`
+	NextPageToken string            `json:"nextPageToken,omitempty"`
+}
+
+// TextSearchOptions configures a text search with an explicit bias instead of
+// the historical hard-coded Nairobi centre.
+type TextSearchOptions struct {
+	Query          string
+	Center         *LatLng
+	RadiusMeters   float64
+	MaxResultCount int
+	PageToken      string
 }
 
 type textSearchPlace struct {
@@ -33,24 +46,47 @@ type displayName struct {
 }
 
 func (c *Client) TextSearch(ctx context.Context, query string) ([]TextSearchResult, error) {
+	results, _, err := c.TextSearchWithOptions(ctx, TextSearchOptions{
+		Query:        query,
+		Center:       &LatLng{Latitude: 0.0236, Longitude: 36.8888},
+		RadiusMeters: 50000,
+	})
+	return results, err
+}
+
+// TextSearchWithOptions returns one page of results; use PageToken with the
+// returned token for the next page. The client method historically returned
+// only results, so keep this page-shaped companion explicit.
+func (c *Client) TextSearchWithOptions(ctx context.Context, opts TextSearchOptions) ([]TextSearchResult, string, error) {
 	req := textSearchRequest{
-		TextQuery: query,
-		LocationBias: &locationBias{
+		TextQuery: opts.Query,
+		PageSize:  opts.MaxResultCount,
+		PageToken: opts.PageToken,
+	}
+	if opts.Center != nil {
+		radius := opts.RadiusMeters
+		if radius <= 0 {
+			radius = 50000
+		}
+		if radius > 50000 {
+			radius = 50000
+		}
+		req.LocationBias = &locationBias{
 			Circle: &circle{
-			Center: LatLng{Latitude: 0.0236, Longitude: 36.8888},
-			Radius: 50000,
+				Center: *opts.Center,
+				Radius: radius,
 			},
-		},
+		}
 	}
 
 	respBytes, err := c.post(ctx, "places:searchText", req, textSearchFieldMask)
 	if err != nil {
-		return nil, fmt.Errorf("places: text search: %w", err)
+		return nil, "", fmt.Errorf("places: text search: %w", err)
 	}
 
 	var resp textSearchResponse
 	if err := json.Unmarshal(respBytes, &resp); err != nil {
-		return nil, fmt.Errorf("places: text search unmarshal: %w", err)
+		return nil, "", fmt.Errorf("places: text search unmarshal: %w", err)
 	}
 
 	results := make([]TextSearchResult, 0, len(resp.Places))
@@ -72,5 +108,5 @@ func (c *Client) TextSearch(ctx context.Context, query string) ([]TextSearchResu
 		results = append(results, r)
 	}
 
-	return results, nil
+	return results, resp.NextPageToken, nil
 }

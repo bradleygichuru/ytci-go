@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/bradleygichuru/ytci-go/internal/catalog"
 	"github.com/bradleygichuru/ytci-go/internal/db/gen"
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 	"github.com/bradleygichuru/ytci-go/internal/model"
@@ -88,7 +89,7 @@ func (h *DestinationsHandler) List(w http.ResponseWriter, r *http.Request) {
 				'caption', ma.caption,
 				'credit', ma.credit
 			) ORDER BY ma.display_order)
-			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
+			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id::text = d.id::text),
 			'[]'::json
 		) AS media
 		FROM destinations d`
@@ -215,7 +216,7 @@ func (h *DestinationsHandler) Get(w http.ResponseWriter, r *http.Request) {
 				'caption', ma.caption,
 				'credit', ma.credit
 			) ORDER BY ma.display_order)
-			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
+			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id::text = d.id::text),
 			'[]'::json
 		) AS media
 		FROM destinations d WHERE d.slug = $1`
@@ -274,6 +275,11 @@ func (h *DestinationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
 		return
 	}
+	if !catalog.IsCategory(req.Category) {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_CATEGORY",
+			"category must be one of the controlled destination categories")
+		return
+	}
 
 	queries := gen.New(h.pool)
 	dest, err := queries.CreateDestination(r.Context(), &gen.CreateDestinationParams{
@@ -311,6 +317,9 @@ func (h *DestinationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to create destination", err)
 		return
 	}
+	// The admin dashboard is the curation surface, so its rows are curated.
+	_, _ = h.pool.Exec(r.Context(),
+		`UPDATE destinations SET is_curated = true WHERE id = $1`, dest.ID)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -349,10 +358,47 @@ func (h *DestinationsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		ContentOwner       *string  `json:"contentOwner,omitempty"`
 		VerificationStatus *string  `json:"verificationStatus,omitempty"`
 		Status             *string  `json:"status,omitempty"`
+		IsCurated          *bool    `json:"isCurated,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		handler.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request body")
 		return
+	}
+	if req.Category != nil && !catalog.IsCategory(*req.Category) {
+		handler.WriteError(w, http.StatusBadRequest, "INVALID_CATEGORY",
+			"category must be one of the controlled destination categories")
+		return
+	}
+
+	// Publishing requires a canonical county. Resolve against the values in
+	// this request first, then fall back to the stored row.
+	if req.Status != nil && *req.Status == "published" {
+		var currentCounty string
+		var currentLat, currentLng *float64
+		err := h.pool.QueryRow(r.Context(),
+			`SELECT county, ST_Y(location::geometry), ST_X(location::geometry)
+			 FROM destinations WHERE id = $1`, destID,
+		).Scan(&currentCounty, &currentLat, &currentLng)
+		if err != nil {
+			handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "destination not found")
+			return
+		}
+		countyText := currentCounty
+		if req.County != nil {
+			countyText = *req.County
+		}
+		lat, lng := currentLat, currentLng
+		if req.Lat != nil {
+			lat = req.Lat
+		}
+		if req.Lng != nil {
+			lng = req.Lng
+		}
+		if _, err := catalog.ResolveCounty(r.Context(), h.pool, lat, lng, countyText); err != nil {
+			handler.WriteError(w, http.StatusBadRequest, "COUNTY_NOT_FOUND",
+				"cannot publish a destination that does not resolve to a Kenyan county")
+			return
+		}
 	}
 
 	_, err := h.pool.Exec(r.Context(),
@@ -401,6 +447,10 @@ func (h *DestinationsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to update destination", err)
 		return
+	}
+	if req.IsCurated != nil {
+		_, _ = h.pool.Exec(r.Context(),
+			`UPDATE destinations SET is_curated = $2 WHERE id = $1`, destID, *req.IsCurated)
 	}
 
 	// Invalidate caches on status change so popular listing reflects the update
@@ -590,7 +640,7 @@ func (h *DestinationsHandler) ListMobile(w http.ResponseWriter, r *http.Request)
 				'type', ma.type,
 				'altText', ma.alt_text
 			) ORDER BY ma.display_order)
-			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
+			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id::text = d.id::text),
 			'[]'
 		) AS media,
 		gpc.hero_image_url, gpc.hero_image_source, gpc.hero_image_attribution,
@@ -727,7 +777,7 @@ func (h *DestinationsHandler) GetMobile(w http.ResponseWriter, r *http.Request) 
 				'type', ma.type,
 				'altText', ma.alt_text
 			) ORDER BY ma.display_order)
-			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
+			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id::text = d.id::text),
 			'[]'
 		) AS media,
 		d.source, d.google_place_id, d.created_at, d.updated_at,
@@ -871,7 +921,7 @@ func (h *DestinationsHandler) NearbyMobile(w http.ResponseWriter, r *http.Reques
 				'type', ma.type,
 				'altText', ma.alt_text
 			) ORDER BY ma.display_order)
-			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id = d.id::text),
+			FROM media_assets ma WHERE ma.entity_type = 'destination' AND ma.entity_id::text = d.id::text),
 			'[]'
 		) AS media,
 		gpc.hero_image_url, gpc.hero_image_source, gpc.hero_image_attribution,

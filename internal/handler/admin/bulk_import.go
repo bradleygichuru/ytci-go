@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/bradleygichuru/ytci-go/internal/catalog"
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 )
 
@@ -41,10 +43,19 @@ func (h *BulkImport) Import(w http.ResponseWriter, r *http.Request) {
 		if i == 0 || len(row) < 3 {
 			continue
 		}
+		categoryValue := "Sightseeing"
+		if len(row) >= 4 && strings.TrimSpace(row[3]) != "" {
+			categoryValue = row[3]
+		}
+		category, ok := catalog.LegacyCategory(categoryValue)
+		if !ok {
+			errors = append(errors, fmt.Sprintf("row %d: unsupported category %q", i+1, categoryValue))
+			continue
+		}
 		_, err := h.pool.Exec(r.Context(),
 			`INSERT INTO destinations (name, slug, county, category, status)
-			 VALUES ($1, $2, $3, 'attraction', 'draft') ON CONFLICT DO NOTHING`,
-			row[0], row[1], row[2])
+			 VALUES ($1, $2, $3, $4, 'draft') ON CONFLICT DO NOTHING`,
+			row[0], row[1], row[2], string(category))
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("row %d: %v", i+1, err))
 			continue

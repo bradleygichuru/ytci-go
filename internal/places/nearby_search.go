@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const nearbySearchFieldMask = "places.id,places.displayName,places.formattedAddress,places.location,places.types"
+const nearbySearchFieldMask = "places.id,places.displayName,places.formattedAddress,places.location,places.types,places.rating,places.userRatingCount,places.priceLevel,places.photos,places.currentOpeningHours,places.businessStatus"
 
 var includedTouristTypes = []string{
 	"tourist_attraction",
@@ -118,15 +118,57 @@ func IsTouristPlace(types []string) bool {
 	return false
 }
 
+// NearbySearchOptions configures a nearby search. Radius is capped at 50 km by
+// Google; large counties should be searched from multiple points.
+type NearbySearchOptions struct {
+	Center         LatLng
+	RadiusMeters   float64
+	MaxResultCount int
+	IncludedTypes  []string
+	ExcludedTypes  []string
+}
+
 func (c *Client) NearbySearch(ctx context.Context, lat, lng float64) ([]NearbyPlace, error) {
-	req := NearbySearchRequest{
+	return c.NearbySearchWithOptions(ctx, NearbySearchOptions{
+		Center:         LatLng{Latitude: lat, Longitude: lng},
+		RadiusMeters:   10000,
 		MaxResultCount: 20,
 		IncludedTypes:  includedTouristTypes,
 		ExcludedTypes:  excludedNonTouristTypes,
+	})
+}
+
+func (c *Client) NearbySearchWithOptions(ctx context.Context, opts NearbySearchOptions) ([]NearbyPlace, error) {
+	if opts.RadiusMeters <= 0 {
+		opts.RadiusMeters = 10000
+	}
+	if opts.RadiusMeters > 50000 {
+		opts.RadiusMeters = 50000
+	}
+	if opts.MaxResultCount <= 0 {
+		opts.MaxResultCount = 20
+	}
+	if opts.MaxResultCount > 20 {
+		opts.MaxResultCount = 20
+	}
+	if len(opts.IncludedTypes) == 0 {
+		opts.IncludedTypes = includedTouristTypes
+	}
+	if len(opts.ExcludedTypes) == 0 {
+		opts.ExcludedTypes = excludedNonTouristTypes
+	}
+
+	req := NearbySearchRequest{
+		MaxResultCount: opts.MaxResultCount,
+		IncludedTypes:  opts.IncludedTypes,
+		ExcludedTypes:  opts.ExcludedTypes,
 		LocationRestriction: &LocationRestriction{
 			Circle: &Circle{
-				Center: &LatLng{Latitude: lat, Longitude: lng},
-				Radius: 10000,
+				Center: &LatLng{
+					Latitude:  opts.Center.Latitude,
+					Longitude: opts.Center.Longitude,
+				},
+				Radius: opts.RadiusMeters,
 			},
 		},
 	}

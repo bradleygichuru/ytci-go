@@ -67,7 +67,7 @@ func (h *FeedHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 						'objectKey', ma.object_key
 					)) FILTER (WHERE ma.id IS NOT NULL), '[]') AS media
 					FROM media_assets ma
-					WHERE ma.entity_type = 'story' AND ma.entity_id = s.id::text
+					WHERE ma.entity_type = 'story' AND ma.entity_id::text = s.id::text
 				) med ON true
 				WHERE s.status != 'rejected'
 				ORDER BY s.created_at DESC LIMIT 5

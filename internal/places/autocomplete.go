@@ -9,9 +9,9 @@ import (
 const autocompleteFieldMask = "suggestions.placePrediction.placeId,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat,suggestions.placePrediction.types"
 
 type autocompleteRequest struct {
-	Input           string             `json:"input"`
-	SessionToken    string             `json:"sessionToken,omitempty"`
-	LocationBias    *locationBias      `json:"locationBias,omitempty"`
+	Input        string        `json:"input"`
+	SessionToken string        `json:"sessionToken,omitempty"`
+	LocationBias *locationBias `json:"locationBias,omitempty"`
 }
 
 type locationBias struct {
@@ -19,7 +19,7 @@ type locationBias struct {
 }
 
 type circle struct {
-	Center LatLng `json:"center"`
+	Center LatLng  `json:"center"`
 	Radius float64 `json:"radius"`
 }
 
@@ -63,8 +63,8 @@ func (c *Client) Autocomplete(ctx context.Context, input, sessionToken string) (
 		SessionToken: sessionToken,
 		LocationBias: &locationBias{
 			Circle: &circle{
-			Center: LatLng{Latitude: 0.0236, Longitude: 36.8888},
-			Radius: 50000,
+				Center: LatLng{Latitude: 0.0236, Longitude: 36.8888},
+				Radius: 50000,
 			},
 		},
 	}

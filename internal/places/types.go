@@ -15,12 +15,12 @@ type AutocompleteRequest struct {
 }
 
 type AutocompleteSuggestion struct {
-	PlaceID          string  `json:"placeId"`
-	DisplayName      string  `json:"displayName"`
-	FormattedAddress string  `json:"formattedAddress"`
-	Location         *LatLng `json:"location,omitempty"`
+	PlaceID          string   `json:"placeId"`
+	DisplayName      string   `json:"displayName"`
+	FormattedAddress string   `json:"formattedAddress"`
+	Location         *LatLng  `json:"location,omitempty"`
 	Types            []string `json:"types,omitempty"`
-	TypeChip         string  `json:"typeChip"`
+	TypeChip         string   `json:"typeChip"`
 }
 
 type TextSearchRequest struct {
@@ -28,13 +28,13 @@ type TextSearchRequest struct {
 }
 
 type TextSearchResult struct {
-	PlaceID          string  `json:"placeId"`
-	DisplayName      string  `json:"displayName"`
-	FormattedAddress string  `json:"formattedAddress"`
-	Location         *LatLng `json:"location,omitempty"`
+	PlaceID          string   `json:"placeId"`
+	DisplayName      string   `json:"displayName"`
+	FormattedAddress string   `json:"formattedAddress"`
+	Location         *LatLng  `json:"location,omitempty"`
 	Types            []string `json:"types,omitempty"`
-	Rating           float64 `json:"rating,omitempty"`
-	UserRatingCount  int32   `json:"userRatingCount,omitempty"`
+	Rating           float64  `json:"rating,omitempty"`
+	UserRatingCount  int32    `json:"userRatingCount,omitempty"`
 }
 
 type AccessibilityOptions struct {
@@ -55,27 +55,46 @@ type SubDestination struct {
 }
 
 type PlaceDetails struct {
-	PlaceID              string                `json:"placeId"`
-	DisplayName          string                `json:"displayName"`
-	FormattedAddress     string                `json:"formattedAddress"`
-	Location             *LatLng               `json:"location,omitempty"`
-	Types                []string              `json:"types,omitempty"`
-	GoogleMapsURI        string                `json:"googleMapsUri,omitempty"`
-	NationalPhoneNumber  string                `json:"nationalPhoneNumber,omitempty"`
-	WebsiteURI           string                `json:"websiteUri,omitempty"`
-	AccessibilityOptions *AccessibilityOptions `json:"accessibilityOptions,omitempty"`
-	ContainingPlaces     []ContainingPlace     `json:"containingPlaces,omitempty"`
-	SubDestinations      []SubDestination      `json:"subDestinations,omitempty"`
-	Rating               float64               `json:"rating,omitempty"`
-	UserRatingCount      int32                 `json:"userRatingCount,omitempty"`
-	CurrentOpeningHours  *OpeningHours         `json:"currentOpeningHours,omitempty"`
-	PrimaryTypeDisplayName string              `json:"primaryTypeDisplayName,omitempty"`
+	PlaceID                string                `json:"placeId"`
+	DisplayName            string                `json:"displayName"`
+	FormattedAddress       string                `json:"formattedAddress"`
+	Location               *LatLng               `json:"location,omitempty"`
+	Types                  []string              `json:"types,omitempty"`
+	GoogleMapsURI          string                `json:"googleMapsUri,omitempty"`
+	NationalPhoneNumber    string                `json:"nationalPhoneNumber,omitempty"`
+	WebsiteURI             string                `json:"websiteUri,omitempty"`
+	AccessibilityOptions   *AccessibilityOptions `json:"accessibilityOptions,omitempty"`
+	ContainingPlaces       []ContainingPlace     `json:"containingPlaces,omitempty"`
+	SubDestinations        []SubDestination      `json:"subDestinations,omitempty"`
+	Rating                 float64               `json:"rating,omitempty"`
+	UserRatingCount        int32                 `json:"userRatingCount,omitempty"`
+	CurrentOpeningHours    *OpeningHours         `json:"currentOpeningHours,omitempty"`
+	RegularOpeningHours    *OpeningHours         `json:"regularOpeningHours,omitempty"`
+	PriceLevel             string                `json:"priceLevel,omitempty"`
+	Photos                 []Photo               `json:"photos,omitempty"`
+	PrimaryTypeDisplayName string                `json:"primaryTypeDisplayName,omitempty"`
+}
+
+// Photo is a Google Places photo reference. AuthorAttributions must be kept
+// with the photo whenever it is displayed.
+type Photo struct {
+	Name               string              `json:"name"`
+	WidthPx            int                 `json:"widthPx,omitempty"`
+	HeightPx           int                 `json:"heightPx,omitempty"`
+	AuthorAttributions []AuthorAttribution `json:"authorAttributions,omitempty"`
+}
+
+// AuthorAttribution identifies the photographer/owner of a Google photo.
+type AuthorAttribution struct {
+	DisplayName string `json:"displayName,omitempty"`
+	URI         string `json:"uri,omitempty"`
+	PhotoURI    string `json:"photoUri,omitempty"`
 }
 
 type OpeningHours struct {
-	OpenNow            bool                `json:"openNow,omitempty"`
-	Periods            []OpeningPeriod     `json:"periods,omitempty"`
-	WeekdayDescriptions []string           `json:"weekdayDescriptions,omitempty"`
+	OpenNow             bool            `json:"openNow,omitempty"`
+	Periods             []OpeningPeriod `json:"periods,omitempty"`
+	WeekdayDescriptions []string        `json:"weekdayDescriptions,omitempty"`
 }
 
 type OpeningPeriod struct {
@@ -109,11 +128,17 @@ type NearbySearchResult struct {
 }
 
 type NearbyPlace struct {
-	PlaceID          string      `json:"id"`
-	DisplayName      DisplayName `json:"displayName"`
-	FormattedAddress string      `json:"formattedAddress"`
-	Location         *LatLng     `json:"location,omitempty"`
-	Types            []string    `json:"types,omitempty"`
+	PlaceID             string        `json:"id"`
+	DisplayName         DisplayName   `json:"displayName"`
+	FormattedAddress    string        `json:"formattedAddress"`
+	Location            *LatLng       `json:"location,omitempty"`
+	Types               []string      `json:"types,omitempty"`
+	Rating              float64       `json:"rating,omitempty"`
+	UserRatingCount     int32         `json:"userRatingCount,omitempty"`
+	PriceLevel          string        `json:"priceLevel,omitempty"`
+	Photos              []Photo       `json:"photos,omitempty"`
+	CurrentOpeningHours *OpeningHours `json:"currentOpeningHours,omitempty"`
+	BusinessStatus      string        `json:"businessStatus,omitempty"`
 }
 
 type DisplayName struct {
@@ -129,40 +154,40 @@ func (np NearbyPlace) GetDisplayName() string {
 }
 
 var typeLabelMap = map[string]string{
-	"national_park":               "🏕️ National Park",
-	"park":                        "🏕️ Park",
-	"museum":                      "🏛️ Museum",
-	"art_gallery":                 "🏛️ Art Gallery",
-	"hotel":                       "🏨 Hotel",
-	"lodging":                     "🏨 Lodging",
-	"restaurant":                  "🍽️ Restaurant",
-	"cafe":                        "☕ Cafe",
-	"bar":                         "🍸 Bar",
-	"natural_feature":             "🌿 Nature",
-	"beach":                       "🏖️ Beach",
-	"lake":                        "🏞️ Lake",
-	"mountain":                    "⛰️ Mountain",
-	"hiking_area":                 "🥾 Hiking",
-	"tourist_attraction":          "📍 Attraction",
-	"point_of_interest":           "📍 Place",
-	"historical_landmark":         "🏛️ Landmark",
-	"shopping_mall":               "🛍️ Shopping",
-	"zoo":                         "🦁 Zoo",
-	"aquarium":                    "🐠 Aquarium",
-	"amusement_park":              "🎢 Amusement Park",
-	"place_of_worship":            "⛪ Worship",
-	"university":                  "🎓 University",
-	"airport":                     "✈️ Airport",
-	"train_station":               "🚂 Station",
-	"bus_station":                 "🚌 Bus Station",
-	"stadium":                     "🏟️ Stadium",
-	"night_club":                  "🎵 Night Club",
-	"store":                       "🏪 Store",
-	"market":                      "🏪 Market",
-	"campground":                  "🏕️ Campground",
-	"rv_park":                     "🚐 RV Park",
-	"tourist_information_center":  "ℹ️ Tourist Info",
-	"visitor_center":              "ℹ️ Visitor Center",
+	"national_park":              "🏕️ National Park",
+	"park":                       "🏕️ Park",
+	"museum":                     "🏛️ Museum",
+	"art_gallery":                "🏛️ Art Gallery",
+	"hotel":                      "🏨 Hotel",
+	"lodging":                    "🏨 Lodging",
+	"restaurant":                 "🍽️ Restaurant",
+	"cafe":                       "☕ Cafe",
+	"bar":                        "🍸 Bar",
+	"natural_feature":            "🌿 Nature",
+	"beach":                      "🏖️ Beach",
+	"lake":                       "🏞️ Lake",
+	"mountain":                   "⛰️ Mountain",
+	"hiking_area":                "🥾 Hiking",
+	"tourist_attraction":         "📍 Attraction",
+	"point_of_interest":          "📍 Place",
+	"historical_landmark":        "🏛️ Landmark",
+	"shopping_mall":              "🛍️ Shopping",
+	"zoo":                        "🦁 Zoo",
+	"aquarium":                   "🐠 Aquarium",
+	"amusement_park":             "🎢 Amusement Park",
+	"place_of_worship":           "⛪ Worship",
+	"university":                 "🎓 University",
+	"airport":                    "✈️ Airport",
+	"train_station":              "🚂 Station",
+	"bus_station":                "🚌 Bus Station",
+	"stadium":                    "🏟️ Stadium",
+	"night_club":                 "🎵 Night Club",
+	"store":                      "🏪 Store",
+	"market":                     "🏪 Market",
+	"campground":                 "🏕️ Campground",
+	"rv_park":                    "🚐 RV Park",
+	"tourist_information_center": "ℹ️ Tourist Info",
+	"visitor_center":             "ℹ️ Visitor Center",
 }
 
 func TypeChip(types []string) string {
