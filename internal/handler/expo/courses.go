@@ -505,7 +505,7 @@ func (h *CourseHandler) generateCertificate(ctx context.Context, enrollmentID, u
 
 	pdf.SetFont("Helvetica", "B", 28)
 	pdf.SetTextColor(21, 66, 18)
-	pdf.CellFormat(0, 15, "YTC Explorer", "", 1, "C", false, 0, "")
+	pdf.CellFormat(0, 15, "Kenya Tourism app", "", 1, "C", false, 0, "")
 
 	pdf.SetFont("Helvetica", "B", 22)
 	pdf.SetTextColor(120, 89, 0)

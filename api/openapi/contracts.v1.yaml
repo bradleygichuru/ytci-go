@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: YTC Explorer execution contracts
+  title: Kenya Tourism app execution contracts
   version: 1.0.0
   description: |
     Frozen interface for the four execution streams (MICE, recognition, species,
