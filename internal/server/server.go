@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net/http"
 	"regexp"
 	"strings"
@@ -78,16 +80,27 @@ func newRouter(cfg *config.Config, pool *pgxpool.Pool, jwks *middleware.JWKSCach
 			http.NotFound(w, r)
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 		defer cancel()
-		data, err := r2Store.GetObject(ctx, "releases/"+name)
+		key := "releases/" + name
+		w.Header().Set("Content-Type", "application/vnd.android.package-archive")
+		w.Header().Set("Content-Disposition", "attachment; filename=\""+name+"\"")
+		w.Header().Set("Cache-Control", "public, max-age=300")
+		if streamer, ok := r2Store.(interface {
+			StreamObject(context.Context, string, io.Writer) (int64, error)
+		}); ok {
+			if info, err := r2Store.HeadObject(ctx, key); err == nil && info.Size > 0 {
+				w.Header().Set("Content-Length", fmt.Sprintf("%d", info.Size))
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = streamer.StreamObject(ctx, key, w)
+			return
+		}
+		data, err := r2Store.GetObject(ctx, key)
 		if err != nil {
 			http.NotFound(w, r)
 			return
 		}
-		w.Header().Set("Content-Type", "application/vnd.android.package-archive")
-		w.Header().Set("Content-Disposition", "attachment; filename=\""+name+"\"")
-		w.Header().Set("Cache-Control", "public, max-age=300")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(data)
 	})
