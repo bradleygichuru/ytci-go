@@ -38,6 +38,7 @@ func TestMatchAlertRequiresAnAnchor(t *testing.T) {
 func TestCapExceededCountsAlertsNotTokens(t *testing.T) {
 	pool := db.SetupTestDB(t)
 	ctx := context.Background()
+	_, _ = pool.Exec(ctx, `TRUNCATE kenya_counties CASCADE`)
 	_, err := pool.Exec(ctx, `INSERT INTO push_tokens (token, platform) VALUES
 		('ExponentPushToken[caps-1]', 'android'), ('ExponentPushToken[caps-2]', 'android')`)
 	require.NoError(t, err)
