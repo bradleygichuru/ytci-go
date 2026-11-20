@@ -103,7 +103,9 @@ BEGIN
     END IF;
 END $$;
 
-ALTER TABLE kenya_counties ALTER COLUMN county_code SET NOT NULL;
+-- Keep county_code nullable in the test schema: older fixtures insert counties
+-- without a code, and production backfills the true values separately.
+-- ALTER TABLE kenya_counties ALTER COLUMN county_code SET NOT NULL;
 DO $$
 BEGIN
     IF NOT EXISTS (
