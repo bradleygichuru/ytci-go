@@ -25,7 +25,7 @@ func TestPushRegisterAcceptsBetterAuthTextUserID(t *testing.T) {
 		VALUES ($1,'Nairobi',$1)`, userID)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO kenya_counties (gid, adm1_name, adm1_pcode)
-		VALUES (1,'Nairobi','KE047') ON CONFLICT (gid) DO NOTHING`)
+		VALUES (1,'Nairobi','KE047') ON CONFLICT (gid) DO UPDATE SET adm1_name=EXCLUDED.adm1_name, adm1_pcode=EXCLUDED.adm1_pcode`)
 	require.NoError(t, err)
 
 	h := NewPushRegisterHandler(pool)
