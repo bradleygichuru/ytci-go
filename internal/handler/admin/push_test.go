@@ -18,7 +18,7 @@ import (
 func TestAdminCampaignSendCreatesProgramUpdate(t *testing.T) {
 	pool := db.SetupTestDB(t)
 	ctx := context.Background()
-	_, err := pool.Exec(ctx, `INSERT INTO kenya_counties (gid, adm1_name, adm1_pcode) VALUES (1, 'Nairobi', 'KE047')`)
+	_, err := pool.Exec(ctx, `INSERT INTO kenya_counties (gid, adm1_name, adm1_pcode) VALUES (1, 'Nairobi', 'KE047') ON CONFLICT (gid) DO NOTHING`)
 	require.NoError(t, err)
 	userID := "admin-push-nanoid-000000000041"
 	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email) VALUES ($1,'Admin','push-admin@example.com')`, userID)

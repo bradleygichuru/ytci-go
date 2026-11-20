@@ -15,7 +15,7 @@ func TestMapperUnionsRegionalTextWithPolygon(t *testing.T) {
 	ctx := context.Background()
 	_, err := pool.Exec(ctx, `INSERT INTO kenya_counties (gid, adm1_name, adm1_pcode, geom) VALUES
 		(1, 'Nairobi', 'KE047', ST_GeomFromText('MULTIPOLYGON(((36.7 -1.2, 36.9 -1.2, 36.9 -1.4, 36.7 -1.4, 36.7 -1.2)))', 4326)),
-		(2, 'Kiambu', 'KE022', ST_GeomFromText('MULTIPOLYGON(((36.6 -1.1, 36.7 -1.1, 36.7 -1.2, 36.6 -1.2, 36.6 -1.1)))', 4326))`)
+		(2, 'Kiambu', 'KE022', ST_GeomFromText('MULTIPOLYGON(((36.6 -1.1, 36.7 -1.1, 36.7 -1.2, 36.6 -1.2, 36.6 -1.1)))', 4326)) ON CONFLICT (gid) DO NOTHING`)
 	require.NoError(t, err)
 
 	mapper, err := NewMapper(ctx, NewStore(pool))
@@ -39,7 +39,7 @@ func TestMapperKeepsExactCountyListAuthoritative(t *testing.T) {
 	ctx := context.Background()
 	_, err := pool.Exec(ctx, `INSERT INTO kenya_counties (gid, adm1_name, adm1_pcode, geom) VALUES
 		(1, 'Nairobi', 'KE047', ST_GeomFromText('MULTIPOLYGON(((36.7 -1.2, 36.9 -1.2, 36.9 -1.4, 36.7 -1.4, 36.7 -1.2)))', 4326)),
-		(2, 'Kiambu', 'KE022', ST_GeomFromText('MULTIPOLYGON(((36.6 -1.1, 36.7 -1.1, 36.7 -1.2, 36.6 -1.2, 36.6 -1.1)))', 4326))`)
+		(2, 'Kiambu', 'KE022', ST_GeomFromText('MULTIPOLYGON(((36.6 -1.1, 36.7 -1.1, 36.7 -1.2, 36.6 -1.2, 36.6 -1.1)))', 4326)) ON CONFLICT (gid) DO NOTHING`)
 	require.NoError(t, err)
 
 	mapper, err := NewMapper(ctx, NewStore(pool))

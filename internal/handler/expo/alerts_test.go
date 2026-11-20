@@ -20,7 +20,7 @@ func TestAlertsListAndPreferences(t *testing.T) {
 	pool := db.SetupTestDB(t)
 	ctx := context.Background()
 	_, err := pool.Exec(ctx, `INSERT INTO kenya_counties (gid, adm1_name, adm1_pcode, geom)
-		VALUES (1, 'Nairobi', 'KE047', ST_GeomFromText('MULTIPOLYGON(((36.7 -1.2, 36.9 -1.2, 36.9 -1.4, 36.7 -1.4, 36.7 -1.2)))', 4326))`)
+		VALUES (1, 'Nairobi', 'KE047', ST_GeomFromText('MULTIPOLYGON(((36.7 -1.2, 36.9 -1.2, 36.9 -1.4, 36.7 -1.4, 36.7 -1.2)))', 4326)) ON CONFLICT (gid) DO NOTHING`)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO alerts
 		(source_id, source_identifier, event, severity, urgency, certainty, headline, sent_at, content_hash, mapping_method)
@@ -167,7 +167,7 @@ func TestProgramUpdatesRespectCountyTargeting(t *testing.T) {
 	pool := db.SetupTestDB(t)
 	ctx := context.Background()
 	_, err := pool.Exec(ctx, `INSERT INTO kenya_counties (gid, adm1_name, adm1_pcode, geom)
-		VALUES (1, 'Nairobi', 'KE047', ST_GeomFromText('MULTIPOLYGON(((36.7 -1.2, 36.9 -1.2, 36.9 -1.4, 36.7 -1.4, 36.7 -1.2)))', 4326))`)
+		VALUES (1, 'Nairobi', 'KE047', ST_GeomFromText('MULTIPOLYGON(((36.7 -1.2, 36.9 -1.2, 36.9 -1.4, 36.7 -1.4, 36.7 -1.2)))', 4326)) ON CONFLICT (gid) DO NOTHING`)
 	require.NoError(t, err)
 
 	userID := "00000000-0000-0000-0000-000000000004"
@@ -209,7 +209,7 @@ func TestListAlertCounties(t *testing.T) {
 	pool := db.SetupTestDB(t)
 	ctx := context.Background()
 	_, err := pool.Exec(ctx, `INSERT INTO kenya_counties (gid, adm1_name, adm1_pcode) VALUES
-		(1, 'Nairobi', 'KE047'), (2, 'Mombasa', 'KE001')`)
+		(1, 'Nairobi', 'KE047'), (2, 'Mombasa', 'KE001') ON CONFLICT (gid) DO NOTHING`)
 	require.NoError(t, err)
 
 	h := NewAlertsHandler(pool)
