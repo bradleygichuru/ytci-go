@@ -389,8 +389,24 @@ const (
 	RoleUser           Role = contracts.RoleUser
 )
 
+var adminRoles = map[Role]bool{
+	RoleSuperAdmin: true,
+	RoleAdmin:      true,
+	RoleModerator:  true,
+}
+
+var audioAdminRoles = map[Role]bool{
+	RoleSuperAdmin:    true,
+	RoleAdmin:         true,
+	RoleModerator:     true,
+	RoleContentEditor: true,
+}
 func IsAdmin(role Role) bool {
 	return contracts.MustRoles().Can(string(role), contracts.PermPlatformAdminAccess)
+}
+
+func IsAudioAdmin(role Role) bool {
+	return audioAdminRoles[role]
 }
 
 func AdminGate(next http.Handler) http.Handler {
@@ -434,6 +450,17 @@ func ThenNowGate(next http.Handler) http.Handler {
 			return
 		}
 		handler.WriteError(w, http.StatusForbidden, "FORBIDDEN", "Then & Now access required")
+	})
+}
+
+func AudioAdminGate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		roleStr := RoleFromCtx(r.Context())
+		if IsAudioAdmin(roleStr) {
+			next.ServeHTTP(w, r)
+		} else {
+			handler.WriteError(w, http.StatusForbidden, "FORBIDDEN", "audio admin access required")
+		}
 	})
 }
 

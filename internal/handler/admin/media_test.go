@@ -101,3 +101,25 @@ func TestMediaGetURLFallback(t *testing.T) {
 	json.NewDecoder(resp.Body).Decode(&result)
 	assert.Contains(t, result["url"], "placeholder-media.png")
 }
+
+func TestMediaPresignAudioAllowed(t *testing.T) {
+	h := NewMediaHandler(nil, &mockR2Store{presignedPutURL: "https://r2.example.com/upload/test.m4a"})
+	body, _ := json.Marshal(map[string]any{
+		"contentType": "audio/mp4", "fileSizeBytes": 50 * 1024 * 1024, "fileName": "test.m4a",
+	})
+	req := httptest.NewRequest("POST", "/", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.Presign(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestMediaPresignAudioTooLarge(t *testing.T) {
+	h := NewMediaHandler(nil, &mockR2Store{})
+	body, _ := json.Marshal(map[string]any{
+		"contentType": "audio/mpeg", "fileSizeBytes": 101 * 1024 * 1024, "fileName": "test.mp3",
+	})
+	req := httptest.NewRequest("POST", "/", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.Presign(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
