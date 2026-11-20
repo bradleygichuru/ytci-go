@@ -16,6 +16,7 @@ import (
 	"github.com/bradleygichuru/ytci-go/internal/db"
 	"github.com/bradleygichuru/ytci-go/internal/middleware"
 	"github.com/bradleygichuru/ytci-go/internal/ocr"
+	"github.com/bradleygichuru/ytci-go/internal/r2"
 )
 
 type fakeReceiptR2 struct {
@@ -31,6 +32,9 @@ func (f *fakeReceiptR2) PresignedGetURL(context.Context, string, time.Duration) 
 func (f *fakeReceiptR2) PutObject(context.Context, string, io.Reader, string) error { return nil }
 func (f *fakeReceiptR2) GetObject(context.Context, string) ([]byte, error)          { return f.data, nil }
 func (f *fakeReceiptR2) DeleteObject(context.Context, string) error                 { return nil }
+func (f *fakeReceiptR2) HeadObject(context.Context, string) (r2.ObjectInfo, error) {
+	return r2.ObjectInfo{Size: int64(len(f.data)), ContentType: "image/jpeg"}, nil
+}
 
 type fakeReceiptOCR struct{}
 

@@ -18,9 +18,29 @@ type Store interface {
 	PutObject(ctx context.Context, key string, data io.Reader, contentType string) error
 	GetObject(ctx context.Context, key string) ([]byte, error)
 	DeleteObject(ctx context.Context, key string) error
+	// HeadObject reports the stored object's size and content type. Callers
+	// use it to validate a direct upload before accepting it.
+	HeadObject(ctx context.Context, key string) (ObjectInfo, error)
 }
 
-var _ Store = (*Client)(nil)
+// ObjectInfo is the subset of object metadata the upload-validation flow
+// needs.
+type ObjectInfo struct {
+	Size        int64
+	ContentType string
+}
+
+// ContentTypePresigner is implemented by stores that can bind a presigned PUT
+// to a declared content type so R2 rejects a mismatched upload. Callers fall
+// back to Store.PresignedPutURL when a store does not implement it.
+type ContentTypePresigner interface {
+	PresignedPutURLWithContentType(ctx context.Context, key, contentType string, ttl time.Duration) (string, error)
+}
+
+var (
+	_ Store                = (*Client)(nil)
+	_ ContentTypePresigner = (*Client)(nil)
+)
 
 type Client struct {
 	s3Client *s3.Client
@@ -50,6 +70,21 @@ func (c *Client) PresignedPutURL(ctx context.Context, key string, ttl time.Durat
 	req, err := presign.PresignPutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(c.bucket),
 		Key:    aws.String(key),
+	}, s3.WithPresignExpires(ttl))
+	if err != nil {
+		return "", fmt.Errorf("presign put: %w", err)
+	}
+	return req.URL, nil
+}
+
+// PresignedPutURLWithContentType signs a PUT that only succeeds when the
+// browser sends the declared Content-Type.
+func (c *Client) PresignedPutURLWithContentType(ctx context.Context, key, contentType string, ttl time.Duration) (string, error) {
+	presign := s3.NewPresignClient(c.s3Client)
+	req, err := presign.PresignPutObject(ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(c.bucket),
+		Key:         aws.String(key),
+		ContentType: aws.String(contentType),
 	}, s3.WithPresignExpires(ttl))
 	if err != nil {
 		return "", fmt.Errorf("presign put: %w", err)
@@ -107,4 +142,23 @@ func (c *Client) DeleteObject(ctx context.Context, key string) error {
 		return fmt.Errorf("delete object: %w", err)
 	}
 	return nil
+}
+
+func (c *Client) HeadObject(ctx context.Context, key string) (ObjectInfo, error) {
+	out, err := c.s3Client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(c.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return ObjectInfo{}, fmt.Errorf("head object: %w", err)
+	}
+	var size int64
+	if out.ContentLength != nil {
+		size = *out.ContentLength
+	}
+	var contentType string
+	if out.ContentType != nil {
+		contentType = *out.ContentType
+	}
+	return ObjectInfo{Size: size, ContentType: contentType}, nil
 }
