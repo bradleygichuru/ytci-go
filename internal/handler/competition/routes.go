@@ -37,6 +37,15 @@ func (h *Handler) RegisterMobile(r chi.Router) {
 		m.Post("/editions/{slug}/votes", h.CastVote)
 		m.Delete("/votes/{voteId}", h.WithdrawVote)
 
+		// Entrant self-entry. The repository submission and admin approval
+		// remain the only way to add new work; this surface links an existing
+		// published entry to one or two competition categories.
+		m.Get("/editions/{slug}/eligible-repository-entries", h.EligibleRepositoryEntries)
+		m.Get("/editions/{slug}/my-entries", h.MyEntries)
+		m.Post("/editions/{slug}/entries", h.CreateMyEntry)
+		m.Patch("/entries/{entryId}", h.UpdateMyEntry)
+		m.Delete("/entries/{entryId}", h.WithdrawMyEntry)
+
 		m.With(ScoreGate).Get("/judging/assignments", h.MyJudgingAssignments)
 		m.With(ScoreGate).Put("/judging/assignments/{assignmentId}/entries/{entryId}/score", h.SubmitScore)
 	})
