@@ -44,6 +44,12 @@ func TestMigrationsApplyOnFreshDatabase(t *testing.T) {
 			"repository_entries", "repository_entry_media",
 			"repository_upload_intents", "repository_settings",
 			"repository_categories",
+			"competition_editions", "competition_categories",
+			"competition_entries", "competition_judges",
+			"competition_judge_assignments", "competition_conflicts",
+			"competition_scores", "competition_votes",
+			"competition_vote_review_cases", "competition_leaderboard_snapshots",
+			"competition_awards", "competition_consultation_responses",
 		} {
 			var exists *string
 			if err := pool.QueryRow(ctx, `SELECT to_regclass($1)::text`, table).Scan(&exists); err != nil {

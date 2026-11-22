@@ -16,6 +16,7 @@ import (
 	"github.com/bradleygichuru/ytci-go/internal/config"
 	"github.com/bradleygichuru/ytci-go/internal/handler"
 	"github.com/bradleygichuru/ytci-go/internal/handler/admin"
+	"github.com/bradleygichuru/ytci-go/internal/handler/competition"
 	"github.com/bradleygichuru/ytci-go/internal/handler/expo"
 	"github.com/bradleygichuru/ytci-go/internal/handler/repository"
 	"github.com/bradleygichuru/ytci-go/internal/mice"
@@ -172,6 +173,7 @@ type handlers struct {
 	budget           *expo.BudgetHandler
 	collab           *expo.CollaborationHandler
 	repository       *repository.Handler
+	competition      *competition.Handler
 }
 
 func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Client, cfg *config.Config, hub *collab.Hub) *handlers {
@@ -219,6 +221,7 @@ func mountHandlers(pool *pgxpool.Pool, r2client r2.Store, pushClient *push.Clien
 		budget:           expo.NewBudgetHandler(pool, r2client, ocr.NewClient(cfg.GoogleVisionAPIKey, cfg.GoogleVisionEndpoint)),
 		collab:           expo.NewCollaborationHandler(pool, hub),
 		repository:       repository.New(pool, r2client),
+		competition:      competition.New(pool),
 	}
 	if pushClient != nil {
 		h.pushAdmin = admin.NewPushHandler(pool, pushClient)
@@ -411,6 +414,16 @@ func mountAdminRoutes(sub chi.Router, h *handlers, r2client r2.Store, jwks *midd
 		aR.Delete("/audio-stories/{id}/revisions/{revisionId}/tracks/{trackId}", h.audioStories.DeleteTrack)
 		aR.Put("/audio-stories/{id}/revisions/{revisionId}/transcripts/{language}", h.audioStories.PutTranscript)
 	})
+
+	// Competition admin has its own gate: competition.read includes county
+	// officers, whom platform.admin_access deliberately excludes.
+	sub.Group(func(cr chi.Router) {
+		cr.Use(middleware.JWTAuth(jwks, expectedIssuer, expectedAudience))
+		cr.Use(competition.AdminGate)
+		cr.Route("/admin/competition", func(cr2 chi.Router) {
+			h.competition.RegisterAdmin(cr2)
+		})
+	})
 }
 
 func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimiter *middleware.RateLimiter) {
@@ -532,6 +545,7 @@ func mountMobileRoutes(sub chi.Router, h *handlers, r2client r2.Store, authLimit
 			aR.Get("/courses/enrolled", h.mobileCourses.GetEnrolledCourses)
 			aR.Get("/courses/{id}/progress", h.mobileCourses.GetCourseProgress)
 			h.mice.RegisterAccount(aR)
+			h.competition.RegisterMobile(aR)
 			aR.Post("/events/{id}/attend", h.actions.AttendEvent)
 			aR.Post("/events/{id}/leave", h.actions.LeaveEvent)
 			aR.Post("/analytics/app-open", h.actions.RecordAppOpen)
@@ -603,6 +617,7 @@ func mountPublicRoutes(pub chi.Router, h *handlers, r2client r2.Store, eventLimi
 		middleware.NewRateLimiter(1.0/6.0, 10),   // ~10 uploads per minute
 		middleware.NewRateLimiter(5.0/3600.0, 5), // 5 submissions per hour
 	)
+	h.competition.RegisterPublic(pub)
 
 	if r2client != nil {
 		pub.Get("/media/url", h.media.GetURL)
