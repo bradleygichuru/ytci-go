@@ -603,3 +603,43 @@ VALUES ($1,'Respondent','respondent@example.com','{"q1":"yes"}',true)`, editionI
 	assert.Contains(t, rec.Header().Get("Content-Type"), "text/csv")
 	assert.Contains(t, rec.Body.String(), "respondent@example.com")
 }
+
+func TestPublicConsultationSubmission(t *testing.T) {
+	h := setup(t)
+	now := time.Now().Add(-48 * time.Hour)
+	h.seedUser(t, "admin", "administrator", true, now)
+	open, closeAt := votingWindow()
+	editionID := h.seedEdition(t, editionSeed{Slug: "consult-public", VotingOpen: open, VotingClose: closeAt})
+
+	rec, body := h.do(t, "POST", "/v1/public/competition/consultation", map[string]any{
+		"editionSlug": "consult-public",
+		"name":        "Amina",
+		"email":       "amina@example.com",
+		"consent":     true,
+		"answers": map[string]any{
+			"theme":      "The story is Kenya's",
+			"categories": []string{"Photography", "Storytelling"},
+			"support":    "More notice before the call opens.",
+		},
+	}, "", "")
+	require.Equal(t, http.StatusCreated, rec.Code)
+	assert.Equal(t, "received", body["status"])
+
+	var count int
+	require.NoError(t, h.pool.QueryRow(context.Background(), `
+SELECT count(*) FROM competition_consultation_responses WHERE edition_id = $1`, editionID).Scan(&count))
+	assert.Equal(t, 1, count)
+
+	rec, _ = h.do(t, "POST", "/v1/public/competition/consultation", map[string]any{
+		"editionSlug": "consult-public",
+		"answers":     map[string]any{"theme": "x"},
+	}, "", "")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	rec, _ = h.do(t, "POST", "/v1/public/competition/consultation", map[string]any{
+		"editionSlug": "consult-public",
+		"consent":     true,
+		"answers":     map[string]any{},
+	}, "", "")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}

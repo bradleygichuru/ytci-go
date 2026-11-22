@@ -14,6 +14,7 @@ import (
 func (h *Handler) RegisterPublic(r chi.Router) {
 	r.Route("/competition", func(pub chi.Router) {
 		pub.Get("/settings", h.Settings)
+		pub.Post("/consultation", h.SubmitConsultation)
 		pub.Get("/editions", h.ListEditions)
 		pub.Get("/editions/{slug}", h.GetEdition)
 		pub.Get("/editions/{slug}/categories", h.ListCategories)
