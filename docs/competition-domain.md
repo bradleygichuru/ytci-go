@@ -65,6 +65,10 @@ App (`/v1/mobile/competition`, authenticated):
 - `GET /editions/{slug}/leaderboard`, `GET /editions/{slug}/results`
 - `POST /editions/{slug}/votes`, `DELETE /votes/{voteId}`
 - `GET /editions/{slug}/my-votes`
+- `GET /editions/{slug}/eligible-repository-entries`
+- `GET /editions/{slug}/my-entries`
+- `POST /editions/{slug}/entries`
+- `PATCH /entries/{entryId}`, `DELETE /entries/{entryId}`
 - `GET /judging/assignments`
 - `PUT /judging/assignments/{assignmentId}/entries/{entryId}/score`
 
@@ -79,6 +83,36 @@ Admin (`/v1/admin/competition`, competition gate):
 - results preview
 - awards CRUD and publish
 - consultation response list and CSV export
+
+## Self-entry from the repository
+
+An entrant enters existing published repository work. New work still goes
+through the public repository submission form and admin approval; there is no
+second creation path.
+
+- The edition must be at status `open` and inside `opens_at`/`closes_at`.
+- The repository entry must have status `published`.
+- Ownership is matched on the verified account email against
+  `repository_entries.author_email`, case-insensitively. The repository schema
+  has no `author_user_id`, so this is an MVP match, not a stable identity. Add a
+  nullable `author_user_id` when the repository submission flow records one.
+  Work whose author email is missing or different is never enterable.
+- One entry per category, two categories per entrant per edition. Creation is
+  serialized by locking the user row, so concurrent requests cannot exceed the
+  cap.
+- The same repository work cannot be entered twice in an edition, even in a
+  different category.
+- Under-18 is read from `user_profiles.age_range = 'Under 18'` and requires
+  `guardianConsent: true`. A missing age band fails closed with
+  `AGE_BAND_REQUIRED`; the API never assumes an unknown age is an adult.
+- Edits are limited to team details and guardian consent. The work and category
+  are fixed because changing them would be a new entry with its own duplicate
+  and cap checks.
+- `DELETE /entries/{entryId}` soft-withdraws: `withdrawn_at` and `withdrawn_by`
+  are stamped, the category and work become available again, and the row stays
+  for audit.
+- Entry responses never expose author email, phone, age band or moderation
+  notes. Only an `ineligible` entry returns the reviewer note to its owner.
 
 ## Integrity rules
 
@@ -101,8 +135,10 @@ Admin (`/v1/admin/competition`, competition gate):
 
 ## Follow-ups
 
+- Add `repository_entries.author_user_id` and backfill it from the submission
+  identity, replacing the email ownership match.
 - Public entry submission flow and consultation response capture (public site
-  ticket), including guardian consent for minors.
+  ticket). The app self-entry path for existing published work is now in place.
 - Vote signal collection (device and IP corroboration) and the two-signal
   review workflow UI. This ticket ships the cases, thresholds and invalidation.
 - Durable audit table for admin actions and score corrections.
