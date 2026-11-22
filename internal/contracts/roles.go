@@ -93,6 +93,11 @@ const (
 	PermThenNowReview   = "then_now.review"
 	PermThenNowPublish  = "then_now.publish"
 	PermThenNowTakedown = "then_now.takedown"
+
+	PermCompetitionRead    = "competition.read"
+	PermCompetitionEdit    = "competition.edit"
+	PermCompetitionPublish = "competition.publish"
+	PermCompetitionScore   = "competition.score"
 )
 
 // RoleSpec describes one actor role.

@@ -270,6 +270,27 @@ permissions:
   then_now.takedown:
     - super_admin
 
+  # Competition and award system (map #18). Judges are per-object assignments,
+  # not a role: competition.score only unlocks the judge surface, every write is
+  # checked against competition_judges and the category assignment row.
+  competition.read:
+    - county_officer
+    - moderator
+    - administrator
+    - super_admin
+  competition.edit:
+    - moderator
+    - administrator
+    - super_admin
+  competition.publish:
+    - moderator
+    - administrator
+    - super_admin
+  competition.score:
+    - user
+    - administrator
+    - super_admin
+
 # Duties group permissions that create a conflict-of-interest obligation.
 duties:
   content_author:
@@ -293,6 +314,9 @@ duties:
   recognition_publisher:
     permissions: [recognition.publish_rule, recognition.publish_badge]
     roles: [administrator, super_admin]
+  competition_judge:
+    permissions: [competition.score]
+    roles: [user, administrator, super_admin]
   organizer_requester:
     permissions: [events.submit_review]
     roles: [content_editor, organizer]
