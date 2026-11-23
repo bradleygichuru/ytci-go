@@ -1,0 +1,38 @@
+{
+  "items": [
+    {
+      "id": "99999999-9999-4999-8999-999999999999",
+      "entityType": "event",
+      "entityId": "11111111-1111-4111-8111-111111111111",
+      "eventId": "11111111-1111-4111-8111-111111111111",
+      "action": "event.publish",
+      "actorId": "admin-1",
+      "actorName": "Grace Wanjiru",
+      "summary": "Event published",
+      "details": {
+        "from": "draft",
+        "to": "published",
+        "reason": "Programme partner sign-off"
+      },
+      "createdAt": "2026-11-19T09:00:00Z"
+    },
+    {
+      "id": "88888888-8888-4888-8888-888888888888",
+      "entityType": "registration",
+      "entityId": "44444444-4444-4444-8444-444444444444",
+      "eventId": "11111111-1111-4111-8111-111111111111",
+      "action": "registration.updated",
+      "actorId": "admin-1",
+      "actorName": "Grace Wanjiru",
+      "summary": "Registration corrected",
+      "details": {
+        "from": "waitlisted",
+        "to": "confirmed",
+        "reason": "Attendee confirmed by phone"
+      },
+      "createdAt": "2026-11-18T15:30:00Z"
+    }
+  ],
+  "nextCursor": null,
+  "hasMore": false
+}
