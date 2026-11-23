@@ -83,6 +83,7 @@ func (h *Handler) loadVenue(ctx context.Context, by, value string) (*Venue, erro
 		RetiredAt:         nullTime(retired),
 		RetiredReason:     nullText(retiredReason),
 		MergedIntoVenueID: nullText(mergedInto),
+		Evidence:          []VenueEvidence{},
 	}
 	block, err := h.loadAccessibility(ctx, "venue", v.ID)
 	if err != nil {

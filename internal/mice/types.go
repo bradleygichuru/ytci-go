@@ -206,7 +206,7 @@ type Venue struct {
 	RetiredAt         *time.Time      `json:"retiredAt,omitempty"`
 	RetiredReason     string          `json:"retiredReason,omitempty"`
 	MergedIntoVenueID string          `json:"mergedIntoVenueId,omitempty"`
-	Evidence          []VenueEvidence `json:"evidence,omitempty"`
+	Evidence          []VenueEvidence `json:"evidence"`
 }
 
 // VenueEvidence is one append-only evidence claim recorded against a venue.
@@ -238,7 +238,7 @@ type OrganizerProfile struct {
 	RevokedReason         string                     `json:"revokedReason,omitempty"`
 	UpcomingEvents        []EventSummary             `json:"upcomingEvents,omitempty"`
 	PastEventCount        int                        `json:"pastEventCount,omitempty"`
-	EvidenceRequests      []OrganizerEvidenceRequest `json:"evidenceRequests,omitempty"`
+	EvidenceRequests      []OrganizerEvidenceRequest `json:"evidenceRequests"`
 }
 
 // OrganizerEvidenceRequest is an "ask the organizer for more evidence" note.
