@@ -204,7 +204,7 @@ func (h *Handler) WithdrawVote(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var editionStatus string
 	var closesAt *time.Time
-	var voter string
+	var voter *string
 	var invalidatedAt *time.Time
 	if err := h.pool.QueryRow(ctx, `
 SELECT v.voter_user_id, v.invalidated_at, e.status, e.voting_closes_at
@@ -218,7 +218,7 @@ WHERE v.id = $1`, id).Scan(&voter, &invalidatedAt, &editionStatus, &closesAt); e
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to read vote", err)
 		return
 	}
-	if voter != userID {
+	if voter == nil || *voter != userID {
 		handler.WriteError(w, http.StatusNotFound, "NOT_FOUND", "vote not found")
 		return
 	}

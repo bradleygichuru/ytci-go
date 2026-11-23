@@ -15,12 +15,11 @@ import (
 
 // Entrant self-entry.
 //
-// An entrant may enter only their own published repository work. There is no
-// author_user_id on the repository schema, so MVP ownership matches the
-// verified account email against repository_entries.author_email. The match is
-// case-insensitive but never substring: a different account cannot claim work
-// by typo or by sharing a domain. Replace this with a stable author_user_id
-// when the repository submission flow records one.
+// An entrant may enter only their own published repository work. Ownership is
+// the stable repository_entries.author_user_id when it is set. Older rows fall
+// back to a case-insensitive, exact match between the verified account email
+// and repository_entries.author_email, so a different account cannot claim work
+// by typo or by sharing a domain.
 //
 // Every public-facing response here is entrant-safe: no author email, phone,
 // age band or moderation note leaves the API.
@@ -360,8 +359,10 @@ func (h *Handler) EligibleRepositoryEntries(w http.ResponseWriter, r *http.Reque
 SELECT re.id::text, re.slug, re.title, re.summary, re.county, re.category, re.published_at
 FROM repository_entries re
 WHERE re.status = 'published'
-  AND lower(coalesce(re.author_email, '')) = lower($1)
-ORDER BY re.published_at DESC NULLS LAST, re.created_at DESC`, account.Email)
+  AND (re.author_user_id = $1
+       OR (re.author_user_id IS NULL
+           AND lower(coalesce(re.author_email, '')) = lower($2)))
+ORDER BY re.published_at DESC NULLS LAST, re.created_at DESC`, userID, account.Email)
 	if err != nil {
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to list repository work", err)
 		return
@@ -524,9 +525,10 @@ func (h *Handler) CreateMyEntry(w http.ResponseWriter, r *http.Request) {
 
 	var repoStatus string
 	var repoEmail *string
+	var repoAuthorID *string
 	if err := tx.QueryRow(ctx, `
-SELECT status, author_email FROM repository_entries WHERE id = $1`, req.RepositoryEntryID).
-		Scan(&repoStatus, &repoEmail); err != nil {
+SELECT status, author_email, author_user_id FROM repository_entries WHERE id = $1`, req.RepositoryEntryID).
+		Scan(&repoStatus, &repoEmail, &repoAuthorID); err != nil {
 		if isNoRows(err) {
 			handler.WriteError(w, http.StatusNotFound, "REPOSITORY_ENTRY_NOT_FOUND", "repository work not found")
 			return
@@ -534,7 +536,10 @@ SELECT status, author_email FROM repository_entries WHERE id = $1`, req.Reposito
 		handler.WriteServerError(w, r, "INTERNAL_ERROR", "failed to read repository work", err)
 		return
 	}
-	owned := repoEmail != nil && strings.EqualFold(strings.TrimSpace(*repoEmail), strings.TrimSpace(account.Email))
+	owned := repoAuthorID != nil && *repoAuthorID == userID
+	if !owned && repoAuthorID == nil {
+		owned = repoEmail != nil && strings.EqualFold(strings.TrimSpace(*repoEmail), strings.TrimSpace(account.Email))
+	}
 
 	var alreadyInCategory, alreadyEnteredWork bool
 	var categoriesUsed int

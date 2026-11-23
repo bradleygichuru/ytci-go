@@ -98,6 +98,9 @@ var anonymizeOps = []cleanupOp{
 	{`UPDATE course_enrollments SET user_id = NULL WHERE user_id = $1`, "enrollments"},
 	{`UPDATE conservation_evidence SET user_id = NULL WHERE user_id = $1`, "conservation evidence"},
 	{`UPDATE consent_records SET user_id = 'deleted-' || gen_random_uuid()::text WHERE user_id = $1`, "consent records"},
+	// People's Choice votes stay in the public totals. The voter link is
+	// cleared so the result can never be re-attributed to a person.
+	{`UPDATE competition_votes SET voter_user_id = NULL WHERE voter_user_id = $1`, "award votes"},
 }
 
 // DeletionPlan lists every trip the user owns and proposes a successor for

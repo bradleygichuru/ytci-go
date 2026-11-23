@@ -204,6 +204,41 @@ func TestEligibleRepositoryEntriesOwnsOnlyOwnPublishedWork(t *testing.T) {
 	assert.NotContains(t, rec.Body.String(), "theirs")
 }
 
+func TestEligibleRepositoryEntriesUsesStableAuthorLink(t *testing.T) {
+	h := setup(t)
+	now := time.Now().UTC()
+	h.seedUser(t, "entrant", "user", true, now.Add(-48*time.Hour))
+	h.seedUser(t, "other", "user", true, now.Add(-48*time.Hour))
+	h.seedAgeBand(t, "entrant", "18-24")
+	open, closeAt := openWindow()
+	editionID := h.seedEdition(t, editionSeed{Slug: "entry-link", Status: "open", Opens: open, Closes: closeAt})
+	photo := h.seedCategory(t, editionID, "photography")
+
+	// The row carries a stale email but a stable author link. The link wins.
+	linked := h.seedOwnedRepository(t, "linked", "old-address@test.example", "published")
+	_, err := h.pool.Exec(context.Background(),
+		`UPDATE repository_entries SET author_user_id = 'entrant' WHERE id = $1`, linked)
+	require.NoError(t, err)
+
+	// A row linked to somebody else stays out of reach even if the email matches.
+	taken := h.seedOwnedRepository(t, "taken", "entrant@test.example", "published")
+	_, err = h.pool.Exec(context.Background(),
+		`UPDATE repository_entries SET author_user_id = (SELECT id FROM users WHERE id <> 'entrant' LIMIT 1) WHERE id = $1`, taken)
+	require.NoError(t, err)
+
+	rec, body := h.do(t, "GET", "/v1/mobile/competition/editions/entry-link/eligible-repository-entries", nil, "user", "entrant")
+	require.Equal(t, http.StatusOK, rec.Code)
+	items := body["items"].([]any)
+	require.Len(t, items, 1)
+	assert.Equal(t, "linked", items[0].(map[string]any)["slug"])
+
+	rec = h.createEntryViaAPI(t, "entry-link", "entrant", linked, photo, false)
+	assert.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+
+	rec = h.createEntryViaAPI(t, "entry-link", "entrant", taken, photo, false)
+	assert.NotEqual(t, http.StatusCreated, rec.Code)
+}
+
 // ---------------------------------------------------------------------------
 // Guardian consent and age band
 // ---------------------------------------------------------------------------
