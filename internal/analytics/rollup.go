@@ -344,12 +344,12 @@ type RetentionResult struct {
 	Aggregates  int64
 }
 
-// RunRetention applies the ADR 0016 retention schedule: raw events and
-// sessions for 14 months, daily aggregates for 24 months.
+// RunRetention applies the privacy-pack retention schedule: raw events and
+// sessions for 13 months, daily aggregates for 26 months.
 func RunRetention(ctx context.Context, pool *pgxpool.Pool, now time.Time) (RetentionResult, error) {
 	var result RetentionResult
-	rawCutoff := now.AddDate(0, -14, 0)
-	aggregateCutoff := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).AddDate(-2, 0, 0)
+	rawCutoff := now.AddDate(0, -13, 0)
+	aggregateCutoff := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, -26, 0)
 
 	steps := []struct {
 		dest *int64

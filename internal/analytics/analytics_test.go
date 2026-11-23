@@ -358,7 +358,7 @@ func TestRetentionDeletesExpiredRows(t *testing.T) {
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `
 		INSERT INTO analytics_daily (day, metric, dimension_key, value, suppressed, sample_size)
-		VALUES (CURRENT_DATE - INTERVAL '25 months', 'dau', '', 1, true, 1)`)
+		VALUES (CURRENT_DATE - INTERVAL '27 months', 'dau', '', 1, true, 1)`)
 	require.NoError(t, err)
 
 	result, err := analytics.RunRetention(ctx, pool, time.Now().UTC())
@@ -370,7 +370,7 @@ func TestRetentionDeletesExpiredRows(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx,
 		`SELECT count(*) FROM analytics_events WHERE analytics_id = $1`, analyticsID).Scan(&events))
 	require.NoError(t, pool.QueryRow(ctx,
-		`SELECT count(*) FROM analytics_daily WHERE day < CURRENT_DATE - INTERVAL '24 months'`).Scan(&daily))
+		`SELECT count(*) FROM analytics_daily WHERE day < CURRENT_DATE - INTERVAL '26 months'`).Scan(&daily))
 	assert.Zero(t, events)
 	assert.Zero(t, daily)
 }
