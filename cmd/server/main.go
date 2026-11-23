@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bradleygichuru/ytci-go/internal/analytics"
 	"github.com/bradleygichuru/ytci-go/internal/config"
 	"github.com/bradleygichuru/ytci-go/internal/db"
 	"github.com/bradleygichuru/ytci-go/internal/handler/admin"
@@ -86,6 +87,9 @@ func main() {
 	retentionCtx, retentionCancel := context.WithCancel(context.Background())
 	defer retentionCancel()
 	go privacy.StartRetention(retentionCtx, dbpool, 24*time.Hour)
+
+	// Analytics rollups, retention and erasure retries run hourly in-process.
+	analytics.StartWorker(dbpool)
 
 	audioPublisherCtx, audioPublisherCancel := context.WithCancel(context.Background())
 	defer audioPublisherCancel()
