@@ -236,6 +236,7 @@ type award struct {
 	CreatedAt   time.Time  `json:"createdAt"`
 	// Public winner view.
 	Title       string  `json:"title,omitempty"`
+	AuthorName  string  `json:"authorName,omitempty"`
 	CategoryKey *string `json:"categoryKey,omitempty"`
 }
 

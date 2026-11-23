@@ -420,6 +420,7 @@ VALUES ($1,$2,$3,$4,$5,$6)
 RETURNING id::text, edition_id::text, category_id::text, entry_id::text,
           award_type, award_form, citation, published_at, created_at,
           (SELECT re.title FROM competition_entries ce JOIN repository_entries re ON re.id = ce.repository_entry_id WHERE ce.id = $3),
+          (SELECT re.author_name FROM competition_entries ce JOIN repository_entries re ON re.id = ce.repository_entry_id WHERE ce.id = $3),
           (SELECT cc.key FROM competition_categories cc WHERE cc.id = $2)`,
 		editionID, categoryID, req.EntryID, awardType, form, textPtr(req.Citation)))
 	if err != nil {
@@ -479,6 +480,7 @@ func (h *Handler) UpdateAward(w http.ResponseWriter, r *http.Request) {
 RETURNING a.id::text, a.edition_id::text, a.category_id::text, a.entry_id::text,
           a.award_type, a.award_form, a.citation, a.published_at, a.created_at,
           (SELECT re.title FROM competition_entries ce JOIN repository_entries re ON re.id = ce.repository_entry_id WHERE ce.id = a.entry_id),
+          (SELECT re.author_name FROM competition_entries ce JOIN repository_entries re ON re.id = ce.repository_entry_id WHERE ce.id = a.entry_id),
           (SELECT cc.key FROM competition_categories cc WHERE cc.id = a.category_id)`, args...))
 	if err != nil {
 		if isNoRows(err) {
@@ -498,6 +500,7 @@ WHERE id = $1
 RETURNING id::text, edition_id::text, category_id::text, entry_id::text,
           award_type, award_form, citation, published_at, created_at,
           (SELECT re.title FROM competition_entries ce JOIN repository_entries re ON re.id = ce.repository_entry_id WHERE ce.id = competition_awards.entry_id),
+          (SELECT re.author_name FROM competition_entries ce JOIN repository_entries re ON re.id = ce.repository_entry_id WHERE ce.id = competition_awards.entry_id),
           (SELECT cc.key FROM competition_categories cc WHERE cc.id = competition_awards.category_id)`,
 		strings.TrimSpace(r.PathValue("awardId"))))
 	if err != nil {

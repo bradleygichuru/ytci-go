@@ -255,7 +255,7 @@ func scanReviewCase(row scanner) (reviewCase, error) {
 const awardColumns = `
 SELECT a.id::text, a.edition_id::text, a.category_id::text, a.entry_id::text,
        a.award_type, a.award_form, a.citation, a.published_at, a.created_at,
-       re.title, cc.key
+       re.title, re.author_name, cc.key
 FROM competition_awards a
 JOIN competition_entries ce ON ce.id = a.entry_id
 JOIN repository_entries re ON re.id = ce.repository_entry_id
@@ -265,7 +265,7 @@ func scanAward(row scanner) (award, error) {
 	var a award
 	err := row.Scan(&a.ID, &a.EditionID, &a.CategoryID, &a.EntryID,
 		&a.AwardType, &a.AwardForm, &a.Citation, &a.PublishedAt, &a.CreatedAt,
-		&a.Title, &a.CategoryKey)
+		&a.Title, &a.AuthorName, &a.CategoryKey)
 	return a, err
 }
 
