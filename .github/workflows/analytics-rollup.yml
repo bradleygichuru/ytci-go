@@ -1,0 +1,33 @@
+name: Analytics rollups
+
+# The API also runs the rollup worker in-process, but the free Render instance
+# sleeps when idle, which stops the hourly tick. This schedule keeps the
+# aggregates current regardless of whether the service is awake.
+on:
+  schedule:
+    - cron: "20 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: analytics-rollup
+  cancel-in-progress: false
+
+jobs:
+  rollup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Recompute the last two UTC days
+        env:
+          DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?RENDER_DATABASE_URL secret is required}"
+          go run ./cmd/rollup-analytics -days 2
