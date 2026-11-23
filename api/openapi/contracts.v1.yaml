@@ -572,7 +572,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [draft, published, postponed, cancelled, scheduled]
+            enum: [draft, published, postponed, cancelled, scheduled, archived]
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
       responses:
@@ -796,6 +796,283 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+  /v1/admin/events/{id}/lifecycle:
+    post:
+      tags: [mice]
+      operationId: adminChangeEventLifecycle
+      summary: Cancel, unpublish, archive, publish or restore an event
+      description: |
+        Additive to contract 1.0.0 (change-control note in
+        docs/execution/mice-admin-ops.md). Requires `events.publish`; a paid
+        event also requires `events.publish_paid` when the target state is
+        published. A reason is required and is written to the MICE audit log.
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EventLifecycleWrite' }
+      responses:
+        '200':
+          description: Event with the new lifecycle state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EventDetail' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The transition is invalid or the readiness gate failed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /v1/admin/events/{id}/waitlist-offers:
+    post:
+      tags: [mice]
+      operationId: adminCreateWaitlistOffer
+      summary: Offer a free seat to a waitlisted registration
+      description: |
+        Additive to contract 1.0.0. The target defaults to the FIFO head. Only
+        one offer can be open per event; the 24-hour confirm-by window is capped
+        at the event start. Requires `events.edit_draft`.
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WaitlistOfferWrite' }
+      responses:
+        '201':
+          description: Offer recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WaitlistOffer' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: No free seat, no waitlist entry, or an offer is already open
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /v1/admin/events/{id}/waitlist-offers/{registrationId}/decision:
+    post:
+      tags: [mice]
+      operationId: adminDecideWaitlistOffer
+      summary: Accept or withdraw a waitlist offer
+      description: |
+        Additive to contract 1.0.0. Accepting promotes the registration to
+        confirmed; withdrawing returns it to the FIFO queue. Requires
+        `events.edit_draft`.
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - name: registrationId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WaitlistOfferDecision' }
+      responses:
+        '200':
+          description: Registration with the new state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminRegistration' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: No open offer, or the offer window has closed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /v1/admin/events/{id}/checkins/{checkInId}/undo:
+    post:
+      tags: [mice]
+      operationId: adminUndoCheckIn
+      summary: Undo a check-in and return the registration to confirmed
+      description: |
+        Additive to contract 1.0.0. Requires `events.override_checkin` and a
+        reason. The check-in row is removed and the audit row records who undid
+        it and why.
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - name: checkInId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CheckInUndoWrite' }
+      responses:
+        '200':
+          description: Check-in undone
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Acknowledgement' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/admin/events/{id}/registrations/{registrationId}:
+    patch:
+      tags: [mice]
+      operationId: adminUpdateRegistration
+      summary: Correct or cancel a registration
+      description: |
+        Additive to contract 1.0.0. Cancelling frees a seat and promotes the
+        next waitlisted reader. A checked-in registration must be un-checked
+        first. Requires `events.edit_draft` and a reason.
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - name: registrationId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegistrationWrite' }
+      responses:
+        '200':
+          description: Updated registration
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminRegistration' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The check-in must be undone first
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /v1/admin/events/{id}/people/{personId}:
+    patch:
+      tags: [mice]
+      operationId: adminUpdatePerson
+      summary: Edit a speaker content record
+      description: Additive to contract 1.0.0. Requires `events.edit_draft`.
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - name: personId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PersonWrite' }
+      responses:
+        '200':
+          description: Speaker
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Speaker' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [mice]
+      operationId: adminRemoveSpeaker
+      summary: Remove a speaker from every session in the event
+      description: |
+        Additive to contract 1.0.0. The person record is kept for reuse in
+        other events. Requires `events.edit_draft`.
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - name: personId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Speaker removed from the event
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Acknowledgement' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/admin/events/{id}/people/{personId}/consent:
+    post:
+      tags: [mice]
+      operationId: adminSetSpeakerConsent
+      summary: Record a speaker consent decision
+      description: |
+        Additive to contract 1.0.0. Granting makes the speaker public;
+        declining hides them from the public agenda. Requires
+        `events.edit_draft`.
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - name: personId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpeakerConsentWrite' }
+      responses:
+        '200':
+          description: Speaker with the new consent state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Speaker' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/admin/mice/audit:
+    get:
+      tags: [mice]
+      operationId: adminListMiceAudit
+      summary: Read the append-only MICE admin audit log
+      description: |
+        Additive to contract 1.0.0. Newest first. Requires `events.read`.
+      parameters:
+        - name: entityType
+          in: query
+          schema:
+            type: string
+            enum: [event, registration, checkin, speaker, venue, organizer, report]
+        - name: entityId
+          in: query
+          schema: { type: string }
+        - name: eventId
+          in: query
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Audit page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/MiceAuditEvent' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /v1/admin/events/{id}/change-notices:
     post:
       tags: [mice]
@@ -2889,6 +3166,7 @@ components:
         organization: { type: string, nullable: true }
         role: { type: string, enum: [speaker, moderator, panelist, host] }
         photoUrl: { type: string, nullable: true }
+        consentStatus: { type: string, enum: [pending, granted, declined] }
     Price:
       type: object
       required: [amount, currency]
@@ -2956,6 +3234,69 @@ components:
                 displayName: { type: string }
                 email: { type: string }
             answersSummary: { type: string, nullable: true }
+    EventLifecycleWrite:
+      type: object
+      required: [action, reason]
+      properties:
+        action: { type: string, enum: [cancel, unpublish, archive, publish, restore] }
+        reason: { type: string, minLength: 3, maxLength: 500 }
+    WaitlistOfferWrite:
+      type: object
+      properties:
+        registrationId: { type: string, format: uuid, description: Defaults to the FIFO head }
+        expiresAt: { type: string, format: date-time, description: "Defaults to 24h, capped at event start" }
+        note: { type: string, maxLength: 500 }
+    WaitlistOfferDecision:
+      type: object
+      required: [decision]
+      properties:
+        decision: { type: string, enum: [accept, withdraw] }
+        reason: { type: string, maxLength: 500, description: Required for an audit-quality withdrawal note }
+    WaitlistOffer:
+      type: object
+      required: [eventId, registrationId, offeredAt, expiresAt]
+      properties:
+        eventId: { type: string, format: uuid }
+        registrationId: { type: string, format: uuid }
+        attendeeName: { type: string, nullable: true }
+        offeredAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        offeredBy: { type: string, nullable: true }
+        note: { type: string, nullable: true }
+    CheckInUndoWrite:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 3, maxLength: 500 }
+    RegistrationWrite:
+      type: object
+      required: [reason]
+      properties:
+        status: { type: string, enum: [confirmed, waitlisted, cancelled] }
+        answers:
+          type: object
+          additionalProperties: { type: string }
+        reason: { type: string, minLength: 3, maxLength: 500 }
+    SpeakerConsentWrite:
+      type: object
+      required: [consent]
+      properties:
+        consent: { type: string, enum: [pending, granted, declined, withdrawn] }
+        note: { type: string, maxLength: 500 }
+    MiceAuditEvent:
+      type: object
+      required: [id, entityType, entityId, action, summary, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        entityType: { type: string, enum: [event, registration, checkin, speaker, venue, organizer, report] }
+        entityId: { type: string }
+        eventId: { type: string, format: uuid, nullable: true }
+        action: { type: string }
+        actorId: { type: string, nullable: true }
+        actorName: { type: string, nullable: true }
+        summary: { type: string }
+        details: { type: object, additionalProperties: true }
+        createdAt: { type: string, format: date-time }
     TicketHandoff:
       type: object
       required: [id, eventId, createdAt, ticketUrl, soldBy]

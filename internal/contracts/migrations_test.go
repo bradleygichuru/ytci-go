@@ -28,6 +28,7 @@ func TestMigrationsApplyOnFreshDatabase(t *testing.T) {
 			"event_registrations", "event_ticket_handoffs", "event_tickets", "event_checkins",
 			"event_checkin_scans", "event_reports", "event_notifications",
 			"event_change_notices", "event_accessibility",
+			"mice_audit_events",
 			"recognition.events", "recognition.event_types", "recognition.rules",
 			"recognition.badge_definitions", "recognition.badge_awards",
 			"recognition.xp_entries", "recognition.xp_totals", "recognition.levels",

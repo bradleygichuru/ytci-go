@@ -4,5 +4,6 @@
   "title": "Principal Secretary",
   "organization": "Ministry of Tourism",
   "role": "speaker",
-  "photoUrl": null
+  "photoUrl": null,
+  "consentStatus": "granted"
 }

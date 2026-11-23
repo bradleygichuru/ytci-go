@@ -118,12 +118,13 @@ type RegistrationQuestion struct {
 }
 
 type Speaker struct {
-	ID           string `json:"id,omitempty"`
-	DisplayName  string `json:"displayName"`
-	Title        string `json:"title,omitempty"`
-	Organization string `json:"organization,omitempty"`
-	Role         string `json:"role,omitempty"`
-	PhotoURL     string `json:"photoUrl,omitempty"`
+	ID            string `json:"id,omitempty"`
+	DisplayName   string `json:"displayName"`
+	Title         string `json:"title,omitempty"`
+	Organization  string `json:"organization,omitempty"`
+	Role          string `json:"role,omitempty"`
+	PhotoURL      string `json:"photoUrl,omitempty"`
+	ConsentStatus string `json:"consentStatus,omitempty"`
 }
 
 type Session struct {
@@ -333,4 +334,35 @@ type ChangeNotice struct {
 	CopySw         string   `json:"copySw,omitempty"`
 	Status         string   `json:"status"`
 	RecipientCount int      `json:"recipientCount,omitempty"`
+}
+
+// ---------------------------------------------------------------------------
+// Admin operations (additive to contract 1.0.0)
+// ---------------------------------------------------------------------------
+
+// WaitlistOffer is the server record of a seat offered to a waitlisted
+// registration. The offer identity is the registration id: the table enforces
+// one active registration per event and user.
+type WaitlistOffer struct {
+	EventID        string    `json:"eventId"`
+	RegistrationID string    `json:"registrationId"`
+	AttendeeName   string    `json:"attendeeName,omitempty"`
+	OfferedAt      time.Time `json:"offeredAt"`
+	ExpiresAt      time.Time `json:"expiresAt"`
+	OfferedBy      string    `json:"offeredBy,omitempty"`
+	Note           string    `json:"note,omitempty"`
+}
+
+// MiceAuditEvent is one append-only admin audit row.
+type MiceAuditEvent struct {
+	ID         string         `json:"id"`
+	EntityType string         `json:"entityType"`
+	EntityID   string         `json:"entityId"`
+	EventID    string         `json:"eventId,omitempty"`
+	Action     string         `json:"action"`
+	ActorID    string         `json:"actorId,omitempty"`
+	ActorName  string         `json:"actorName,omitempty"`
+	Summary    string         `json:"summary"`
+	Details    map[string]any `json:"details,omitempty"`
+	CreatedAt  time.Time      `json:"createdAt"`
 }

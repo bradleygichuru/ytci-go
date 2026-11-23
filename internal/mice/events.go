@@ -466,7 +466,7 @@ func (h *Handler) buildEventDetail(ctx context.Context, row eventRow, uid string
 	}
 	d.WaitlistOpen = row.WaitlistCapacity.Valid || row.Capacity.Valid
 
-	agenda, speakers, err := h.loadAgenda(ctx, row.ID)
+	agenda, speakers, err := h.loadAgendaFor(ctx, row.ID, public)
 	if err != nil {
 		return nil, err
 	}
@@ -544,6 +544,12 @@ func (h *Handler) buildEventDetail(ctx context.Context, row eventRow, uid string
 }
 
 func (h *Handler) loadAgenda(ctx context.Context, eventID string) ([]Session, int, error) {
+	return h.loadAgendaFor(ctx, eventID, true)
+}
+
+// loadAgendaFor loads the agenda. The public projection hides speakers who
+// withdrew consent; the admin projection keeps them so consent can be restored.
+func (h *Handler) loadAgendaFor(ctx context.Context, eventID string, public bool) ([]Session, int, error) {
 	rows, err := h.pool.Query(ctx, `
 		SELECT s.id::text, s.day::text, s.starts_at, s.ends_at, s.room, s.track, s.title,
 		       s.description, s.capacity
@@ -568,7 +574,7 @@ func (h *Handler) loadAgenda(ctx context.Context, eventID string) ([]Session, in
 		s.Track = nullText(track)
 		s.Description = nullText(description)
 		s.Capacity = nullInt(capacity)
-		speakers, err := h.loadSessionSpeakers(ctx, s.ID)
+		speakers, err := h.loadSessionSpeakers(ctx, s.ID, public)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -579,13 +585,18 @@ func (h *Handler) loadAgenda(ctx context.Context, eventID string) ([]Session, in
 	return out, speakerTotal, rows.Err()
 }
 
-func (h *Handler) loadSessionSpeakers(ctx context.Context, sessionID string) ([]Speaker, error) {
-	rows, err := h.pool.Query(ctx, `
-		SELECT p.id::text, p.display_name, p.title, p.organization, sp.speaker_role, p.photo_url
+func (h *Handler) loadSessionSpeakers(ctx context.Context, sessionID string, public bool) ([]Speaker, error) {
+	q := `
+		SELECT p.id::text, p.display_name, p.title, p.organization, sp.speaker_role, p.photo_url,
+		       COALESCE(p.consent_status,'granted')
 		  FROM session_speakers sp
 		  JOIN event_people p ON p.id = sp.person_id
-		 WHERE sp.session_id = $1 AND p.is_public = true
-		 ORDER BY sp.display_order ASC, p.display_name ASC`, sessionID)
+		 WHERE sp.session_id = $1`
+	if public {
+		q += ` AND p.is_public = true`
+	}
+	q += ` ORDER BY sp.display_order ASC, p.display_name ASC`
+	rows, err := h.pool.Query(ctx, q, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -594,7 +605,7 @@ func (h *Handler) loadSessionSpeakers(ctx context.Context, sessionID string) ([]
 	for rows.Next() {
 		var s Speaker
 		var title, org, photo pgtype.Text
-		if err := rows.Scan(&s.ID, &s.DisplayName, &title, &org, &s.Role, &photo); err != nil {
+		if err := rows.Scan(&s.ID, &s.DisplayName, &title, &org, &s.Role, &photo, &s.ConsentStatus); err != nil {
 			return nil, err
 		}
 		s.Title = nullText(title)

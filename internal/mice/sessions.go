@@ -144,7 +144,7 @@ func (h *Handler) loadSession(r *http.Request, id string) (*Session, error) {
 	s.Track = nullText(track)
 	s.Description = nullText(description)
 	s.Capacity = nullInt(capacity)
-	speakers, err := h.loadSessionSpeakers(r.Context(), s.ID)
+	speakers, err := h.loadSessionSpeakers(r.Context(), s.ID, false)
 	if err != nil {
 		return nil, err
 	}
@@ -197,6 +197,7 @@ func (h *Handler) handleAdminCreatePerson(w http.ResponseWriter, r *http.Request
 	s.Title = nullText(title)
 	s.Organization = nullText(org)
 	s.PhotoURL = nullText(photo)
+	s.ConsentStatus = "granted"
 	writeJSON(w, http.StatusCreated, s)
 }
 
