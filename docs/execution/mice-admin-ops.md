@@ -4,7 +4,7 @@ Status: additive to contract **1.0.0** (no existing operation changed)
 Date: 2026-11-23
 Owner: `stream:mice`
 Parent surface: [mice-admin.md](../../ytci-mobile/docs/mice-admin.md)
-OpenAPI: `api/openapi/contracts.v1.yaml` (operations 112–120)
+OpenAPI: `api/openapi/contracts.v1.yaml` (operations 112–124)
 
 ## Why this exists
 
@@ -22,11 +22,12 @@ This change adds the missing admin operations. It is **additive**:
 - the new operations are `mice`-tagged and admin-scoped;
 - the MICE vocabulary contract (`api/contracts/mice.v1.yaml`) did not change;
 - the role contract did not change. The new operations reuse the existing
-  permissions `events.publish`, `events.edit_draft`,
-  `events.override_checkin` and `events.read`.
+  permissions `events.publish`, `events.edit_draft`, `events.create`,
+  `events.override_checkin`, `events.verify_organizer` and `events.read`.
 
-`TestOpenAPIValid` moves from 111 to 120 operations; its frozen-path table is
-the deliberate gate for this note.
+`TestOpenAPIValid` moved from 111 to 120 operations for the first batch and now
+to 124 for this follow-up; its frozen-path table is the deliberate gate for this
+note.
 
 ## New operations
 
@@ -41,12 +42,22 @@ the deliberate gate for this note.
 | DELETE | `/v1/admin/events/{id}/people/{personId}` | `adminRemoveSpeaker` | `events.edit_draft` | `speaker.removed` |
 | POST | `/v1/admin/events/{id}/people/{personId}/consent` | `adminSetSpeakerConsent` | `events.edit_draft` | `speaker.consent_granted`, `speaker.consent_declined`, `speaker.consent_pending` |
 | GET | `/v1/admin/mice/audit` | `adminListMiceAudit` | `events.read` | — (read) |
+| GET | `/v1/admin/venues/{id}` | `adminGetVenue` | `events.read` | — (read) |
+| POST | `/v1/admin/venues/{id}/evidence` | `adminAddVenueEvidence` | `events.create` | `venue.evidence_added` |
+| POST | `/v1/admin/venues/{id}/retire` | `adminRetireVenue` | `events.create` | `venue.retired`, `venue.merged` |
+| POST | `/v1/admin/organizers/{id}/evidence-requests` | `adminRequestOrganizerEvidence` | `events.verify_organizer` | `organizer.evidence_requested` |
 
 ### New schemas
 
 `EventLifecycleWrite`, `WaitlistOfferWrite`, `WaitlistOfferDecision`,
 `WaitlistOffer`, `CheckInUndoWrite`, `RegistrationWrite`,
-`SpeakerConsentWrite`, `MiceAuditEvent`.
+`SpeakerConsentWrite`, `MiceAuditEvent`, `VenueEvidence`,
+`VenueEvidenceWrite`, `VenueRetireWrite`, `OrganizerEvidenceRequest`,
+`OrganizerEvidenceRequestWrite`, `OrganizerEvidenceRequestResult`.
+
+`Venue` gained the optional `retiredAt`, `retiredReason`, `mergedIntoVenueId`
+and `evidence` properties. `OrganizerProfile` gained the optional
+`evidenceRequests` property. Both are additive: an older client ignores them.
 
 `Speaker` gained the optional `consentStatus` property. That is additive: an
 older client ignores it, and the public agenda still keys off `isPublic`.
@@ -79,6 +90,23 @@ older client ignores it, and the public agenda still keys off `isPublic`.
   row in the same transaction as the action. The read is newest-first with the
   frozen `limit`/`cursor` envelope and optional `entityType`, `entityId` and
   `eventId` filters.
+- **Venue evidence** is append-only: `claim` (what was asserted), `note` (the
+  operator's account) and an optional `reference` (inspection ticket, photo,
+  report). Corrections are new rows, so the history stays readable. The admin
+  venue read returns evidence newest first.
+- **Venue retirement/merge** sets `retired_at` and `retired_reason`. With
+  `mergedIntoVenueId`, every `events.venue_id` that pointed at the source is
+  re-pointed to the target in the same transaction (and `county_gid` follows the
+  target), the source keeps its row and evidence, and the audit action is
+  `venue.merged`. A self-merge, an unknown target, a retired target and a repeat
+  retirement are rejected. Retired venues are invisible to the public: the
+  public venue read returns 404, and public event payloads withhold the venue
+  reference (`venue` and `venueDetail`) while the event itself stays listable.
+  Merged events resolve to the surviving venue.
+- **Organizer evidence request** requires `events.verify_organizer` and a note
+  of 10–2000 characters. The request keeps the record pending; recording a
+  verification decision resolves every open request. The admin organizer read
+  returns requests newest first.
 
 ## Migration
 
@@ -89,17 +117,22 @@ older client ignores it, and the public agenda still keys off `isPublic`.
   `consent_updated_by`;
 - creates `mice_audit_events` and its indexes.
 
-Production applies this only when the backend deploy that writes
-`consent_status` / `mice_audit_events` ships. The table and columns are
-backwards compatible with the previous binary.
+`testdata/migrations/0075_mice_venue_evidence.sql` (additive):
+
+- adds `venues.retired_at`, `retired_reason` and `merged_into_venue_id`;
+- creates `venue_evidence` (append-only, venue cascade) with a venue/time index;
+- creates `organizer_evidence_requests` with an organizer/time index.
+
+Both are backwards compatible with the previous binary: the new columns default
+to NULL and the new tables are only read by the endpoints above.
 
 ## Remaining gaps (intentionally left out)
 
-- **Venue evidence edit / retire / merge** has no endpoint yet. The venues
-  screen still labels evidence and retirement as local.
-- **Organizer "request more evidence"** has no endpoint yet. Verification
-  decisions remain server-backed; the request note remains local.
+None for the two jobs this change closes. Deliberately not included:
 
-Both need their own schema decision (evidence storage and an
-`organizer_verification_events.action` value), so they are not smuggled into
-this change.
+- resolving an individual evidence request by id (a verification decision
+  resolves every open request); there is no partial-resolution UI yet;
+- an admin venue list filter for retired/merged records (the list includes them
+  and the screen hides retired rows client-side);
+- re-pointing historical `event_change_notices` or bookings when a venue is
+  merged (only `events.venue_id` and `county_gid` move).
