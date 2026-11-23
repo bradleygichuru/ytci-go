@@ -38,6 +38,7 @@ func scanOrganizer(row pgx.Row) (*OrganizerProfile, error) {
 	o.VerifiedAt = nullTime(verified)
 	o.VerificationExpiresAt = nullTime(expires)
 	o.RevokedReason = nullText(revoked)
+	o.EvidenceRequests = []OrganizerEvidenceRequest{}
 	return &o, nil
 }
 
