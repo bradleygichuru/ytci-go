@@ -34,17 +34,13 @@ the deliberate gate for this note.
 | --- | --- | --- | --- | --- |
 | POST | `/v1/admin/events/{id}/lifecycle` | `adminChangeEventLifecycle` | `events.publish` (+ `events.publish_paid` for paid publish) | `event.cancel`, `event.unpublish`, `event.archive`, `event.publish`, `event.restore` |
 | POST | `/v1/admin/events/{id}/waitlist-offers` | `adminCreateWaitlistOffer` | `events.edit_draft` | `waitlist.offer_sent` |
-| POST | `/v1/admin/events/{id}/waitlist-offers/{registrationId}/decision` | `adminDecideWaitlistOffer` | `events.edit_draft` | `waitlist.offer_accepted`, `waitlist.offer_withdrawed` |
+| POST | `/v1/admin/events/{id}/waitlist-offers/{registrationId}/decision` | `adminDecideWaitlistOffer` | `events.edit_draft` | `waitlist.offer_accepted`, `waitlist.offer_withdrawn` |
 | POST | `/v1/admin/events/{id}/checkins/{checkInId}/undo` | `adminUndoCheckIn` | `events.override_checkin` | `checkin.undone` |
 | PATCH | `/v1/admin/events/{id}/registrations/{registrationId}` | `adminUpdateRegistration` | `events.edit_draft` | `registration.updated`, `registration.cancelled` |
 | PATCH | `/v1/admin/events/{id}/people/{personId}` | `adminUpdatePerson` | `events.edit_draft` | `speaker.updated` |
 | DELETE | `/v1/admin/events/{id}/people/{personId}` | `adminRemoveSpeaker` | `events.edit_draft` | `speaker.removed` |
 | POST | `/v1/admin/events/{id}/people/{personId}/consent` | `adminSetSpeakerConsent` | `events.edit_draft` | `speaker.consent_granted`, `speaker.consent_declined`, `speaker.consent_pending` |
 | GET | `/v1/admin/mice/audit` | `adminListMiceAudit` | `events.read` | — (read) |
-
-Note on the audit verb `waitlist.offer_withdrawed`: it follows the mechanical
-`offer_` + decision + `ed` construction in the handler. It is ugly but stable;
-consumers filter by entity/action prefix rather than exact spelling.
 
 ### New schemas
 

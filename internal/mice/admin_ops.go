@@ -491,11 +491,10 @@ func (h *Handler) handleAdminWaitlistOfferDecision(w http.ResponseWriter, r *htt
 			return
 		}
 	}
-	action := "waitlist.offer_" + body.Decision + "ed"
-	summary := fmt.Sprintf("Waitlist offer %s", body.Decision+"ed")
-	if body.Decision == "accept" {
-		summary = "Waitlist offer accepted"
-	} else {
+	action := "waitlist.offer_accepted"
+	summary := "Waitlist offer accepted"
+	if body.Decision == "withdraw" {
+		action = "waitlist.offer_withdrawn"
 		summary = "Waitlist offer withdrawn"
 	}
 	if err := h.writeAudit(ctx, tx, auditEntry{
@@ -832,7 +831,8 @@ func (h *Handler) handleAdminUpdatePerson(w http.ResponseWriter, r *http.Request
 	var title, org, photo pgtype.Text
 	err = tx.QueryRow(ctx, `
 		UPDATE event_people SET display_name=$2, title=NULLIF($3,''), organization=NULLIF($4,''),
-			bio=NULLIF($5,''), photo_url=NULLIF($6,''), is_public=$7, updated_at=now()
+			bio=NULLIF($5,''), photo_url=NULLIF($6,''),
+			is_public=($7 AND COALESCE(consent_status,'granted') <> 'declined'), updated_at=now()
 		 WHERE id=$1
 		RETURNING id::text, display_name, title, organization, photo_url, consent_status`,
 		personID, body.DisplayName, body.Title, body.Organization, body.Bio, body.PhotoURL, isPublic).Scan(
