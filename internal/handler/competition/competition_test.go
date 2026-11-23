@@ -384,6 +384,43 @@ VALUES ($1,$2,$3,'assigned')`, editionID, categoryID, judgeID)
 	assert.Equal(t, "withdrawn", item["reasonCode"])
 }
 
+func TestDeletedVoterKeepsTheVote(t *testing.T) {
+	h := setup(t)
+	now := time.Now().UTC()
+	open, closeAt := votingWindow()
+	h.seedUser(t, "voter", "user", true, now.Add(-48*time.Hour))
+
+	editionID := h.seedEdition(t, editionSeed{Slug: "delete-voter", VotingOpen: open, VotingClose: closeAt})
+	categoryID := h.seedCategory(t, editionID, "photo")
+	repoID := h.seedRepositoryEntry(t, "kept-vote-entry")
+	entryID := h.seedEntry(t, editionID, categoryID, repoID, nil, nil)
+
+	rec, body := h.do(t, "POST", "/v1/mobile/competition/editions/delete-voter/votes",
+		map[string]any{"entryId": entryID, "idempotencyKey": "key-keep"}, "user", "voter")
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	voteID := body["id"].(string)
+
+	// Account deletion must not remove the vote or change the public total.
+	_, err := h.pool.Exec(context.Background(), `DELETE FROM users WHERE id = 'voter'`)
+	require.NoError(t, err)
+
+	var voter *string
+	var invalidated *time.Time
+	require.NoError(t, h.pool.QueryRow(context.Background(),
+		`SELECT voter_user_id, invalidated_at FROM competition_votes WHERE id = $1`, voteID).
+		Scan(&voter, &invalidated))
+	assert.Nil(t, voter, "the voter link is cleared")
+	assert.Nil(t, invalidated, "the vote stays valid")
+
+	rec, board := h.do(t, "GET", "/v1/public/competition/editions/delete-voter/leaderboard", nil, "guest", "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	categories := board["categories"].([]any)
+	require.NotEmpty(t, categories)
+	entries := categories[0].(map[string]any)["entries"].([]any)
+	require.NotEmpty(t, entries)
+	assert.Equal(t, float64(1), entries[0].(map[string]any)["votes"])
+}
+
 func TestVoteWindowAndMode(t *testing.T) {
 	h := setup(t)
 	now := time.Now().UTC()
