@@ -16,6 +16,7 @@ import (
 
 func main() {
 	days := flag.Int("days", 7, "number of UTC days ending yesterday to recompute")
+	today := flag.Bool("today", false, "also recompute the current UTC day (partial, overwritten by tomorrow's run)")
 	flag.Parse()
 
 	databaseURL := os.Getenv("DATABASE_URL")
@@ -45,5 +46,13 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Printf("rolled up %s\n", day.Format("2006-01-02"))
+	}
+	if *today {
+		day := time.Now().UTC()
+		if err := analytics.RunRollupForDay(ctx, pool, day); err != nil {
+			fmt.Fprintf(os.Stderr, "rollup %s: %v\n", day.Format("2006-01-02"), err)
+			os.Exit(1)
+		}
+		fmt.Printf("rolled up %s (partial)\n", day.Format("2006-01-02"))
 	}
 }
