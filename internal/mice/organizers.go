@@ -140,6 +140,10 @@ func (h *Handler) handleAdminListOrganizers(w http.ResponseWriter, r *http.Reque
 			writeServer(w, r, err)
 			return
 		}
+		if err := h.attachOrganizerEvidenceRequests(r.Context(), h.pool, o); err != nil {
+			writeServer(w, r, err)
+			return
+		}
 		items = append(items, *o)
 	}
 	writePage(w, limit, items, func(o OrganizerProfile) (string, bool) {
@@ -185,6 +189,10 @@ func (h *Handler) handleAdminCreateOrganizer(w http.ResponseWriter, r *http.Requ
 		writeServer(w, r, err)
 		return
 	}
+	if err := h.attachOrganizerEvidenceRequests(r.Context(), h.pool, org); err != nil {
+		writeServer(w, r, err)
+		return
+	}
 	writeJSON(w, http.StatusCreated, org)
 }
 
@@ -223,6 +231,10 @@ func (h *Handler) handleAdminUpdateOrganizer(w http.ResponseWriter, r *http.Requ
 	}
 	org, err := h.loadOrganizer(r.Context(), id)
 	if err != nil {
+		writeServer(w, r, err)
+		return
+	}
+	if err := h.attachOrganizerEvidenceRequests(r.Context(), h.pool, org); err != nil {
 		writeServer(w, r, err)
 		return
 	}
@@ -401,6 +413,14 @@ func (h *Handler) handleAdminOrganizerVerification(w http.ResponseWriter, r *htt
 		writeServer(w, r, err)
 		return
 	}
+	// A recorded decision answers any outstanding evidence request.
+	_, err = tx.Exec(r.Context(), `
+		UPDATE organizer_evidence_requests SET resolved_at=now()
+		 WHERE organizer_id=$1 AND resolved_at IS NULL`, org.ID)
+	if err != nil {
+		writeServer(w, r, err)
+		return
+	}
 	if toStatus == "revoked" || toStatus == "expired" {
 		if err := h.withdrawOrganizerEvents(r.Context(), tx, org.ID, toStatus, body.Reason); err != nil {
 			writeServer(w, r, err)
@@ -413,6 +433,10 @@ func (h *Handler) handleAdminOrganizerVerification(w http.ResponseWriter, r *htt
 	}
 	updated, err := h.loadOrganizer(r.Context(), org.ID)
 	if err != nil {
+		writeServer(w, r, err)
+		return
+	}
+	if err := h.attachOrganizerEvidenceRequests(r.Context(), h.pool, updated); err != nil {
 		writeServer(w, r, err)
 		return
 	}

@@ -201,6 +201,23 @@ type Venue struct {
 	ParkingNotes     string              `json:"parkingNotes,omitempty"`
 	Accessibility    *AccessibilityBlock `json:"accessibility,omitempty"`
 	VerifiedAt       *time.Time          `json:"verifiedAt,omitempty"`
+	// Retirement/merge is public only through absence: the public venue read
+	// 404s and public event payloads never carry a retired venue.
+	RetiredAt         *time.Time      `json:"retiredAt,omitempty"`
+	RetiredReason     string          `json:"retiredReason,omitempty"`
+	MergedIntoVenueID string          `json:"mergedIntoVenueId,omitempty"`
+	Evidence          []VenueEvidence `json:"evidence,omitempty"`
+}
+
+// VenueEvidence is one append-only evidence claim recorded against a venue.
+type VenueEvidence struct {
+	ID         string    `json:"id"`
+	VenueID    string    `json:"venueId"`
+	Claim      string    `json:"claim"`
+	Note       string    `json:"note"`
+	Reference  string    `json:"reference,omitempty"`
+	RecordedBy string    `json:"recordedBy,omitempty"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 // ---------------------------------------------------------------------------
@@ -209,18 +226,37 @@ type Venue struct {
 
 type OrganizerProfile struct {
 	OrganizerRef
-	ID                    string         `json:"id,omitempty"`
-	About                 string         `json:"about,omitempty"`
-	LogoURL               string         `json:"logoUrl,omitempty"`
-	ContactEmail          string         `json:"contactEmail,omitempty"`
-	ContactPhone          string         `json:"contactPhone,omitempty"`
-	WebsiteURL            string         `json:"websiteUrl,omitempty"`
-	VerificationStatus    string         `json:"verificationStatus,omitempty"`
-	VerifiedAt            *time.Time     `json:"verifiedAt,omitempty"`
-	VerificationExpiresAt *time.Time     `json:"verificationExpiresAt,omitempty"`
-	RevokedReason         string         `json:"revokedReason,omitempty"`
-	UpcomingEvents        []EventSummary `json:"upcomingEvents,omitempty"`
-	PastEventCount        int            `json:"pastEventCount,omitempty"`
+	ID                    string                     `json:"id,omitempty"`
+	About                 string                     `json:"about,omitempty"`
+	LogoURL               string                     `json:"logoUrl,omitempty"`
+	ContactEmail          string                     `json:"contactEmail,omitempty"`
+	ContactPhone          string                     `json:"contactPhone,omitempty"`
+	WebsiteURL            string                     `json:"websiteUrl,omitempty"`
+	VerificationStatus    string                     `json:"verificationStatus,omitempty"`
+	VerifiedAt            *time.Time                 `json:"verifiedAt,omitempty"`
+	VerificationExpiresAt *time.Time                 `json:"verificationExpiresAt,omitempty"`
+	RevokedReason         string                     `json:"revokedReason,omitempty"`
+	UpcomingEvents        []EventSummary             `json:"upcomingEvents,omitempty"`
+	PastEventCount        int                        `json:"pastEventCount,omitempty"`
+	EvidenceRequests      []OrganizerEvidenceRequest `json:"evidenceRequests,omitempty"`
+}
+
+// OrganizerEvidenceRequest is an "ask the organizer for more evidence" note.
+// It keeps the verification record pending until a decision resolves it.
+type OrganizerEvidenceRequest struct {
+	ID          string     `json:"id"`
+	OrganizerID string     `json:"organizerId"`
+	Note        string     `json:"note"`
+	RequestedBy string     `json:"requestedBy,omitempty"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	ResolvedAt  *time.Time `json:"resolvedAt,omitempty"`
+}
+
+// OrganizerEvidenceRequestResult returns the new request with the organizer so
+// the admin screen can re-render without a second read.
+type OrganizerEvidenceRequestResult struct {
+	Request   OrganizerEvidenceRequest `json:"request"`
+	Organizer OrganizerProfile         `json:"organizer"`
 }
 
 // ---------------------------------------------------------------------------

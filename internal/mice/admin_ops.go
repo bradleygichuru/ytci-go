@@ -1048,3 +1048,396 @@ func (h *Handler) handleAdminListMiceAudit(w http.ResponseWriter, r *http.Reques
 		return paginationEncode(a.CreatedAt.UTC().Format(time.RFC3339Nano), a.ID), a.ID != ""
 	})
 }
+
+// ---------------------------------------------------------------------------
+// Venue evidence, retirement and merge
+// ---------------------------------------------------------------------------
+
+// loadVenueEvidence reads the append-only evidence rows for one venue,
+// newest first.
+func (h *Handler) loadVenueEvidence(ctx context.Context, db dbTX, venueID string) ([]VenueEvidence, error) {
+	rows, err := db.Query(ctx, `
+		SELECT id::text, venue_id::text, claim, note, COALESCE(reference,''),
+		       COALESCE(recorded_by,''), created_at
+		  FROM venue_evidence
+		 WHERE venue_id=$1
+		 ORDER BY created_at DESC, id DESC`, venueID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []VenueEvidence{}
+	for rows.Next() {
+		var e VenueEvidence
+		if err := rows.Scan(&e.ID, &e.VenueID, &e.Claim, &e.Note, &e.Reference,
+			&e.RecordedBy, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, e)
+	}
+	return items, rows.Err()
+}
+
+func (h *Handler) attachVenueEvidence(ctx context.Context, db dbTX, v *Venue) error {
+	evidence, err := h.loadVenueEvidence(ctx, db, v.ID)
+	if err != nil {
+		return err
+	}
+	v.Evidence = evidence
+	return nil
+}
+
+func (h *Handler) handleAdminGetVenue(w http.ResponseWriter, r *http.Request) {
+	if !requirePermission(w, r, "events.read") {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if !validUUID(id) {
+		writeErr(w, r, http.StatusNotFound, "VENUE_NOT_FOUND", "venue not found", nil)
+		return
+	}
+	v, err := h.loadVenue(r.Context(), "id", id)
+	if err != nil {
+		if isNoRows(err) {
+			writeErr(w, r, http.StatusNotFound, "VENUE_NOT_FOUND", "venue not found", nil)
+			return
+		}
+		writeServer(w, r, err)
+		return
+	}
+	if err := h.attachVenueEvidence(r.Context(), h.pool, v); err != nil {
+		writeServer(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+type venueEvidenceRequest struct {
+	Claim     string `json:"claim"`
+	Note      string `json:"note"`
+	Reference string `json:"reference"`
+}
+
+func (h *Handler) handleAdminAddVenueEvidence(w http.ResponseWriter, r *http.Request) {
+	if !requirePermission(w, r, "events.create") {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if !validUUID(id) {
+		writeErr(w, r, http.StatusNotFound, "VENUE_NOT_FOUND", "venue not found", nil)
+		return
+	}
+	var body venueEvidenceRequest
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	claim := strings.TrimSpace(body.Claim)
+	note := strings.TrimSpace(body.Note)
+	reference := strings.TrimSpace(body.Reference)
+	var failures []ValidationError
+	if len(claim) < 3 || len(claim) > 300 {
+		failures = append(failures, ValidationError{Field: "claim", Message: "claim must be between 3 and 300 characters"})
+	}
+	if len(note) < 3 || len(note) > 2000 {
+		failures = append(failures, ValidationError{Field: "note", Message: "note must be between 3 and 2000 characters"})
+	}
+	if len(reference) > 500 {
+		failures = append(failures, ValidationError{Field: "reference", Message: "must be at most 500 characters"})
+	}
+	if len(failures) > 0 {
+		writeValidation(w, failures...)
+		return
+	}
+	if !h.venueExists(r.Context(), id) {
+		writeErr(w, r, http.StatusNotFound, "VENUE_NOT_FOUND", "venue not found", nil)
+		return
+	}
+	ctx := r.Context()
+	tx, err := h.pool.Begin(ctx)
+	if err != nil {
+		writeServer(w, r, err)
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	var evidenceID string
+	var createdAt time.Time
+	err = tx.QueryRow(ctx, `
+		INSERT INTO venue_evidence (venue_id, claim, note, reference, recorded_by)
+		VALUES ($1,$2,$3,NULLIF($4,''),NULLIF($5,''))
+		RETURNING id::text, created_at`, id, claim, note, reference, userID(r)).Scan(&evidenceID, &createdAt)
+	if err != nil {
+		writeServer(w, r, err)
+		return
+	}
+	if err := h.writeAudit(ctx, tx, auditEntry{
+		EntityType: "venue", EntityID: id, Action: "venue.evidence_added",
+		Summary: "Venue evidence recorded",
+		Details: map[string]any{"claim": claim, "note": note, "reference": reference, "evidenceId": evidenceID},
+	}); err != nil {
+		writeServer(w, r, err)
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		writeServer(w, r, err)
+		return
+	}
+	v, err := h.loadVenue(ctx, "id", id)
+	if err != nil {
+		writeServer(w, r, err)
+		return
+	}
+	if err := h.attachVenueEvidence(ctx, h.pool, v); err != nil {
+		writeServer(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, v)
+}
+
+type venueRetireRequest struct {
+	Reason            string `json:"reason"`
+	MergedIntoVenueID string `json:"mergedIntoVenueId"`
+}
+
+func (h *Handler) handleAdminRetireVenue(w http.ResponseWriter, r *http.Request) {
+	if !requirePermission(w, r, "events.create") {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if !validUUID(id) {
+		writeErr(w, r, http.StatusNotFound, "VENUE_NOT_FOUND", "venue not found", nil)
+		return
+	}
+	var body venueRetireRequest
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if failures := validateReason(body.Reason, "reason", 3); len(failures) > 0 {
+		writeValidation(w, failures...)
+		return
+	}
+	target := strings.TrimSpace(body.MergedIntoVenueID)
+	if target != "" {
+		if !validUUID(target) {
+			writeValidation(w, ValidationError{Field: "mergedIntoVenueId", Message: "must be a UUID"})
+			return
+		}
+		if target == id {
+			writeErr(w, r, http.StatusConflict, "VENUE_SELF_MERGE", "a venue cannot be merged into itself", nil)
+			return
+		}
+	}
+	ctx := r.Context()
+	source, err := h.loadVenue(ctx, "id", id)
+	if err != nil {
+		if isNoRows(err) {
+			writeErr(w, r, http.StatusNotFound, "VENUE_NOT_FOUND", "venue not found", nil)
+			return
+		}
+		writeServer(w, r, err)
+		return
+	}
+	if source.RetiredAt != nil {
+		writeErr(w, r, http.StatusConflict, "VENUE_ALREADY_RETIRED", "this venue is already retired", nil)
+		return
+	}
+	var targetVenue *Venue
+	if target != "" {
+		targetVenue, err = h.loadVenue(ctx, "id", target)
+		if err != nil {
+			if isNoRows(err) {
+				writeValidation(w, ValidationError{Field: "mergedIntoVenueId", Message: "target venue not found"})
+				return
+			}
+			writeServer(w, r, err)
+			return
+		}
+		if targetVenue.RetiredAt != nil {
+			writeErr(w, r, http.StatusConflict, "VENUE_RETIRED", "the target venue is already retired", nil)
+			return
+		}
+	}
+
+	tx, err := h.pool.Begin(ctx)
+	if err != nil {
+		writeServer(w, r, err)
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	repointed := int64(0)
+	if target != "" {
+		tag, err := tx.Exec(ctx, `
+			UPDATE events SET venue_id=$2,
+				county_gid=(SELECT county_gid FROM venues WHERE id=$2),
+				updated_at=now()
+			 WHERE venue_id=$1`, id, target)
+		if err != nil {
+			writeServer(w, r, err)
+			return
+		}
+		repointed = tag.RowsAffected()
+	}
+	tag, err := tx.Exec(ctx, `
+		UPDATE venues SET retired_at=now(), retired_reason=$2,
+			merged_into_venue_id=$3::uuid, updated_at=now()
+		 WHERE id=$1 AND retired_at IS NULL`, id, strings.TrimSpace(body.Reason), nullIfEmpty(target))
+	if err != nil {
+		writeServer(w, r, err)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		writeErr(w, r, http.StatusConflict, "VENUE_ALREADY_RETIRED", "this venue is already retired", nil)
+		return
+	}
+	action := "venue.retired"
+	summary := "Venue retired"
+	details := map[string]any{"reason": strings.TrimSpace(body.Reason)}
+	if target != "" {
+		action = "venue.merged"
+		summary = fmt.Sprintf("Venue merged into %s", targetVenue.Name)
+		details["mergedIntoVenueId"] = target
+		details["eventsRepointed"] = repointed
+	}
+	if err := h.writeAudit(ctx, tx, auditEntry{
+		EntityType: "venue", EntityID: id, Action: action, Summary: summary, Details: details,
+	}); err != nil {
+		writeServer(w, r, err)
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		writeServer(w, r, err)
+		return
+	}
+	v, err := h.loadVenue(ctx, "id", id)
+	if err != nil {
+		writeServer(w, r, err)
+		return
+	}
+	if err := h.attachVenueEvidence(ctx, h.pool, v); err != nil {
+		writeServer(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// ---------------------------------------------------------------------------
+// Organizer evidence requests
+// ---------------------------------------------------------------------------
+
+func (h *Handler) loadOrganizerEvidenceRequests(ctx context.Context, db dbTX, organizerID string) ([]OrganizerEvidenceRequest, error) {
+	rows, err := db.Query(ctx, `
+		SELECT id::text, organizer_id::text, note, COALESCE(requested_by,''),
+		       created_at, resolved_at
+		  FROM organizer_evidence_requests
+		 WHERE organizer_id=$1
+		 ORDER BY created_at DESC, id DESC`, organizerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OrganizerEvidenceRequest{}
+	for rows.Next() {
+		var e OrganizerEvidenceRequest
+		var resolved pgtype.Timestamptz
+		if err := rows.Scan(&e.ID, &e.OrganizerID, &e.Note, &e.RequestedBy,
+			&e.CreatedAt, &resolved); err != nil {
+			return nil, err
+		}
+		e.ResolvedAt = nullTime(resolved)
+		items = append(items, e)
+	}
+	return items, rows.Err()
+}
+
+func (h *Handler) attachOrganizerEvidenceRequests(ctx context.Context, db dbTX, o *OrganizerProfile) error {
+	requests, err := h.loadOrganizerEvidenceRequests(ctx, db, o.ID)
+	if err != nil {
+		return err
+	}
+	o.EvidenceRequests = requests
+	return nil
+}
+
+type organizerEvidenceRequestWrite struct {
+	Note string `json:"note"`
+}
+
+func (h *Handler) handleAdminRequestOrganizerEvidence(w http.ResponseWriter, r *http.Request) {
+	// Requesting evidence is a review action, so it uses the same permission as
+	// the verification decision.
+	if !requirePermission(w, r, "events.verify_organizer") {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if !validUUID(id) {
+		writeErr(w, r, http.StatusNotFound, "ORGANIZER_NOT_FOUND", "organizer not found", nil)
+		return
+	}
+	var body organizerEvidenceRequestWrite
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	note := strings.TrimSpace(body.Note)
+	if len(note) < 10 || len(note) > 2000 {
+		writeValidation(w, ValidationError{Field: "note", Message: "note must be between 10 and 2000 characters"})
+		return
+	}
+	ctx := r.Context()
+	org, err := h.loadOrganizer(ctx, id)
+	if err != nil {
+		if isNoRows(err) {
+			writeErr(w, r, http.StatusNotFound, "ORGANIZER_NOT_FOUND", "organizer not found", nil)
+			return
+		}
+		writeServer(w, r, err)
+		return
+	}
+	tx, err := h.pool.Begin(ctx)
+	if err != nil {
+		writeServer(w, r, err)
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	var request OrganizerEvidenceRequest
+	err = tx.QueryRow(ctx, `
+		INSERT INTO organizer_evidence_requests (organizer_id, note, requested_by)
+		VALUES ($1,$2,NULLIF($3,''))
+		RETURNING id::text, organizer_id::text, note, COALESCE(requested_by,''), created_at`,
+		org.ID, note, userID(r)).Scan(&request.ID, &request.OrganizerID, &request.Note,
+		&request.RequestedBy, &request.CreatedAt)
+	if err != nil {
+		writeServer(w, r, err)
+		return
+	}
+	if err := h.writeAudit(ctx, tx, auditEntry{
+		EntityType: "organizer", EntityID: org.ID, Action: "organizer.evidence_requested",
+		Summary: "More verification evidence requested",
+		Details: map[string]any{"note": note, "requestId": request.ID},
+	}); err != nil {
+		writeServer(w, r, err)
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		writeServer(w, r, err)
+		return
+	}
+	updated, err := h.loadOrganizer(ctx, org.ID)
+	if err != nil {
+		writeServer(w, r, err)
+		return
+	}
+	if err := h.attachOrganizerEvidenceRequests(ctx, h.pool, updated); err != nil {
+		writeServer(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, OrganizerEvidenceRequestResult{Request: request, Organizer: *updated})
+}

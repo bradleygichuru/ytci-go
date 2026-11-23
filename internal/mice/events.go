@@ -49,6 +49,7 @@ type eventRow struct {
 	VenueName        pgtype.Text
 	VenueCounty      pgtype.Text
 	VenueCountyGid   pgtype.Int4
+	VenueRetiredAt   pgtype.Timestamptz
 	OrganizerID      pgtype.Text
 	OrgSlug          pgtype.Text
 	OrgDisplayName   pgtype.Text
@@ -72,7 +73,7 @@ SELECT e.id::text, e.title, COALESCE(e.event_class,'community'), COALESCE(e.form
        e.capacity, e.waitlist_capacity, COALESCE(e.registration_mode,'none'),
        e.price_amount, e.price_currency, e.sales_status, e.sales_end, e.ticket_url,
        e.description, COALESCE(e.version,1), e.published_at, e.author_ref, e.editorial_theme,
-       e.venue_id::text, v.slug, v.name, v.county, v.county_gid,
+       e.venue_id::text, v.slug, v.name, v.county, v.county_gid, v.retired_at,
        e.organizer_profile_id::text, o.slug, o.display_name, o.trust_tier, o.verification_status,
        o.verified_at, o.verification_expires_at, o.revoked_reason,
        e.location_lat, e.location_lng,
@@ -94,7 +95,7 @@ func scanEventRow(row pgx.Row) (eventRow, error) {
 		&e.Capacity, &e.WaitlistCapacity, &e.RegistrationMode,
 		&e.PriceAmount, &e.PriceCurrency, &e.SalesStatus, &e.SalesEnd, &e.TicketURL,
 		&e.Description, &e.Version, &e.PublishedAt, &e.AuthorRef, &e.EditorialTheme,
-		&e.VenueID, &e.VenueSlug, &e.VenueName, &e.VenueCounty, &e.VenueCountyGid,
+		&e.VenueID, &e.VenueSlug, &e.VenueName, &e.VenueCounty, &e.VenueCountyGid, &e.VenueRetiredAt,
 		&e.OrganizerID, &e.OrgSlug, &e.OrgDisplayName, &e.OrgTrustTier, &e.OrgStatus,
 		&e.OrgVerifiedAt, &e.OrgExpiresAt, &e.OrgRevokedReason,
 		&e.Latitude, &e.Longitude,
@@ -144,7 +145,9 @@ func (e eventRow) summary() EventSummary {
 		s.Accessibility.State = "reported"
 		s.Accessibility.Label = accessibilityLabel(s.Accessibility.VerifiedAt)
 	}
-	if e.VenueSlug.Valid && e.VenueName.Valid {
+	// A retired or merged venue is never part of a public payload. The event
+	// itself stays visible; only the venue reference is withheld.
+	if e.VenueSlug.Valid && e.VenueName.Valid && !e.VenueRetiredAt.Valid {
 		s.Venue = &VenueRef{
 			Slug:      e.VenueSlug.String,
 			Name:      e.VenueName.String,
@@ -487,7 +490,13 @@ func (h *Handler) buildEventDetail(ctx context.Context, row eventRow, uid string
 		if err != nil {
 			return nil, err
 		}
-		d.VenueDetail = venue
+		if public && venue.RetiredAt != nil {
+			// The join can still name a retired venue for an event that has not
+			// been merged yet; public payloads must not expose it.
+			d.EventSummary.Venue = nil
+		} else {
+			d.VenueDetail = venue
+		}
 	}
 	if row.OrganizerID.Valid {
 		org, err := h.loadOrganizer(ctx, row.OrganizerID.String)
