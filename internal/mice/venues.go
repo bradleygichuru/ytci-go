@@ -47,15 +47,18 @@ func (h *Handler) loadVenue(ctx context.Context, by, value string) (*Venue, erro
 	var lat, lng pgtype.Numeric
 	var capPerson, capOnline pgtype.Int4
 	var rooms []string
-	var verified pgtype.Timestamptz
+	var verified, retired pgtype.Timestamptz
+	var retiredReason, mergedInto pgtype.Text
 	err := h.pool.QueryRow(ctx, `
 		SELECT v.id::text, v.slug, v.name, v.address_line1, v.address_line2,
 		       COALESCE(v.county,''), v.county_gid, v.latitude, v.longitude,
 		       v.capacity_in_person, v.capacity_online, v.rooms,
-		       v.transport_notes, v.dropoff_notes, v.parking_notes, v.verified_at
+		       v.transport_notes, v.dropoff_notes, v.parking_notes, v.verified_at,
+		       v.retired_at, v.retired_reason, v.merged_into_venue_id::text
 		  FROM venues v WHERE `+column+` = $1`, value).Scan(
 		&id, &slug, &name, &address1, &address2, &county, &countyGid, &lat, &lng,
 		&capPerson, &capOnline, &rooms, &transport, &dropoff, &parking, &verified,
+		&retired, &retiredReason, &mergedInto,
 	)
 	if err != nil {
 		return nil, err
@@ -65,18 +68,21 @@ func (h *Handler) loadVenue(ctx context.Context, by, value string) (*Venue, erro
 			Slug: slug.String, Name: name.String, County: county.String,
 			CountyGid: nullInt(countyGid),
 		},
-		ID:               id.String,
-		AddressLine1:     nullText(address1),
-		AddressLine2:     nullText(address2),
-		Latitude:         nullNumeric(lat),
-		Longitude:        nullNumeric(lng),
-		CapacityInPerson: nullInt(capPerson),
-		CapacityOnline:   nullInt(capOnline),
-		Rooms:            rooms,
-		TransportNotes:   nullText(transport),
-		DropoffNotes:     nullText(dropoff),
-		ParkingNotes:     nullText(parking),
-		VerifiedAt:       nullTime(verified),
+		ID:                id.String,
+		AddressLine1:      nullText(address1),
+		AddressLine2:      nullText(address2),
+		Latitude:          nullNumeric(lat),
+		Longitude:         nullNumeric(lng),
+		CapacityInPerson:  nullInt(capPerson),
+		CapacityOnline:    nullInt(capOnline),
+		Rooms:             rooms,
+		TransportNotes:    nullText(transport),
+		DropoffNotes:      nullText(dropoff),
+		ParkingNotes:      nullText(parking),
+		VerifiedAt:        nullTime(verified),
+		RetiredAt:         nullTime(retired),
+		RetiredReason:     nullText(retiredReason),
+		MergedIntoVenueID: nullText(mergedInto),
 	}
 	block, err := h.loadAccessibility(ctx, "venue", v.ID)
 	if err != nil {
@@ -99,6 +105,12 @@ func (h *Handler) handleGetPublicVenue(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeServer(w, r, err)
+		return
+	}
+	// A retired (or merged) venue keeps its row for the admin, but it is no
+	// longer part of the public catalogue.
+	if v.RetiredAt != nil {
+		writeErr(w, r, http.StatusNotFound, "VENUE_NOT_FOUND", "venue not found", nil)
 		return
 	}
 	writeJSON(w, http.StatusOK, v)
@@ -144,7 +156,8 @@ func (h *Handler) handleAdminListVenues(w http.ResponseWriter, r *http.Request) 
 	args := []any{}
 	q := `
 		SELECT v.id::text, v.slug, v.name, COALESCE(v.county,''), v.county_gid,
-		       v.capacity_in_person, v.capacity_online, v.verified_at
+		       v.capacity_in_person, v.capacity_online, v.verified_at,
+		       v.retired_at, v.merged_into_venue_id::text
 		  FROM venues v WHERE 1=1`
 	if gid := r.URL.Query().Get("countyGid"); gid != "" {
 		if n, err := strconv.Atoi(gid); err == nil {
@@ -170,18 +183,27 @@ func (h *Handler) handleAdminListVenues(w http.ResponseWriter, r *http.Request) 
 	items := []Venue{}
 	for rows.Next() {
 		var v Venue
-		var id, slug, name, county pgtype.Text
+		var id, slug, name, county, mergedInto pgtype.Text
 		var gid, capPerson, capOnline pgtype.Int4
-		var verified pgtype.Timestamptz
-		if err := rows.Scan(&id, &slug, &name, &county, &gid, &capPerson, &capOnline, &verified); err != nil {
+		var verified, retired pgtype.Timestamptz
+		if err := rows.Scan(&id, &slug, &name, &county, &gid, &capPerson, &capOnline, &verified,
+			&retired, &mergedInto); err != nil {
 			writeServer(w, r, err)
 			return
 		}
 		v = Venue{
 			VenueRef: VenueRef{Slug: slug.String, Name: name.String, County: county.String, CountyGid: nullInt(gid)},
 			ID:       id.String, CapacityInPerson: nullInt(capPerson), CapacityOnline: nullInt(capOnline),
-			VerifiedAt: nullTime(verified),
+			VerifiedAt:        nullTime(verified),
+			RetiredAt:         nullTime(retired),
+			MergedIntoVenueID: nullText(mergedInto),
 		}
+		evidence, err := h.loadVenueEvidence(r.Context(), h.pool, v.ID)
+		if err != nil {
+			writeServer(w, r, err)
+			return
+		}
+		v.Evidence = evidence
 		items = append(items, v)
 	}
 	writePage(w, limit, items, func(v Venue) (string, bool) {
@@ -233,6 +255,10 @@ func (h *Handler) handleAdminCreateVenue(w http.ResponseWriter, r *http.Request)
 		writeServer(w, r, err)
 		return
 	}
+	if err := h.attachVenueEvidence(r.Context(), h.pool, v); err != nil {
+		writeServer(w, r, err)
+		return
+	}
 	writeJSON(w, http.StatusCreated, v)
 }
 
@@ -281,6 +307,10 @@ func (h *Handler) handleAdminUpdateVenue(w http.ResponseWriter, r *http.Request)
 	}
 	v, err := h.loadVenue(r.Context(), "id", id)
 	if err != nil {
+		writeServer(w, r, err)
+		return
+	}
+	if err := h.attachVenueEvidence(r.Context(), h.pool, v); err != nil {
 		writeServer(w, r, err)
 		return
 	}

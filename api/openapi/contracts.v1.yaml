@@ -453,6 +453,25 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '403': { $ref: '#/components/responses/Forbidden' }
   /v1/admin/venues/{id}:
+    get:
+      tags: [mice]
+      operationId: adminGetVenue
+      summary: Read one venue with retirement state and its evidence
+      description: |
+        Additive to contract 1.0.0. Requires `events.read`. Evidence is newest
+        first. A retired venue is still readable here so an admin can inspect
+        its history.
+      parameters:
+        - $ref: '#/components/parameters/VenueId'
+      responses:
+        '200':
+          description: Venue with retirement state and evidence
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Venue' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
     patch:
       tags: [mice]
       operationId: adminUpdateVenue
@@ -472,6 +491,64 @@ paths:
               schema: { $ref: '#/components/schemas/Venue' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /v1/admin/venues/{id}/evidence:
+    post:
+      tags: [mice]
+      operationId: adminAddVenueEvidence
+      summary: Record a claim's evidence against a venue
+      description: |
+        Additive to contract 1.0.0. Requires `events.create`. Evidence is
+        append-only; the audit row records the actor, claim and reference.
+      parameters:
+        - $ref: '#/components/parameters/VenueId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VenueEvidenceWrite' }
+      responses:
+        '201':
+          description: Venue with the new evidence row
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Venue' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/admin/venues/{id}/retire:
+    post:
+      tags: [mice]
+      operationId: adminRetireVenue
+      summary: Retire a venue, optionally merging it into another
+      description: |
+        Additive to contract 1.0.0. Requires `events.create` and a reason. When
+        `mergedIntoVenueId` is present the events that pointed at the source are
+        re-pointed to the target in the same transaction and the audit action is
+        `venue.merged`; otherwise it is `venue.retired`. Retired venues 404 on
+        the public venue read and never appear in public event payloads.
+      parameters:
+        - $ref: '#/components/parameters/VenueId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VenueRetireWrite' }
+      responses:
+        '200':
+          description: Retired venue
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Venue' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The venue is already retired, the target is retired, or a self-merge was attempted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
   /v1/admin/organizers:
     get:
       tags: [mice]
@@ -562,6 +639,33 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+  /v1/admin/organizers/{id}/evidence-requests:
+    post:
+      tags: [mice]
+      operationId: adminRequestOrganizerEvidence
+      summary: Ask an organizer for more verification evidence
+      description: |
+        Additive to contract 1.0.0. Requires `events.verify_organizer` (the
+        review permission used by the verification decision). The request keeps
+        the record pending and is resolved when a verification decision is
+        recorded. The audit action is `organizer.evidence_requested`.
+      parameters:
+        - $ref: '#/components/parameters/OrganizerId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrganizerEvidenceRequestWrite' }
+      responses:
+        '201':
+          description: The new request and the organizer with all requests
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizerEvidenceRequestResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /v1/admin/events:
     get:
       tags: [mice]
@@ -3003,6 +3107,44 @@ components:
               allOf: [{ $ref: '#/components/schemas/AccessibilityBlock' }]
               nullable: true
             verifiedAt: { type: string, format: date-time, nullable: true }
+            retiredAt: { type: string, format: date-time, nullable: true }
+            retiredReason:
+              type: string
+              nullable: true
+              description: Present on the admin read after retirement
+            mergedIntoVenueId:
+              type: string
+              format: uuid
+              nullable: true
+              description: The surviving venue when this one was merged
+            evidence:
+              type: array
+              description: Append-only claim evidence, newest first (admin read)
+              items: { $ref: '#/components/schemas/VenueEvidence' }
+    VenueEvidence:
+      type: object
+      required: [id, venueId, claim, note, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        venueId: { type: string, format: uuid }
+        claim: { type: string }
+        note: { type: string }
+        reference: { type: string, nullable: true }
+        recordedBy: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+    VenueEvidenceWrite:
+      type: object
+      required: [claim, note]
+      properties:
+        claim: { type: string, minLength: 3, maxLength: 300 }
+        note: { type: string, minLength: 3, maxLength: 2000 }
+        reference: { type: string, maxLength: 500 }
+    VenueRetireWrite:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 3, maxLength: 500 }
+        mergedIntoVenueId: { type: string, format: uuid }
     VenueWrite:
       type: object
       required: [name, county]
@@ -3094,6 +3236,31 @@ components:
               type: array
               items: { $ref: '#/components/schemas/EventSummary' }
             pastEventCount: { type: integer }
+            evidenceRequests:
+              type: array
+              description: Newest first (admin read)
+              items: { $ref: '#/components/schemas/OrganizerEvidenceRequest' }
+    OrganizerEvidenceRequest:
+      type: object
+      required: [id, organizerId, note, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        organizerId: { type: string, format: uuid }
+        note: { type: string }
+        requestedBy: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        resolvedAt: { type: string, format: date-time, nullable: true }
+    OrganizerEvidenceRequestWrite:
+      type: object
+      required: [note]
+      properties:
+        note: { type: string, minLength: 10, maxLength: 2000 }
+    OrganizerEvidenceRequestResult:
+      type: object
+      required: [request, organizer]
+      properties:
+        request: { $ref: '#/components/schemas/OrganizerEvidenceRequest' }
+        organizer: { $ref: '#/components/schemas/OrganizerProfile' }
     OrganizerWrite:
       type: object
       required: [displayName]

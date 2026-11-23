@@ -37,12 +37,16 @@ func (h *Handler) RegisterAccount(r chi.Router) {
 func (h *Handler) RegisterAdmin(r chi.Router) {
 	r.Get("/venues", h.handleAdminListVenues)
 	r.Post("/venues", h.handleAdminCreateVenue)
+	r.Get("/venues/{id}", h.handleAdminGetVenue)
 	r.Patch("/venues/{id}", h.handleAdminUpdateVenue)
+	r.Post("/venues/{id}/evidence", h.handleAdminAddVenueEvidence)
+	r.Post("/venues/{id}/retire", h.handleAdminRetireVenue)
 
 	r.Get("/organizers", h.handleAdminListOrganizers)
 	r.Post("/organizers", h.handleAdminCreateOrganizer)
 	r.Patch("/organizers/{id}", h.handleAdminUpdateOrganizer)
 	r.Post("/organizers/{id}/verification", h.handleAdminOrganizerVerification)
+	r.Post("/organizers/{id}/evidence-requests", h.handleAdminRequestOrganizerEvidence)
 
 	r.Get("/events", h.handleAdminListEvents)
 	r.Post("/events", h.handleAdminCreateEvent)

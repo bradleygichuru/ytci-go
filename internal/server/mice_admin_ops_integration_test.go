@@ -350,3 +350,231 @@ func TestMiceAdminAuditRead(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 	f.contract(t, "GET", "/v1/admin/mice/audit", resp.StatusCode, raw)
 }
+
+func TestMiceAdminVenueEvidenceAndRetire(t *testing.T) {
+	f := setupMiceFixture(t)
+
+	// A second venue to merge into.
+	resp, raw := f.do(t, "POST", "/v1/admin/venues", map[string]any{
+		"name": "KICC Lenana Wing", "county": "Nairobi", "countyGid": 47,
+	}, f.admin)
+	require.Equal(t, http.StatusCreated, resp.StatusCode, string(raw))
+	targetID := decodeMap(t, raw)["id"].(string)
+
+	// Evidence is appended and returned newest first.
+	resp, raw = f.do(t, "POST", "/v1/admin/venues/"+f.venueID+"/evidence", map[string]any{
+		"claim": "Step-free entrance", "note": "Ramp inspected at the Harambee gate",
+		"reference": "SITE-2026-11-01",
+	}, f.admin)
+	require.Equal(t, http.StatusCreated, resp.StatusCode, string(raw))
+	f.contract(t, "POST", "/v1/admin/venues/{id}/evidence", resp.StatusCode, raw)
+
+	resp, raw = f.do(t, "POST", "/v1/admin/venues/"+f.venueID+"/evidence", map[string]any{
+		"claim": "Accessible toilet", "note": "Ground-floor toilet checked",
+	}, f.admin)
+	require.Equal(t, http.StatusCreated, resp.StatusCode, string(raw))
+	evidence := decodeMap(t, raw)["evidence"].([]any)
+	require.Len(t, evidence, 2)
+	assert.Equal(t, "Accessible toilet", evidence[0].(map[string]any)["claim"])
+	assert.Equal(t, "Step-free entrance", evidence[1].(map[string]any)["claim"])
+	assert.Equal(t, "admin-1", evidence[1].(map[string]any)["recordedBy"])
+
+	// Admin read carries the retirement fields and the evidence.
+	resp, raw = f.do(t, "GET", "/v1/admin/venues/"+f.venueID, nil, f.admin)
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(raw))
+	f.contract(t, "GET", "/v1/admin/venues/{id}", resp.StatusCode, raw)
+
+	// Validation and permission denial.
+	resp, raw = f.do(t, "POST", "/v1/admin/venues/"+f.venueID+"/evidence", map[string]any{
+		"claim": "", "note": "no claim",
+	}, f.admin)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	f.contract(t, "POST", "/v1/admin/venues/{id}/evidence", resp.StatusCode, raw)
+
+	resp, raw = f.do(t, "POST", "/v1/admin/venues/"+f.venueID+"/evidence", map[string]any{
+		"claim": "Step-free entrance", "note": "reader attempt",
+	}, f.reader)
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	f.contract(t, "POST", "/v1/admin/venues/{id}/evidence", resp.StatusCode, raw)
+
+	// A merge re-points the events and records the surviving venue.
+	resp, raw = f.do(t, "POST", "/v1/admin/venues/"+f.venueID+"/retire", map[string]any{
+		"reason": "Duplicate KICC record", "mergedIntoVenueId": targetID,
+	}, f.admin)
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(raw))
+	f.contract(t, "POST", "/v1/admin/venues/{id}/retire", resp.StatusCode, raw)
+	retired := decodeMap(t, raw)
+	assert.NotEmpty(t, retired["retiredAt"])
+	assert.Equal(t, targetID, retired["mergedIntoVenueId"])
+
+	var repointed int
+	require.NoError(t, f.pool.QueryRow(context.Background(), `
+		SELECT count(*) FROM events WHERE venue_id=$1`, targetID).Scan(&repointed))
+	assert.Equal(t, 2, repointed)
+
+	resp, raw = f.do(t, "GET", "/v1/public/events/"+f.futureID, nil, "")
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(raw))
+	publicDetail := decodeMap(t, raw)
+	assert.Equal(t, targetID, publicDetail["venueDetail"].(map[string]any)["id"])
+	assert.NotEqual(t, "kicc", publicDetail["venue"].(map[string]any)["slug"])
+
+	// The retired source is gone from the public catalogue.
+	resp, _ = f.do(t, "GET", "/v1/public/venues/kicc", nil, "")
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+
+	// Repeat, self-merge, unknown target and permission denials.
+	resp, raw = f.do(t, "POST", "/v1/admin/venues/"+f.venueID+"/retire", map[string]any{
+		"reason": "Already retired",
+	}, f.admin)
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+	f.contract(t, "POST", "/v1/admin/venues/{id}/retire", resp.StatusCode, raw)
+
+	resp, raw = f.do(t, "POST", "/v1/admin/venues/"+targetID+"/retire", map[string]any{
+		"reason": "Self merge", "mergedIntoVenueId": targetID,
+	}, f.admin)
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
+	resp, raw = f.do(t, "POST", "/v1/admin/venues/"+targetID+"/retire", map[string]any{
+		"reason": "Unknown target", "mergedIntoVenueId": "0a5b6c7d-9999-4a2b-9c3d-000000000099",
+	}, f.admin)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	f.contract(t, "POST", "/v1/admin/venues/{id}/retire", resp.StatusCode, raw)
+
+	resp, raw = f.do(t, "POST", "/v1/admin/venues/"+targetID+"/retire", map[string]any{
+		"reason": "Reader attempt",
+	}, f.reader)
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+	// Retiring without a merge keeps a published event listable but hides the
+	// venue from its public payload.
+	resp, raw = f.do(t, "POST", "/v1/admin/venues", map[string]any{
+		"name": "Mara Serena Annex", "county": "Narok",
+	}, f.admin)
+	require.Equal(t, http.StatusCreated, resp.StatusCode, string(raw))
+	annexID := decodeMap(t, raw)["id"].(string)
+	tomorrow := time.Now().In(time.FixedZone("EAT", 3*3600)).AddDate(0, 0, 2).Format("2006-01-02")
+	resp, raw = f.do(t, "POST", "/v1/admin/events", map[string]any{
+		"title": "Annex Field Day", "organizerProfileId": f.organizerID,
+		"venueId": annexID, "eventClass": "community", "format": "in_person",
+		"access": "public", "type": "community", "eventDate": tomorrow,
+		"startTime": "09:00", "endTime": "17:00", "timezone": "Africa/Nairobi",
+		"description": "A field day at the annex.", "capacity": 20,
+		"registrationMode": "rsvp",
+		"accessibility":    map[string]any{"stepFreeEntrance": "yes"},
+	}, f.admin)
+	require.Equal(t, http.StatusCreated, resp.StatusCode, string(raw))
+	annexEventID := decodeMap(t, raw)["id"].(string)
+	resp, raw = f.do(t, "POST", "/v1/admin/events/"+annexEventID+"/publish", nil, f.admin)
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(raw))
+
+	resp, raw = f.do(t, "POST", "/v1/admin/venues/"+annexID+"/retire", map[string]any{
+		"reason": "Annex is no longer used",
+	}, f.admin)
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(raw))
+	f.contract(t, "POST", "/v1/admin/venues/{id}/retire", resp.StatusCode, raw)
+
+	resp, raw = f.do(t, "GET", "/v1/public/events/"+annexEventID, nil, "")
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(raw))
+	annexDetail := decodeMap(t, raw)
+	_, hasVenue := annexDetail["venue"]
+	assert.False(t, hasVenue)
+	_, hasVenueDetail := annexDetail["venueDetail"]
+	assert.False(t, hasVenueDetail)
+
+	resp, raw = f.do(t, "GET", "/v1/public/events?limit=50", nil, "")
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(raw))
+	found := false
+	for _, item := range decodeMap(t, raw)["items"].([]any) {
+		event := item.(map[string]any)
+		if event["id"] == annexEventID {
+			found = true
+			_, leaked := event["venue"]
+			assert.False(t, leaked)
+		}
+	}
+	assert.True(t, found, "the retired-venue event must remain publicly listable")
+
+	// The audit trail names the evidence rows and the merge.
+	resp, raw = f.do(t, "GET", "/v1/admin/mice/audit?entityType=venue&entityId="+f.venueID, nil, f.admin)
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(raw))
+	actions := map[string]int{}
+	for _, item := range decodeMap(t, raw)["items"].([]any) {
+		actions[item.(map[string]any)["action"].(string)]++
+	}
+	assert.Equal(t, 2, actions["venue.evidence_added"])
+	assert.Equal(t, 1, actions["venue.merged"])
+}
+
+func TestMiceAdminOrganizerEvidenceRequest(t *testing.T) {
+	f := setupMiceFixture(t)
+
+	firstNote := "Please send the current business registration certificate."
+	resp, raw := f.do(t, "POST", "/v1/admin/organizers/"+f.organizerID+"/evidence-requests", map[string]any{
+		"note": firstNote,
+	}, f.admin2)
+	require.Equal(t, http.StatusCreated, resp.StatusCode, string(raw))
+	f.contract(t, "POST", "/v1/admin/organizers/{id}/evidence-requests", resp.StatusCode, raw)
+	result := decodeMap(t, raw)
+	request := result["request"].(map[string]any)
+	assert.Equal(t, firstNote, request["note"])
+	assert.Equal(t, f.organizerID, request["organizerId"])
+	assert.Nil(t, request["resolvedAt"])
+
+	requests := result["organizer"].(map[string]any)["evidenceRequests"].([]any)
+	require.Len(t, requests, 1)
+
+	secondNote := "Also send the venue access audit from last quarter."
+	resp, raw = f.do(t, "POST", "/v1/admin/organizers/"+f.organizerID+"/evidence-requests", map[string]any{
+		"note": secondNote,
+	}, f.admin2)
+	require.Equal(t, http.StatusCreated, resp.StatusCode, string(raw))
+
+	// The admin organizer read is newest first and carries both requests.
+	resp, raw = f.do(t, "GET", "/v1/admin/organizers", nil, f.admin)
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(raw))
+	var listed []any
+	for _, item := range decodeMap(t, raw)["items"].([]any) {
+		organizer := item.(map[string]any)
+		if organizer["id"] == f.organizerID {
+			listed = organizer["evidenceRequests"].([]any)
+		}
+	}
+	require.Len(t, listed, 2)
+	assert.Equal(t, secondNote, listed[0].(map[string]any)["note"])
+	assert.Equal(t, firstNote, listed[1].(map[string]any)["note"])
+	assert.Equal(t, "admin-2", listed[0].(map[string]any)["requestedBy"])
+
+	// Validation and permissions.
+	resp, raw = f.do(t, "POST", "/v1/admin/organizers/"+f.organizerID+"/evidence-requests", map[string]any{
+		"note": "short",
+	}, f.admin2)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	f.contract(t, "POST", "/v1/admin/organizers/{id}/evidence-requests", resp.StatusCode, raw)
+
+	resp, raw = f.do(t, "POST", "/v1/admin/organizers/"+f.organizerID+"/evidence-requests", map[string]any{
+		"note": "A reader cannot request evidence",
+	}, f.reader)
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	f.contract(t, "POST", "/v1/admin/organizers/{id}/evidence-requests", resp.StatusCode, raw)
+
+	// A recorded decision resolves the outstanding requests.
+	resp, raw = f.do(t, "POST", "/v1/admin/organizers/"+f.organizerID+"/verification", map[string]any{
+		"action": "verify", "trustTier": "verified_organizer",
+		"reason": "Evidence received and reviewed by the panel",
+	}, f.admin2)
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(raw))
+	resolved := decodeMap(t, raw)["evidenceRequests"].([]any)
+	require.Len(t, resolved, 2)
+	for _, item := range resolved {
+		assert.NotNil(t, item.(map[string]any)["resolvedAt"])
+	}
+
+	// The audit row names the request.
+	resp, raw = f.do(t, "GET", "/v1/admin/mice/audit?entityType=organizer&entityId="+f.organizerID, nil, f.admin)
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(raw))
+	actions := map[string]int{}
+	for _, item := range decodeMap(t, raw)["items"].([]any) {
+		actions[item.(map[string]any)["action"].(string)]++
+	}
+	assert.Equal(t, 2, actions["organizer.evidence_requested"])
+}
