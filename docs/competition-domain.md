@@ -92,11 +92,11 @@ second creation path.
 
 - The edition must be at status `open` and inside `opens_at`/`closes_at`.
 - The repository entry must have status `published`.
-- Ownership is matched on the verified account email against
-  `repository_entries.author_email`, case-insensitively. The repository schema
-  has no `author_user_id`, so this is an MVP match, not a stable identity. Add a
-  nullable `author_user_id` when the repository submission flow records one.
-  Work whose author email is missing or different is never enterable.
+- Ownership is the stable `repository_entries.author_user_id` when it is set.
+  Older rows fall back to a case-insensitive, exact match between the verified
+  account email and `repository_entries.author_email`. A row linked to another
+  user is never enterable, even when the email matches, and work with neither
+  link is never enterable.
 - One entry per category, two categories per entrant per edition. Creation is
   serialized by locking the user row, so concurrent requests cannot exceed the
   cap.
@@ -135,10 +135,12 @@ second creation path.
 
 ## Follow-ups
 
-- Add `repository_entries.author_user_id` and backfill it from the submission
-  identity, replacing the email ownership match.
+- Record `repository_entries.author_user_id` when the repository submission
+  flow knows the submitter, and backfill older rows by email.
 - Public entry submission flow and consultation response capture (public site
   ticket). The app self-entry path for existing published work is now in place.
+- Account deletion clears `competition_votes.voter_user_id` and keeps the vote
+  in the published totals. It never deletes the vote.
 - Vote signal collection (device and IP corroboration) and the two-signal
   review workflow UI. This ticket ships the cases, thresholds and invalidation.
 - Durable audit table for admin actions and score corrections.
