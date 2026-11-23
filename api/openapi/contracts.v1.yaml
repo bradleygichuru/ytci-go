@@ -2889,7 +2889,7 @@ components:
         eventClass: { type: string, enum: [meeting, incentive, conference, exhibition, community] }
         format: { type: string, enum: [in_person, online, hybrid] }
         access: { type: string, enum: [public, registered, invite_only] }
-        status: { type: string, enum: [draft, published, postponed, cancelled, scheduled] }
+        status: { type: string, enum: [draft, published, postponed, cancelled, scheduled, archived] }
         startsAt: { type: string, format: date-time }
         endsAt: { type: string, format: date-time, nullable: true }
         timezone: { type: string, example: Africa/Nairobi }
